@@ -21,6 +21,7 @@ require (
 	github.com/swaggo/swag v1.16.6
 	golang.org/x/time v0.14.0
 	gopkg.in/yaml.v3 v3.0.1
+	vc v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -61,7 +62,7 @@ require (
 	github.com/go-resty/resty/v2 v2.17.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
-	github.com/gofiber/fiber/v2 v2.52.10 // indirect
+	github.com/gofiber/fiber/v2 v2.52.12 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jarcoal/httpmock v1.4.1 // indirect
@@ -125,5 +126,4 @@ require (
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	vc v0.0.0-00010101000000-000000000000 // indirect
 )
