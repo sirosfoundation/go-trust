@@ -1581,6 +1581,117 @@ func TestTSLRegistry_Evaluate_X509SanDNS_NoDNSSANs(t *testing.T) {
 	}
 }
 
+// TestTSLRegistry_Evaluate_X509SanDNS_Wildcard tests x509_san_dns with wildcard certificates
+func TestTSLRegistry_Evaluate_X509SanDNS_Wildcard(t *testing.T) {
+	// Create temp directory
+	tmpDir, err := os.MkdirTemp("", "tsl-x509-san-dns-wildcard-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Generate test certificate with wildcard DNS SAN
+	wildcardDNSNames := []string{"*.example.com", "example.com"}
+	cert, pemData := generateTestCertificateWithDNSSAN(t, "Wildcard CA", wildcardDNSNames)
+	certPath := writeTestCertFile(t, tmpDir, "wildcard-ca.pem", pemData)
+
+	// Create registry with this certificate as trust anchor
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:       "x509-san-dns-wildcard-test",
+		CertBundle: certPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	// Encode certificate as base64 for x5c array
+	certB64 := base64.StdEncoding.EncodeToString(cert.Raw)
+
+	tests := []struct {
+		name        string
+		subjectID   string
+		expectAllow bool
+		expectError string
+	}{
+		{
+			name:        "exact match - base domain",
+			subjectID:   "example.com",
+			expectAllow: true,
+		},
+		{
+			name:        "wildcard match - subdomain",
+			subjectID:   "sub.example.com",
+			expectAllow: true,
+		},
+		{
+			name:        "wildcard match - api subdomain",
+			subjectID:   "api.example.com",
+			expectAllow: true,
+		},
+		{
+			name:        "wildcard match - www subdomain",
+			subjectID:   "www.example.com",
+			expectAllow: true,
+		},
+		{
+			name:        "wildcard does not match nested subdomain",
+			subjectID:   "a.b.example.com",
+			expectAllow: false,
+			expectError: "not found in certificate DNS SANs",
+		},
+		{
+			name:        "wildcard does not match different domain",
+			subjectID:   "sub.attacker.com",
+			expectAllow: false,
+			expectError: "not found in certificate DNS SANs",
+		},
+		{
+			name:        "wildcard does not match suffix attack",
+			subjectID:   "malicious-example.com",
+			expectAllow: false,
+			expectError: "not found in certificate DNS SANs",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &authzen.EvaluationRequest{
+				Subject: authzen.Subject{
+					Type: "key",
+					ID:   tc.subjectID,
+				},
+				Resource: authzen.Resource{
+					Type: "x509_san_dns",
+					ID:   tc.subjectID,
+					Key:  []interface{}{certB64},
+				},
+			}
+
+			resp, err := reg.Evaluate(context.Background(), req)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if resp.Decision != tc.expectAllow {
+				t.Errorf("expected decision=%v, got %v", tc.expectAllow, resp.Decision)
+				if resp.Context != nil && resp.Context.Reason != nil {
+					t.Logf("reason: %v", resp.Context.Reason)
+				}
+			}
+
+			if tc.expectError != "" && resp.Decision == false {
+				if resp.Context == nil || resp.Context.Reason == nil {
+					t.Error("expected error in reason but got nil context")
+				} else if errMsg, ok := resp.Context.Reason["error"].(string); ok {
+					if !strings.Contains(errMsg, tc.expectError) {
+						t.Errorf("expected error to contain %q, got %q", tc.expectError, errMsg)
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestTSLRegistry_LOTLSignerBundle tests loading of LOTL signer certificates
 func TestTSLRegistry_LOTLSignerBundle(t *testing.T) {
 	// Create temp directory

@@ -762,6 +762,21 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 				sanMatched = true
 				break
 			}
+			// Support wildcard certificates (e.g., *.example.com)
+			// Per RFC 6125, wildcards match only a single label
+			if strings.HasPrefix(dnsName, "*.") {
+				// *.example.com matches sub.example.com but NOT example.com or deep.sub.example.com
+				suffix := dnsName[1:]     // *.example.com -> .example.com
+				baseDomain := dnsName[2:] // *.example.com -> example.com
+				if strings.HasSuffix(clientID, suffix) && clientID != baseDomain {
+					// Ensure only a single label before the suffix (no nested subdomains)
+					prefix := strings.TrimSuffix(clientID, suffix)
+					if !strings.Contains(prefix, ".") {
+						sanMatched = true
+						break
+					}
+				}
+			}
 		}
 
 		if !sanMatched {
