@@ -210,7 +210,7 @@ func (r *WhitelistRegistry) resolveConfig() {
 	if len(r.config.Issuers) > 0 {
 		r.resolvedLists["issuers"] = appendUnique(r.resolvedLists["issuers"], r.config.Issuers)
 		// Only add default mappings if not already explicitly configured
-		for _, action := range []string{"issuer", "credential-issuer", "pid-provider"} {
+		for _, action := range []string{"issuer", "credential-issuer", "pid-provider", "issue"} {
 			if _, exists := r.resolvedActions[action]; !exists {
 				r.resolvedActions[action] = "issuers"
 			}
@@ -220,7 +220,7 @@ func (r *WhitelistRegistry) resolveConfig() {
 	// Merge legacy verifiers
 	if len(r.config.Verifiers) > 0 {
 		r.resolvedLists["verifiers"] = appendUnique(r.resolvedLists["verifiers"], r.config.Verifiers)
-		for _, action := range []string{"verifier", "credential-verifier"} {
+		for _, action := range []string{"verifier", "credential-verifier", "verify"} {
 			if _, exists := r.resolvedActions[action]; !exists {
 				r.resolvedActions[action] = "verifiers"
 			}
