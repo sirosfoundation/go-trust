@@ -644,6 +644,38 @@ func (r *TSLRegistry) buildFilteredCertPool(req *authzen.EvaluationRequest) (*x5
 	return filteredPool, filterDesc
 }
 
+// extractCredentialTypes extracts credential_types from request context.
+// This is used for audit purposes - including in both success and error responses.
+func extractCredentialTypes(req *authzen.EvaluationRequest) []string {
+	if req.Context == nil {
+		return nil
+	}
+	v, ok := req.Context["credential_types"]
+	if !ok {
+		return nil
+	}
+	switch ct := v.(type) {
+	case []string:
+		return ct
+	case []interface{}:
+		result := make([]string, 0, len(ct))
+		for _, c := range ct {
+			if str, ok := c.(string); ok {
+				result = append(result, str)
+			}
+		}
+		return result
+	}
+	return nil
+}
+
+// addCredentialTypesToReason adds credential_types to a reason map if present.
+func addCredentialTypesToReason(reason map[string]interface{}, credTypes []string) {
+	if len(credTypes) > 0 {
+		reason["requested_credential_types"] = credTypes
+	}
+}
+
 // Evaluate implements TrustRegistry.Evaluate by validating X.509 certificates
 // against a certificate pool derived from the loaded TSLs.
 // When policy constraints (service_types, service_statuses) are present in req.Context,
@@ -652,14 +684,19 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	// Extract credential_types early for inclusion in all responses (audit)
+	credentialTypes := extractCredentialTypes(req)
+
 	// Check if this is a resolution-only request
 	if req.IsResolutionOnlyRequest() {
+		reason := map[string]interface{}{
+			"error": "ETSI TSL registry does not support resolution-only requests",
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
 		return &authzen.EvaluationResponse{
 			Decision: false,
 			Context: &authzen.EvaluationResponseContext{
-				Reason: map[string]interface{}{
-					"error": "ETSI TSL registry does not support resolution-only requests",
-				},
+				Reason: reason,
 			},
 		}, nil
 	}
@@ -681,46 +718,54 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 			"x509_san_ip":    "IP address SAN validation not yet implemented",
 		}
 		if hint, known := knownUnsupported[req.Resource.Type]; known {
+			reason := map[string]interface{}{
+				"error":           fmt.Sprintf("resource type '%s' is recognized but not supported: %s", req.Resource.Type, hint),
+				"supported_types": r.SupportedResourceTypes(),
+				"security_note":   "this may indicate a client misconfiguration or attempted scheme mismatch attack",
+			}
+			addCredentialTypesToReason(reason, credentialTypes)
 			return &authzen.EvaluationResponse{
 				Decision: false,
 				Context: &authzen.EvaluationResponseContext{
-					Reason: map[string]interface{}{
-						"error":           fmt.Sprintf("resource type '%s' is recognized but not supported: %s", req.Resource.Type, hint),
-						"supported_types": r.SupportedResourceTypes(),
-						"security_note":   "this may indicate a client misconfiguration or attempted scheme mismatch attack",
-					},
+					Reason: reason,
 				},
 			}, nil
 		}
+		reason := map[string]interface{}{
+			"error":           fmt.Sprintf("unsupported resource type: %s", req.Resource.Type),
+			"supported_types": r.SupportedResourceTypes(),
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
 		return &authzen.EvaluationResponse{
 			Decision: false,
 			Context: &authzen.EvaluationResponseContext{
-				Reason: map[string]interface{}{
-					"error":           fmt.Sprintf("unsupported resource type: %s", req.Resource.Type),
-					"supported_types": r.SupportedResourceTypes(),
-				},
+				Reason: reason,
 			},
 		}, nil
 	}
 
 	if parseErr != nil {
+		reason := map[string]interface{}{
+			"error": parseErr.Error(),
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
 		return &authzen.EvaluationResponse{
 			Decision: false,
 			Context: &authzen.EvaluationResponseContext{
-				Reason: map[string]interface{}{
-					"error": parseErr.Error(),
-				},
+				Reason: reason,
 			},
 		}, nil
 	}
 
 	if len(certs) == 0 {
+		reason := map[string]interface{}{
+			"error": "no certificates found in resource.key",
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
 		return &authzen.EvaluationResponse{
 			Decision: false,
 			Context: &authzen.EvaluationResponseContext{
-				Reason: map[string]interface{}{
-					"error": "no certificates found in resource.key",
-				},
+				Reason: reason,
 			},
 		}, nil
 	}
@@ -728,12 +773,14 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	// Build (possibly filtered) cert pool based on policy constraints in request context
 	pool, poolDesc := r.buildFilteredCertPool(req)
 	if pool == nil {
+		reason := map[string]interface{}{
+			"error": "certificate pool not initialized",
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
 		return &authzen.EvaluationResponse{
 			Decision: false,
 			Context: &authzen.EvaluationResponseContext{
-				Reason: map[string]interface{}{
-					"error": "certificate pool not initialized",
-				},
+				Reason: reason,
 			},
 		}, nil
 	}
@@ -757,14 +804,16 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	validationDuration := time.Since(start)
 
 	if err != nil {
+		reason := map[string]interface{}{
+			"error":         err.Error(),
+			"validation_ms": validationDuration.Milliseconds(),
+			"pool_filter":   poolDesc,
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
 		return &authzen.EvaluationResponse{
 			Decision: false,
 			Context: &authzen.EvaluationResponseContext{
-				Reason: map[string]interface{}{
-					"error":         err.Error(),
-					"validation_ms": validationDuration.Milliseconds(),
-					"pool_filter":   poolDesc,
-				},
+				Reason: reason,
 			},
 		}, nil
 	}
@@ -799,15 +848,17 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 		}
 
 		if !sanMatched {
+			reason := map[string]interface{}{
+				"error":           fmt.Sprintf("subject.id '%s' not found in certificate DNS SANs", clientID),
+				"dns_sans":        leafCert.DNSNames,
+				"validation_ms":   validationDuration.Milliseconds(),
+				"scheme_mismatch": "ensure client_id_scheme matches certificate SAN type (use x509_san_uri for URI SANs)",
+			}
+			addCredentialTypesToReason(reason, credentialTypes)
 			return &authzen.EvaluationResponse{
 				Decision: false,
 				Context: &authzen.EvaluationResponseContext{
-					Reason: map[string]interface{}{
-						"error":           fmt.Sprintf("subject.id '%s' not found in certificate DNS SANs", clientID),
-						"dns_sans":        leafCert.DNSNames,
-						"validation_ms":   validationDuration.Milliseconds(),
-						"scheme_mismatch": "ensure client_id_scheme matches certificate SAN type (use x509_san_uri for URI SANs)",
-					},
+					Reason: reason,
 				},
 			}, nil
 		}
@@ -835,36 +886,19 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 					uriSANs = append(uriSANs, uri.String())
 				}
 			}
+			reason := map[string]interface{}{
+				"error":           fmt.Sprintf("subject.id '%s' not found in certificate URI SANs", clientID),
+				"uri_sans":        uriSANs,
+				"validation_ms":   validationDuration.Milliseconds(),
+				"scheme_mismatch": "ensure client_id_scheme matches certificate SAN type (use x509_san_dns for DNS SANs)",
+			}
+			addCredentialTypesToReason(reason, credentialTypes)
 			return &authzen.EvaluationResponse{
 				Decision: false,
 				Context: &authzen.EvaluationResponseContext{
-					Reason: map[string]interface{}{
-						"error":           fmt.Sprintf("subject.id '%s' not found in certificate URI SANs", clientID),
-						"uri_sans":        uriSANs,
-						"validation_ms":   validationDuration.Milliseconds(),
-						"scheme_mismatch": "ensure client_id_scheme matches certificate SAN type (use x509_san_dns for DNS SANs)",
-					},
+					Reason: reason,
 				},
 			}, nil
-		}
-	}
-
-	// Extract credential_types if specified (from action.parameters or policy)
-	// This is included in the response for audit purposes.
-	// Future: validate against TSL service extensions when available.
-	var credentialTypes []string
-	if req.Context != nil {
-		if v, ok := req.Context["credential_types"]; ok {
-			switch ct := v.(type) {
-			case []string:
-				credentialTypes = ct
-			case []interface{}:
-				for _, c := range ct {
-					if str, ok := c.(string); ok {
-						credentialTypes = append(credentialTypes, str)
-					}
-				}
-			}
 		}
 	}
 
@@ -879,11 +913,7 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	}
 
 	// Include credential_types in response if specified
-	if len(credentialTypes) > 0 {
-		reason["requested_credential_types"] = credentialTypes
-		// TODO: When TSL extensions support credential type metadata, validate here
-		// For now, the response indicates what was requested for audit purposes
-	}
+	addCredentialTypesToReason(reason, credentialTypes)
 
 	// Success - certificate is trusted
 	return &authzen.EvaluationResponse{
