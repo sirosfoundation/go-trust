@@ -173,7 +173,9 @@ func (m *mockIssuerServer) URL() string {
 // =============================================================================
 
 func TestNew_DefaultConfig(t *testing.T) {
-	reg, err := New(&Config{AllowPrivateIPs: true, AllowHTTP: true})
+	// Test with nil config to verify default config handling.
+	// This is safe because New() doesn't perform network calls.
+	reg, err := New(nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

@@ -77,56 +77,81 @@ func NewSafeHTTPClient(config SafeClientConfig) *SafeHTTPClient {
 		KeepAlive: 30 * time.Second,
 	}
 
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, fmt.Errorf("invalid address %q: %w", addr, err)
-			}
+	// Clone http.DefaultTransport to preserve proxy settings (HTTP_PROXY/HTTPS_PROXY/NO_PROXY)
+	// and other default behavior, then customize for SSRF protection.
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		defaultTransport = &http.Transport{}
+	}
+	transport := defaultTransport.Clone()
 
-			// Resolve DNS first to check the actual IP addresses
-			ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
-			if err != nil {
-				return nil, fmt.Errorf("DNS lookup failed for %s: %w", host, err)
-			}
+	// Override DialContext for IP validation (DNS rebinding protection)
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid address %q: %w", addr, err)
+		}
 
-			if len(ips) == 0 {
-				return nil, fmt.Errorf("DNS lookup returned no addresses for %s", host)
-			}
+		// Resolve DNS first to check the actual IP addresses
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if err != nil {
+			return nil, fmt.Errorf("DNS lookup failed for %s: %w", host, err)
+		}
 
-			// Check all resolved IPs before connecting
-			if !config.AllowPrivateIPs {
-				for _, ip := range ips {
-					if IsPrivateIP(ip) {
-						return nil, fmt.Errorf("SSRF protection: refusing connection to private/internal IP %s (resolved from %s)", ip, host)
-					}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("DNS lookup returned no addresses for %s", host)
+		}
+
+		// Check all resolved IPs before connecting
+		if !config.AllowPrivateIPs {
+			for _, ip := range ips {
+				if IsPrivateIP(ip) {
+					return nil, fmt.Errorf("SSRF protection: refusing connection to private/internal IP %s (resolved from %s)", ip, host)
 				}
 			}
+		}
 
-			// Connect using the first resolved IP to prevent DNS rebinding
-			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
-		},
-		TLSHandshakeTimeout: 10 * time.Second,
-		TLSClientConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			CipherSuites: []uint16{
-				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-			},
-			InsecureSkipVerify: config.InsecureSkipVerify,
-		},
+		// Connect using the first resolved IP to prevent DNS rebinding
+		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
 	}
 
-	return &SafeHTTPClient{
-		client: &http.Client{
-			Timeout:   timeout,
-			Transport: transport,
-		},
+	// Harden TLS configuration
+	transport.TLSHandshakeTimeout = 10 * time.Second
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.MinVersion = tls.VersionTLS12
+	transport.TLSClientConfig.CipherSuites = []uint16{
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+	}
+	transport.TLSClientConfig.InsecureSkipVerify = config.InsecureSkipVerify
+
+	client := &SafeHTTPClient{
 		config:       config,
 		allowedHosts: allowedHosts,
 	}
+
+	// Create HTTP client with redirect validation to prevent SSRF bypass via redirects
+	client.client = &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Validate each redirect target for SSRF protection
+			if err := client.validateRequest(req); err != nil {
+				return fmt.Errorf("SSRF validation failed on redirect: %w", err)
+			}
+			// Preserve standard redirect limit (10)
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			return nil
+		},
+	}
+
+	return client
 }
 
 // Do executes an HTTP request with SSRF validation.
