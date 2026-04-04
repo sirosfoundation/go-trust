@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -573,6 +574,9 @@ func TestMergeParameters(t *testing.T) {
 func TestPublicMediatorResolution(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping network-dependent test in short mode")
+	}
+	if os.Getenv("SKIP_NETWORK_TESTS") != "" {
+		t.Skip("Skipping network test (SKIP_NETWORK_TESTS set)")
 	}
 
 	// Public mediator DID
