@@ -8,6 +8,7 @@
 [![Coverage](https://raw.githubusercontent.com/sirosfoundation/go-trust/badges/.badges/main/coverage.svg)](https://github.com/sirosfoundation/go-trust/actions/workflows/go.yml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/sirosfoundation/go-trust)](https://go.dev/)
 [![Issues](https://img.shields.io/github/issues/sirosfoundation/go-trust)](https://github.com/sirosfoundation/go-trust/issues)
+[![GHCR](https://img.shields.io/badge/ghcr.io-sirosfoundation%2Fgo--trust-blue)](https://ghcr.io/sirosfoundation/go-trust)
 [![License](https://img.shields.io/badge/License-BSD_2--Clause-orange.svg)](LICENSE)
 
 </div>
