@@ -13,7 +13,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,7 +32,7 @@ import (
 // DIDWebVHRegistry implements a trust registry using the did:webvh method.
 // It resolves DID documents via HTTPS and validates the verifiable history.
 type DIDWebVHRegistry struct {
-	httpClient  *http.Client
+	httpClient  registry.HTTPClientInterface
 	timeout     time.Duration
 	description string
 	allowHTTP   bool // For testing only
@@ -53,6 +52,10 @@ type Config struct {
 	// AllowHTTP allows using HTTP instead of HTTPS for DID resolution.
 	// WARNING: This should only be used for testing. The did:webvh spec requires HTTPS.
 	AllowHTTP bool `json:"allow_http,omitempty"`
+
+	// AllowPrivateIPs permits requests to private/internal networks (RFC 1918).
+	// WARNING: This should only be used for testing or internal deployments.
+	AllowPrivateIPs bool `json:"allow_private_ips,omitempty"`
 }
 
 // DIDDocument represents a W3C DID Document.
@@ -143,6 +146,10 @@ type DIDMetadata struct {
 }
 
 // NewDIDWebVHRegistry creates a new did:webvh trust registry.
+//
+// The registry uses SafeHTTPClient with SSRF protection that blocks requests
+// to private/internal IP addresses by default. This can be overridden with
+// AllowPrivateIPs for testing or internal deployments.
 func NewDIDWebVHRegistry(config Config) (*DIDWebVHRegistry, error) {
 	timeout := config.Timeout
 	if timeout == 0 {
@@ -154,24 +161,14 @@ func NewDIDWebVHRegistry(config Config) (*DIDWebVHRegistry, error) {
 		description = "DID WebVH Method (did:webvh) Registry - Verifiable History"
 	}
 
-	// Configure TLS with strong security settings per spec
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-		},
+	// Use SafeHTTPClient with SSRF protection
+	// See ADR 0012: SSRF Mitigation Strategy
+	httpClient := registry.NewSafeHTTPClient(registry.SafeClientConfig{
+		Timeout:            timeout,
+		AllowHTTP:          config.AllowHTTP,
+		AllowPrivateIPs:    config.AllowPrivateIPs,
 		InsecureSkipVerify: config.InsecureSkipVerify,
-	}
-
-	httpClient := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
+	})
 
 	return &DIDWebVHRegistry{
 		httpClient:  httpClient,

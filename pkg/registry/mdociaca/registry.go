@@ -64,6 +64,14 @@ type Config struct {
 	// HTTPTimeout is the timeout for HTTP requests. Default: 30 seconds.
 	HTTPTimeout time.Duration
 
+	// AllowPrivateIPs permits requests to private/internal networks (RFC 1918).
+	// WARNING: This should only be used for testing or internal deployments.
+	AllowPrivateIPs bool
+
+	// AllowHTTP permits non-TLS (HTTP) connections.
+	// WARNING: This should only be used for testing. Production should always use HTTPS.
+	AllowHTTP bool
+
 	// CryptoExt provides extensible certificate parsing for non-standard curves
 	// (e.g. brainpool). If nil, standard x509.ParseCertificate is used.
 	CryptoExt *cryptoutil.Extensions
@@ -94,7 +102,7 @@ type cachedIACAs struct {
 // Registry implements TrustRegistry for mDOC IACA certificate validation.
 type Registry struct {
 	config     *Config
-	httpClient *http.Client
+	httpClient registry.HTTPClientInterface
 	allowlist  map[string]struct{} // Normalized issuer URLs
 
 	mu    sync.RWMutex
@@ -102,6 +110,10 @@ type Registry struct {
 }
 
 // New creates a new mDOC IACA registry with the given configuration.
+//
+// The registry uses SafeHTTPClient with SSRF protection that blocks requests
+// to private/internal IP addresses by default. This can be overridden with
+// AllowPrivateIPs for testing or internal deployments.
 func New(cfg *Config) (*Registry, error) {
 	if cfg == nil {
 		cfg = &Config{}
@@ -125,13 +137,19 @@ func New(cfg *Config) (*Registry, error) {
 		allowlist[normalized] = struct{}{}
 	}
 
+	// Use SafeHTTPClient with SSRF protection
+	// See ADR 0012: SSRF Mitigation Strategy
+	httpClient := registry.NewSafeHTTPClient(registry.SafeClientConfig{
+		Timeout:         cfg.HTTPTimeout,
+		AllowPrivateIPs: cfg.AllowPrivateIPs,
+		AllowHTTP:       cfg.AllowHTTP,
+	})
+
 	return &Registry{
-		config: cfg,
-		httpClient: &http.Client{
-			Timeout: cfg.HTTPTimeout,
-		},
-		allowlist: allowlist,
-		cache:     make(map[string]*cachedIACAs),
+		config:     cfg,
+		httpClient: httpClient,
+		allowlist:  allowlist,
+		cache:      make(map[string]*cachedIACAs),
 	}, nil
 }
 

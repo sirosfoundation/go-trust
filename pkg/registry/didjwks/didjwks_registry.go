@@ -22,7 +22,6 @@ package didjwks
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -50,13 +49,17 @@ type Config struct {
 	// AllowHTTP permits HTTP (non-TLS) resolution (testing only).
 	AllowHTTP bool
 
+	// AllowPrivateIPs permits requests to private/internal networks (RFC 1918).
+	// WARNING: This should only be used for testing or internal deployments.
+	AllowPrivateIPs bool
+
 	// DisableOIDCDiscovery disables the OAuth2/OIDC discovery fallback.
 	DisableOIDCDiscovery bool
 }
 
 // Registry implements the TrustRegistry interface for the did:jwks method.
 type Registry struct {
-	httpClient           *http.Client
+	httpClient           registry.HTTPClientInterface
 	timeout              time.Duration
 	description          string
 	allowHTTP            bool
@@ -64,6 +67,10 @@ type Registry struct {
 }
 
 // NewRegistry creates a new did:jwks trust registry.
+//
+// The registry uses SafeHTTPClient with SSRF protection that blocks requests
+// to private/internal IP addresses by default. This can be overridden with
+// AllowPrivateIPs for testing or internal deployments.
 func NewRegistry(config Config) (*Registry, error) {
 	timeout := config.Timeout
 	if timeout == 0 {
@@ -75,23 +82,14 @@ func NewRegistry(config Config) (*Registry, error) {
 		description = "DID JWKS Method (did:jwks) Registry"
 	}
 
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-		},
+	// Use SafeHTTPClient with SSRF protection
+	// See ADR 0012: SSRF Mitigation Strategy
+	httpClient := registry.NewSafeHTTPClient(registry.SafeClientConfig{
+		Timeout:            timeout,
+		AllowHTTP:          config.AllowHTTP,
+		AllowPrivateIPs:    config.AllowPrivateIPs,
 		InsecureSkipVerify: config.InsecureSkipVerify,
-	}
-
-	httpClient := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
+	})
 
 	return &Registry{
 		httpClient:           httpClient,

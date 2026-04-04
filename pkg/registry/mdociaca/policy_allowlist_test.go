@@ -65,7 +65,7 @@ func TestEvaluate_PolicyAllowlist_Allowed(t *testing.T) {
 	mock := newMockIssuerServer(t, []*x509.Certificate{iaca})
 	defer mock.Close()
 
-	reg, _ := New(nil)
+	reg, _ := New(&Config{AllowPrivateIPs: true, AllowHTTP: true})
 
 	req := &authzen.EvaluationRequest{
 		Subject: authzen.Subject{
@@ -97,7 +97,7 @@ func TestEvaluate_PolicyAllowlist_Denied(t *testing.T) {
 	mock := newMockIssuerServer(t, []*x509.Certificate{iaca})
 	defer mock.Close()
 
-	reg, _ := New(nil)
+	reg, _ := New(&Config{AllowPrivateIPs: true, AllowHTTP: true})
 
 	req := &authzen.EvaluationRequest{
 		Subject: authzen.Subject{
@@ -139,7 +139,7 @@ func TestEvaluate_PolicyAllowlist_TrailingSlash(t *testing.T) {
 	mock := newMockIssuerServer(t, []*x509.Certificate{iaca})
 	defer mock.Close()
 
-	reg, _ := New(nil)
+	reg, _ := New(&Config{AllowPrivateIPs: true, AllowHTTP: true})
 
 	// Policy allowlist with trailing slash, issuer without
 	req := &authzen.EvaluationRequest{
@@ -174,7 +174,7 @@ func TestEvaluate_NoPolicyAllowlist_Passes(t *testing.T) {
 	mock := newMockIssuerServer(t, []*x509.Certificate{iaca})
 	defer mock.Close()
 
-	reg, _ := New(nil)
+	reg, _ := New(&Config{AllowPrivateIPs: true, AllowHTTP: true})
 
 	// No issuer_allowlist in context
 	req := &authzen.EvaluationRequest{
@@ -211,6 +211,8 @@ func TestEvaluate_PolicyAllowlist_WithStaticAllowlist(t *testing.T) {
 	reg, _ := New(&Config{
 		Name:            "combined-allowlist-test",
 		IssuerAllowlist: []string{mock.URL()},
+		AllowPrivateIPs: true,
+		AllowHTTP:       true,
 	})
 
 	// Policy allowlist that does NOT include the server
@@ -247,7 +249,7 @@ func TestEvaluate_NilContext_NoPolicyCheck(t *testing.T) {
 	mock := newMockIssuerServer(t, []*x509.Certificate{iaca})
 	defer mock.Close()
 
-	reg, _ := New(nil)
+	reg, _ := New(&Config{AllowPrivateIPs: true, AllowHTTP: true})
 
 	req := &authzen.EvaluationRequest{
 		Subject: authzen.Subject{
