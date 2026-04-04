@@ -1923,13 +1923,13 @@ func TestOIDFedRegistry_ChainToTrustMetadata(t *testing.T) {
 	})
 
 	tests := []struct {
-		name           string
-		chain          oidfed.TrustChain
-		metadata       map[string]interface{}
-		expectNil      bool
-		expectIss      string
-		expectSub      string
-		expectAnchor   string
+		name         string
+		chain        oidfed.TrustChain
+		metadata     map[string]interface{}
+		expectNil    bool
+		expectIss    string
+		expectSub    string
+		expectAnchor string
 	}{
 		{
 			name:      "empty chain",
@@ -2181,6 +2181,7 @@ func TestOIDFedRegistry_ExtractCertificates(t *testing.T) {
 		t.Errorf("extractCertificates() with no JWKS should return empty, got %d", len(certs))
 	}
 }
+
 // TestExtractCredentialTypeTrustMarks tests the credential type to trust marks mapping extraction.
 func TestExtractCredentialTypeTrustMarks(t *testing.T) {
 	tests := []struct {
@@ -2266,10 +2267,10 @@ func TestExtractConstraintsFromContext_CredentialTypeTrustMarkDerivation(t *test
 	})
 
 	tests := []struct {
-		name               string
-		context            map[string]interface{}
-		wantTrustMarks     []string
-		wantCredTypes      []string
+		name           string
+		context        map[string]interface{}
+		wantTrustMarks []string
+		wantCredTypes  []string
 	}{
 		{
 			name: "credential_types with no mapping",

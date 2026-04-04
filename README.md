@@ -128,6 +128,27 @@ Environment variable: `GO_TRUST_EXTERNAL_URL` for external URL.
 }
 ```
 
+#### Action Parameters
+
+The `action.parameters` field allows clients to include role-specific constraints in the request. A common use case is specifying which credential types are being evaluated:
+
+```json
+{
+  "subject": {"type": "key", "id": "https://issuer.example.com"},
+  "resource": {"type": "x5c", "key": ["MIIC..."]},
+  "action": {
+    "name": "credential-issuer",
+    "parameters": {
+      "credential_types": ["eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"]
+    }
+  }
+}
+```
+
+When `credential_types` is provided, it enables:
+- **Audit logging**: The requested credential types are included in the response for audit purposes
+- **Policy-based validation**: For OpenID Federation, credential types can be mapped to required trust marks
+
 ### AuthZEN Evaluation Response
 
 ```json
@@ -451,9 +472,43 @@ policies:
 |-----------------|-------------|----------------------|
 | `etsi` | Service types, statuses, countries | ETSI TSL |
 | `lote` | Entity types, statuses, territories | ETSI LoTE |
-| `oidfed` | Entity types, trust marks | OpenID Federation |
+| `oidfed` | Entity types, trust marks, credential type mapping | OpenID Federation |
 | `did` | Allowed domains, verifiable history | DID Web, DID Web VH |
 | `mdociaca` | Issuer allowlist, IACA endpoint | mDOC IACA |
+
+### Credential Type to Trust Mark Mapping (OpenID Federation)
+
+For OpenID Federation, you can configure a mapping from SD-JWT VCT values (credential types) to required trust marks. When a client includes `credential_types` in `action.parameters`, the policy will derive the required trust marks from the mapping:
+
+```yaml
+policies:
+  policies:
+    credential-issuer:
+      description: "Validate PID and mDL issuers"
+      oidfed:
+        entity_types:
+          - "openid_credential_issuer"
+        # Map credential types to required trust marks
+        credential_type_trust_marks:
+          "eu.europa.ec.eudi.pid.1":
+            - "https://trust.eu/tm/pid-issuer"
+          "eu.europa.ec.eudi.mdl.1":
+            - "https://trust.eu/tm/mdl-issuer"
+```
+
+When a client requests evaluation with:
+```json
+{
+  "action": {
+    "name": "credential-issuer",
+    "parameters": {
+      "credential_types": ["eu.europa.ec.eudi.pid.1"]
+    }
+  }
+}
+```
+
+The OIDF registry will require the entity to have the `https://trust.eu/tm/pid-issuer` trust mark, in addition to any statically configured `required_trust_marks`.
 
 ### Example Request
 

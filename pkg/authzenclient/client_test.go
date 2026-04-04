@@ -387,3 +387,47 @@ func TestParseBaseURL(t *testing.T) {
 		})
 	}
 }
+
+func TestNewAction(t *testing.T) {
+	action := NewAction("credential-issuer")
+	assert.Equal(t, "credential-issuer", action.Name)
+	assert.Nil(t, action.Parameters)
+}
+
+func TestNewActionWithCredentialTypes(t *testing.T) {
+	t.Run("single credential type", func(t *testing.T) {
+		action := NewActionWithCredentialTypes("credential-issuer", "eu.europa.ec.eudi.pid.1")
+		assert.Equal(t, "credential-issuer", action.Name)
+		assert.NotNil(t, action.Parameters)
+		credTypes, ok := action.Parameters["credential_types"].([]string)
+		assert.True(t, ok)
+		assert.Equal(t, []string{"eu.europa.ec.eudi.pid.1"}, credTypes)
+	})
+
+	t.Run("multiple credential types", func(t *testing.T) {
+		action := NewActionWithCredentialTypes("credential-issuer",
+			"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1")
+		assert.Equal(t, "credential-issuer", action.Name)
+		credTypes, ok := action.Parameters["credential_types"].([]string)
+		assert.True(t, ok)
+		assert.Equal(t, []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"}, credTypes)
+	})
+
+	t.Run("no credential types", func(t *testing.T) {
+		action := NewActionWithCredentialTypes("credential-issuer")
+		assert.Equal(t, "credential-issuer", action.Name)
+		credTypes, ok := action.Parameters["credential_types"].([]string)
+		assert.True(t, ok)
+		assert.Empty(t, credTypes)
+	})
+}
+
+func TestNewActionWithParameters(t *testing.T) {
+	params := map[string]interface{}{
+		"credential_types": []string{"eu.europa.ec.eudi.pid.1"},
+		"query":            map[string]string{"type": "dcql"},
+	}
+	action := NewActionWithParameters("authenticate", params)
+	assert.Equal(t, "authenticate", action.Name)
+	assert.Equal(t, params, action.Parameters)
+}

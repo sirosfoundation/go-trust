@@ -1742,3 +1742,179 @@ func TestWhitelistRegistry_NamedListsWithLegacyFallback(t *testing.T) {
 		}
 	})
 }
+
+// Tests for extractCredentialTypes helper function
+
+func TestExtractCredentialTypes_NilContext(t *testing.T) {
+	reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+		Issuers: []string{"https://example.com"},
+	}))
+	req := &authzen.EvaluationRequest{Context: nil}
+	result := reg.extractCredentialTypes(req)
+	if result != nil {
+		t.Errorf("expected nil for nil context, got %v", result)
+	}
+}
+
+func TestExtractCredentialTypes_MissingKey(t *testing.T) {
+	reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+		Issuers: []string{"https://example.com"},
+	}))
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{"other_key": "value"},
+	}
+	result := reg.extractCredentialTypes(req)
+	if result != nil {
+		t.Errorf("expected nil for missing key, got %v", result)
+	}
+}
+
+func TestExtractCredentialTypes_StringSlice(t *testing.T) {
+	reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+		Issuers: []string{"https://example.com"},
+	}))
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"credential_types": []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"},
+		},
+	}
+	result := reg.extractCredentialTypes(req)
+	expected := []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"}
+	if len(result) != len(expected) || result[0] != expected[0] || result[1] != expected[1] {
+		t.Errorf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestExtractCredentialTypes_InterfaceSlice(t *testing.T) {
+	// Simulates JSON-unmarshaled data where []string becomes []interface{}
+	reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+		Issuers: []string{"https://example.com"},
+	}))
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"credential_types": []interface{}{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"},
+		},
+	}
+	result := reg.extractCredentialTypes(req)
+	expected := []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"}
+	if len(result) != len(expected) || result[0] != expected[0] || result[1] != expected[1] {
+		t.Errorf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestExtractCredentialTypes_MixedInterfaceSlice(t *testing.T) {
+	// Filters out non-string values
+	reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+		Issuers: []string{"https://example.com"},
+	}))
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"credential_types": []interface{}{"eu.europa.ec.eudi.pid.1", 123, "eu.europa.ec.eudi.mdl.1", nil},
+		},
+	}
+	result := reg.extractCredentialTypes(req)
+	expected := []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"}
+	if len(result) != len(expected) || result[0] != expected[0] || result[1] != expected[1] {
+		t.Errorf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestExtractCredentialTypes_WrongType(t *testing.T) {
+	reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+		Issuers: []string{"https://example.com"},
+	}))
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{"credential_types": "single-string"},
+	}
+	result := reg.extractCredentialTypes(req)
+	if result != nil {
+		t.Errorf("expected nil for wrong type, got %v", result)
+	}
+}
+
+func TestWhitelist_CredentialTypesInResponse(t *testing.T) {
+	// Generate a test EC key pair
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	// Create JWKS with the public key
+	jwk := ecdsaPubKeyToJWK(&privateKey.PublicKey, "cred-types-test-key")
+	jwks := map[string]interface{}{
+		"keys": []interface{}{jwk},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/jwks.json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(jwks)
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+		Issuers:   []string{server.URL},
+		AllowHTTP: true,
+	}))
+
+	// Refresh to load keys
+	if err := reg.Refresh(context.Background()); err != nil {
+		t.Fatalf("failed to refresh registry: %v", err)
+	}
+
+	t.Run("credential_types included in success response", func(t *testing.T) {
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: server.URL},
+			Action:  &authzen.Action{Name: "issuer"},
+			Resource: authzen.Resource{
+				Type: "jwk",
+				Key:  []interface{}{jwk},
+			},
+			Context: map[string]interface{}{
+				"credential_types": []string{"eu.europa.ec.eudi.pid.1"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Decision {
+			t.Error("expected decision to be true")
+		}
+		if resp.Context == nil || resp.Context.Reason == nil {
+			t.Fatal("expected response context with reason")
+		}
+		credTypes, ok := resp.Context.Reason["requested_credential_types"]
+		if !ok {
+			t.Error("expected requested_credential_types in response")
+		}
+		if ct, ok := credTypes.([]string); !ok || len(ct) != 1 || ct[0] != "eu.europa.ec.eudi.pid.1" {
+			t.Errorf("unexpected credential_types in response: %v", credTypes)
+		}
+	})
+
+	t.Run("no credential_types when not provided", func(t *testing.T) {
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: server.URL},
+			Action:  &authzen.Action{Name: "issuer"},
+			Resource: authzen.Resource{
+				Type: "jwk",
+				Key:  []interface{}{jwk},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Decision {
+			t.Error("expected decision to be true")
+		}
+		if resp.Context == nil || resp.Context.Reason == nil {
+			t.Fatal("expected response context with reason")
+		}
+		if _, ok := resp.Context.Reason["requested_credential_types"]; ok {
+			t.Error("should not have requested_credential_types when not provided")
+		}
+	})
+}

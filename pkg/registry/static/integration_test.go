@@ -418,3 +418,93 @@ trusted_subjects:
 	require.NoError(t, err)
 	assert.True(t, resp.Decision, "trusted_subjects should match any role")
 }
+
+// TestActionParameters_CredentialTypesFlow tests the end-to-end flow with
+// action.parameters containing credential_types.
+func TestActionParameters_CredentialTypesFlow(t *testing.T) {
+	// Create a whitelist registry
+	reg := static.NewWhitelistRegistry(static.WithWhitelistConfig(static.WhitelistConfig{
+		TrustedSubjects: []string{"https://trusted-issuer.example.com"},
+	}))
+
+	srv := testserver.New(testserver.WithRegistry(reg))
+	defer srv.Close()
+
+	client := authzenclient.New(srv.URL())
+	ctx := context.Background()
+
+	t.Run("action with credential_types parameter", func(t *testing.T) {
+		resp, err := client.Evaluate(ctx, &authzen.EvaluationRequest{
+			Subject: authzen.Subject{
+				Type: "key",
+				ID:   "https://trusted-issuer.example.com",
+			},
+			Action: &authzen.Action{
+				Name: "credential-issuer",
+				Parameters: map[string]interface{}{
+					"credential_types": []string{"eu.europa.ec.eudi.pid.1"},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.True(t, resp.Decision, "trusted subject should be accepted")
+		assert.NotNil(t, resp.Context)
+		assert.NotNil(t, resp.Context.Reason)
+		// The credential_types should be echoed back in the response
+		credTypes, ok := resp.Context.Reason["requested_credential_types"]
+		assert.True(t, ok, "expected requested_credential_types in response")
+		if ct, ok := credTypes.([]interface{}); ok {
+			assert.Len(t, ct, 1)
+			assert.Equal(t, "eu.europa.ec.eudi.pid.1", ct[0])
+		} else if ct, ok := credTypes.([]string); ok {
+			assert.Len(t, ct, 1)
+			assert.Equal(t, "eu.europa.ec.eudi.pid.1", ct[0])
+		}
+	})
+
+	t.Run("action without credential_types", func(t *testing.T) {
+		resp, err := client.Evaluate(ctx, &authzen.EvaluationRequest{
+			Subject: authzen.Subject{
+				Type: "key",
+				ID:   "https://trusted-issuer.example.com",
+			},
+			Action: &authzen.Action{
+				Name: "credential-issuer",
+			},
+		})
+		require.NoError(t, err)
+		assert.True(t, resp.Decision, "trusted subject should be accepted")
+		assert.NotNil(t, resp.Context)
+		assert.NotNil(t, resp.Context.Reason)
+		// Should not have requested_credential_types when not provided
+		_, ok := resp.Context.Reason["requested_credential_types"]
+		assert.False(t, ok, "should not have requested_credential_types when not provided")
+	})
+
+	t.Run("action with multiple credential_types", func(t *testing.T) {
+		resp, err := client.Evaluate(ctx, &authzen.EvaluationRequest{
+			Subject: authzen.Subject{
+				Type: "key",
+				ID:   "https://trusted-issuer.example.com",
+			},
+			Action: &authzen.Action{
+				Name: "credential-issuer",
+				Parameters: map[string]interface{}{
+					"credential_types": []string{
+						"eu.europa.ec.eudi.pid.1",
+						"eu.europa.ec.eudi.mdl.1",
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.True(t, resp.Decision, "trusted subject should be accepted")
+		// Verify both credential types are in response
+		credTypes := resp.Context.Reason["requested_credential_types"]
+		if ct, ok := credTypes.([]interface{}); ok {
+			assert.Len(t, ct, 2)
+		} else if ct, ok := credTypes.([]string); ok {
+			assert.Len(t, ct, 2)
+		}
+	})
+}

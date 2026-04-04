@@ -482,3 +482,113 @@ func TestEvaluate_X5C_JWKEntity_NoPathValidation(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, resp.Decision)
 }
+
+// Tests for extractStringSlice helper function
+
+func TestExtractStringSlice_NilContext(t *testing.T) {
+	result := extractStringSlice(nil, "credential_types")
+	assert.Nil(t, result)
+}
+
+func TestExtractStringSlice_MissingKey(t *testing.T) {
+	ctx := map[string]interface{}{"other_key": "value"}
+	result := extractStringSlice(ctx, "credential_types")
+	assert.Nil(t, result)
+}
+
+func TestExtractStringSlice_StringSlice(t *testing.T) {
+	ctx := map[string]interface{}{
+		"credential_types": []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"},
+	}
+	result := extractStringSlice(ctx, "credential_types")
+	assert.Equal(t, []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"}, result)
+}
+
+func TestExtractStringSlice_InterfaceSlice(t *testing.T) {
+	// Simulates JSON-unmarshaled data where []string becomes []interface{}
+	ctx := map[string]interface{}{
+		"credential_types": []interface{}{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"},
+	}
+	result := extractStringSlice(ctx, "credential_types")
+	assert.Equal(t, []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"}, result)
+}
+
+func TestExtractStringSlice_MixedInterfaceSlice(t *testing.T) {
+	// Filters out non-string values
+	ctx := map[string]interface{}{
+		"credential_types": []interface{}{"eu.europa.ec.eudi.pid.1", 123, "eu.europa.ec.eudi.mdl.1", nil},
+	}
+	result := extractStringSlice(ctx, "credential_types")
+	assert.Equal(t, []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"}, result)
+}
+
+func TestExtractStringSlice_WrongType(t *testing.T) {
+	ctx := map[string]interface{}{"credential_types": "single-string"}
+	result := extractStringSlice(ctx, "credential_types")
+	assert.Nil(t, result)
+}
+
+// Tests for credential_types in response
+
+func TestEvaluate_CredentialTypesInResponse(t *testing.T) {
+	dir := t.TempDir()
+	path := writeLoTE(t, dir, "lote.json", testLoTE())
+	reg, err := New(Config{Sources: []string{path}})
+	require.NoError(t, err)
+
+	// Request with credential_types in context (as would be injected by manager)
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://issuer.example.com"},
+		Resource: authzen.Resource{
+			Type: "jwk",
+			ID:   "https://issuer.example.com",
+			Key: []interface{}{
+				map[string]interface{}{
+					"kty": "EC",
+					"crv": "P-256",
+					"x":   "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+					"y":   "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+				},
+			},
+		},
+		Context: map[string]interface{}{
+			"credential_types": []string{"eu.europa.ec.eudi.pid.1"},
+		},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+	assert.NotNil(t, resp.Context)
+	assert.NotNil(t, resp.Context.Reason)
+	assert.Equal(t, []string{"eu.europa.ec.eudi.pid.1"}, resp.Context.Reason["requested_credential_types"])
+}
+
+func TestEvaluate_NoCredentialTypesInContext(t *testing.T) {
+	dir := t.TempDir()
+	path := writeLoTE(t, dir, "lote.json", testLoTE())
+	reg, err := New(Config{Sources: []string{path}})
+	require.NoError(t, err)
+
+	// Request without credential_types in context
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://issuer.example.com"},
+		Resource: authzen.Resource{
+			Type: "jwk",
+			ID:   "https://issuer.example.com",
+			Key: []interface{}{
+				map[string]interface{}{
+					"kty": "EC",
+					"crv": "P-256",
+					"x":   "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+					"y":   "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+	assert.NotNil(t, resp.Context)
+	assert.NotNil(t, resp.Context.Reason)
+	// Should not have requested_credential_types when not provided
+	_, hasCredTypes := resp.Context.Reason["requested_credential_types"]
+	assert.False(t, hasCredTypes)
+}
