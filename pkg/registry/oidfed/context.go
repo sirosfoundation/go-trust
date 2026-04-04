@@ -57,6 +57,13 @@ const (
 	// Value: string ("no-cache", "no-store", "max-age=N")
 	// Allows server-side caching behavior configuration.
 	ContextKeyCacheControl = "cache_control"
+
+	// ContextKeyCredentialTypes specifies credential type identifiers for filtering.
+	// Value: []string of credential type identifiers (e.g., SD-JWT VCT values)
+	// Example: ["eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"]
+	// When specified, the registry includes these in the response for audit purposes.
+	// Future: may be used to validate against trust marks or entity metadata.
+	ContextKeyCredentialTypes = "credential_types"
 )
 
 // OpenID Federation Response Metadata Keys

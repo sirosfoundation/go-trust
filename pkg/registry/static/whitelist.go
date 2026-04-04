@@ -498,7 +498,7 @@ func (r *WhitelistRegistry) Evaluate(ctx context.Context, req *authzen.Evaluatio
 
 	// If this is a resolution-only request (no key provided), allow based on whitelist membership
 	if req.IsResolutionOnlyRequest() {
-		return r.allowResolutionOnly(subjectID, role, matchedList)
+		return r.allowResolutionOnly(subjectID, role, matchedList, req)
 	}
 
 	// Verify key binding: extract the key from the request and check against cached hashes
@@ -515,7 +515,7 @@ func (r *WhitelistRegistry) Evaluate(ctx context.Context, req *authzen.Evaluatio
 	}
 
 	if allowedKeys[keyFingerprint] {
-		return r.allowWithKey(subjectID, role, matchedList, keyFingerprint)
+		return r.allowWithKey(subjectID, role, matchedList, keyFingerprint, req)
 	}
 
 	return r.deny(subjectID, "key fingerprint does not match any registered keys for this entity")
@@ -563,18 +563,25 @@ func (r *WhitelistRegistry) matchesList(subject string, list []string) bool {
 	return false
 }
 
-func (r *WhitelistRegistry) allowWithKey(subject, role, matchedList, keyFingerprint string) (*authzen.EvaluationResponse, error) {
+func (r *WhitelistRegistry) allowWithKey(subject, role, matchedList, keyFingerprint string, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	reason := map[string]interface{}{
+		"user":            fmt.Sprintf("trusted via whitelist (%s)", matchedList),
+		"registry":        r.name,
+		"type":            "whitelist",
+		"role":            role,
+		"matched_list":    matchedList,
+		"key_fingerprint": keyFingerprint,
+	}
+
+	// Include credential_types if specified in request context (from action.parameters or policy)
+	if credTypes := r.extractCredentialTypes(req); len(credTypes) > 0 {
+		reason["requested_credential_types"] = credTypes
+	}
+
 	return &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
-			Reason: map[string]interface{}{
-				"user":            fmt.Sprintf("trusted via whitelist (%s)", matchedList),
-				"registry":        r.name,
-				"type":            "whitelist",
-				"role":            role,
-				"matched_list":    matchedList,
-				"key_fingerprint": keyFingerprint,
-			},
+			Reason: reason,
 			TrustMetadata: map[string]interface{}{
 				"trust_framework": "whitelist",
 				"registry":        r.name,
@@ -584,18 +591,25 @@ func (r *WhitelistRegistry) allowWithKey(subject, role, matchedList, keyFingerpr
 	}, nil
 }
 
-func (r *WhitelistRegistry) allowResolutionOnly(subject, role, matchedList string) (*authzen.EvaluationResponse, error) {
+func (r *WhitelistRegistry) allowResolutionOnly(subject, role, matchedList string, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	reason := map[string]interface{}{
+		"user":            fmt.Sprintf("trusted via whitelist (%s, resolution only)", matchedList),
+		"registry":        r.name,
+		"type":            "whitelist",
+		"role":            role,
+		"matched_list":    matchedList,
+		"resolution_only": true,
+	}
+
+	// Include credential_types if specified in request context (from action.parameters or policy)
+	if credTypes := r.extractCredentialTypes(req); len(credTypes) > 0 {
+		reason["requested_credential_types"] = credTypes
+	}
+
 	return &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
-			Reason: map[string]interface{}{
-				"user":            fmt.Sprintf("trusted via whitelist (%s, resolution only)", matchedList),
-				"registry":        r.name,
-				"type":            "whitelist",
-				"role":            role,
-				"matched_list":    matchedList,
-				"resolution_only": true,
-			},
+			Reason: reason,
 			TrustMetadata: map[string]interface{}{
 				"trust_framework": "whitelist",
 				"registry":        r.name,
@@ -603,6 +617,30 @@ func (r *WhitelistRegistry) allowResolutionOnly(subject, role, matchedList strin
 			},
 		},
 	}, nil
+}
+
+// extractCredentialTypes extracts credential_types from the request context.
+func (r *WhitelistRegistry) extractCredentialTypes(req *authzen.EvaluationRequest) []string {
+	if req.Context == nil {
+		return nil
+	}
+	v, ok := req.Context["credential_types"]
+	if !ok {
+		return nil
+	}
+	switch ct := v.(type) {
+	case []string:
+		return ct
+	case []interface{}:
+		result := make([]string, 0, len(ct))
+		for _, item := range ct {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	}
+	return nil
 }
 
 func (r *WhitelistRegistry) deny(subject, reason string) (*authzen.EvaluationResponse, error) {

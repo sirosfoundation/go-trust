@@ -412,7 +412,7 @@ func TestExtractConstraintsFromContext(t *testing.T) {
 				Context:  tt.context,
 			}
 
-			trustMarks, entityTypes, includeChain, includeCerts, _ := registry.extractConstraintsFromContext(req)
+			trustMarks, entityTypes, _, includeChain, includeCerts, _ := registry.extractConstraintsFromContext(req)
 
 			if !equalStringSlices(trustMarks, tt.wantTrustMarks) {
 				t.Errorf("trustMarks = %v, want %v", trustMarks, tt.wantTrustMarks)
@@ -727,7 +727,7 @@ func TestExtractConstraintsFromContext_InterfaceSlices(t *testing.T) {
 				Resource: authzen.Resource{ID: "https://entity.example.com"},
 				Context:  tt.context,
 			}
-			trustMarks, entityTypes, _, _, maxDepth := registry.extractConstraintsFromContext(req)
+			trustMarks, entityTypes, _, _, _, maxDepth := registry.extractConstraintsFromContext(req)
 
 			if tt.wantTrustMarks != nil && !equalStringSlices(trustMarks, tt.wantTrustMarks) {
 				t.Errorf("trustMarks = %v, want %v", trustMarks, tt.wantTrustMarks)

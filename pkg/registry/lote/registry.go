@@ -202,14 +202,7 @@ func (r *Registry) Evaluate(_ context.Context, req *authzen.EvaluationRequest) (
 	}
 
 	if ent.keyHashes[keyHash] {
-		return &authzen.EvaluationResponse{
-			Decision: true,
-			Context: &authzen.EvaluationResponseContext{
-				Reason: map[string]interface{}{
-					"admin": fmt.Sprintf("key matches entity %q in LoTE (territory: %s)", subjectID, ent.territory),
-				},
-			},
-		}, nil
+		return r.buildSuccessResponse(subjectID, ent.territory, "key matches entity", req), nil
 	}
 
 	// For x5c: attempt PKIX path validation if the entity has X.509 trust anchors.
@@ -261,6 +254,49 @@ func (r *Registry) Refresh(ctx context.Context) error {
 	return r.refresh()
 }
 
+// buildSuccessResponse creates a successful EvaluationResponse with credential_types
+// from the request context included for audit purposes.
+func (r *Registry) buildSuccessResponse(subjectID, territory, detail string, req *authzen.EvaluationRequest) *authzen.EvaluationResponse {
+	reason := map[string]interface{}{
+		"admin": fmt.Sprintf("%s %q in LoTE (territory: %s)", detail, subjectID, territory),
+	}
+
+	// Extract credential_types from context if present (from action.parameters or policy)
+	if req.Context != nil {
+		if credTypes := extractStringSlice(req.Context, "credential_types"); len(credTypes) > 0 {
+			reason["requested_credential_types"] = credTypes
+		}
+	}
+
+	return &authzen.EvaluationResponse{
+		Decision: true,
+		Context: &authzen.EvaluationResponseContext{
+			Reason: reason,
+		},
+	}
+}
+
+// extractStringSlice extracts a []string from a context map value.
+func extractStringSlice(ctx map[string]interface{}, key string) []string {
+	v, ok := ctx[key]
+	if !ok {
+		return nil
+	}
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []interface{}:
+		result := make([]string, 0, len(s))
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				result = append(result, str)
+			}
+		}
+		return result
+	}
+	return nil
+}
+
 // validateX5CChain attempts PKIX path validation of the x5c certificate chain
 // against the entity's X.509 trust anchors. Returns a positive response if
 // validation succeeds, nil if it fails (allowing the caller to fall through).
@@ -282,14 +318,7 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 	}
 
 	if _, err := certs[0].Verify(opts); err == nil {
-		return &authzen.EvaluationResponse{
-			Decision: true,
-			Context: &authzen.EvaluationResponseContext{
-				Reason: map[string]interface{}{
-					"admin": fmt.Sprintf("x5c chain validates against trust anchor for entity %q (territory: %s)", ent.entity.EntityID, ent.territory),
-				},
-			},
-		}
+		return r.buildSuccessResponse(ent.entity.EntityID, ent.territory, "x5c chain validates against trust anchor for entity", req)
 	}
 	return nil
 }
