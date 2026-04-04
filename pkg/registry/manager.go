@@ -214,14 +214,27 @@ func (m *RegistryManager) resolvePolicyContext(req *authzen.EvaluationRequest) *
 
 // applyPolicyToRequest applies policy constraints to the request context.
 // This allows registries to read policy constraints from the request.
+// Action parameters from the request are merged first, then policy constraints are applied.
+// Policy constraints take precedence over action parameters for the same key.
 func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, policyCtx *PolicyContext) {
-	if policyCtx.Policy == nil {
-		return
-	}
-
 	// Initialize context if needed
 	if req.Context == nil {
 		req.Context = make(map[string]interface{})
+	}
+
+	// First, merge action.parameters into context (client-supplied constraints)
+	// These can be overridden by server-side policy constraints below
+	if req.Action != nil && req.Action.Parameters != nil {
+		for k, v := range req.Action.Parameters {
+			// Don't allow overriding internal keys
+			if k != "_policy" {
+				req.Context[k] = v
+			}
+		}
+	}
+
+	if policyCtx.Policy == nil {
+		return
 	}
 
 	// Apply OIDF constraints

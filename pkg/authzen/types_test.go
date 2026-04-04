@@ -321,3 +321,94 @@ func TestTrustMetadataOmitEmpty(t *testing.T) {
 		t.Error("trust_metadata should be omitted when nil")
 	}
 }
+// TestActionParametersSerialization tests that action.parameters serializes correctly
+func TestActionParametersSerialization(t *testing.T) {
+	request := EvaluationRequest{
+		Subject:  Subject{Type: "key", ID: "https://issuer.example.gov"},
+		Resource: Resource{Type: "x5c", ID: "https://issuer.example.gov", Key: []interface{}{"certdata"}},
+		Action: &Action{
+			Name: "urn:eudi:credential-issuer",
+			Parameters: map[string]interface{}{
+				"credential_types": []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.msisdn.1"},
+			},
+		},
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+
+	// Verify JSON structure
+	var decoded map[string]interface{}
+	err = json.Unmarshal(jsonData, &decoded)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	action, ok := decoded["action"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected action in request")
+	}
+
+	if action["name"] != "urn:eudi:credential-issuer" {
+		t.Errorf("Expected action.name = 'urn:eudi:credential-issuer', got %v", action["name"])
+	}
+
+	params, ok := action["parameters"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected parameters in action")
+	}
+
+	credTypes, ok := params["credential_types"].([]interface{})
+	if !ok {
+		t.Fatal("Expected credential_types in parameters")
+	}
+
+	if len(credTypes) != 2 {
+		t.Errorf("Expected 2 credential types, got %d", len(credTypes))
+	}
+
+	// Verify round-trip
+	var decodedRequest EvaluationRequest
+	err = json.Unmarshal(jsonData, &decodedRequest)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal to EvaluationRequest: %v", err)
+	}
+
+	if decodedRequest.Action == nil {
+		t.Fatal("Expected action after unmarshal")
+	}
+
+	if decodedRequest.Action.Parameters == nil {
+		t.Fatal("Expected action.parameters after unmarshal")
+	}
+}
+
+// TestActionParametersOmitEmpty tests that action.parameters is omitted when nil
+func TestActionParametersOmitEmpty(t *testing.T) {
+	request := EvaluationRequest{
+		Subject:  Subject{Type: "key", ID: "did:example:123"},
+		Resource: Resource{Type: "x5c", ID: "did:example:123", Key: []interface{}{"certdata"}},
+		Action: &Action{
+			Name:       "http://ec.europa.eu/NS/wallet-provider",
+			Parameters: nil, // Should be omitted
+		},
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	err = json.Unmarshal(jsonData, &decoded)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	action := decoded["action"].(map[string]interface{})
+	if _, exists := action["parameters"]; exists {
+		t.Error("parameters should be omitted when nil")
+	}
+}

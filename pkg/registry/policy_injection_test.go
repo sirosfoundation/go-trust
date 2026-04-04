@@ -151,8 +151,9 @@ func TestApplyPolicyToRequest_NilPolicy(t *testing.T) {
 
 	mgr.applyPolicyToRequest(req, pctx)
 
-	// Context should remain nil since no policy was applied
-	assert.Nil(t, req.Context)
+	// Context is initialized but empty since no policy was applied and no action.parameters
+	require.NotNil(t, req.Context)
+	assert.Empty(t, req.Context)
 }
 
 // TestApplyPolicyToRequest_EmptyConstraints verifies that empty constraint fields
@@ -261,4 +262,102 @@ func TestApplyPolicyToRequest_DIDPartialConstraints(t *testing.T) {
 	assert.Nil(t, req.Context["required_services"])
 	assert.Nil(t, req.Context["required_verification_methods"])
 	assert.Equal(t, true, req.Context["require_verifiable_history"])
+}
+// TestApplyPolicyToRequest_ActionParameters verifies that action.parameters
+// are merged into the request context.
+func TestApplyPolicyToRequest_ActionParameters(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	req := &authzen.EvaluationRequest{
+		Action: &authzen.Action{
+			Name: "urn:eudi:credential-issuer",
+			Parameters: map[string]interface{}{
+				"credential_types": []string{"eu.europa.ec.eudi.pid.1"},
+			},
+		},
+	}
+	pctx := &PolicyContext{Policy: nil}
+
+	mgr.applyPolicyToRequest(req, pctx)
+
+	require.NotNil(t, req.Context)
+	assert.Equal(t, []string{"eu.europa.ec.eudi.pid.1"}, req.Context["credential_types"])
+}
+
+// TestApplyPolicyToRequest_ActionParametersWithPolicy verifies that policy
+// constraints take precedence over action parameters for the same key.
+func TestApplyPolicyToRequest_ActionParametersWithPolicy(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	policy := &Policy{
+		Name: "policy-override",
+		ETSI: &ETSIPolicyConstraints{
+			ServiceTypes: []string{"http://policy.example.com/service-type"},
+		},
+	}
+
+	req := &authzen.EvaluationRequest{
+		Action: &authzen.Action{
+			Name: "urn:eudi:credential-issuer",
+			Parameters: map[string]interface{}{
+				"credential_types": []string{"eu.europa.ec.eudi.pid.1"},
+				"service_types":    []string{"http://client.example.com/service-type"}, // Should be overridden
+			},
+		},
+	}
+	pctx := &PolicyContext{Policy: policy}
+
+	mgr.applyPolicyToRequest(req, pctx)
+
+	require.NotNil(t, req.Context)
+	// client-supplied credential_types should be preserved
+	assert.Equal(t, []string{"eu.europa.ec.eudi.pid.1"}, req.Context["credential_types"])
+	// policy service_types should override client-supplied value
+	assert.Equal(t, []string{"http://policy.example.com/service-type"}, req.Context["service_types"])
+	assert.Equal(t, "policy-override", req.Context["_policy"])
+}
+
+// TestApplyPolicyToRequest_ActionParametersCannotOverrideInternalKeys verifies
+// that action.parameters cannot override internal keys like _policy.
+func TestApplyPolicyToRequest_ActionParametersCannotOverrideInternalKeys(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	policy := &Policy{
+		Name: "real-policy",
+	}
+
+	req := &authzen.EvaluationRequest{
+		Action: &authzen.Action{
+			Name: "test",
+			Parameters: map[string]interface{}{
+				"_policy": "fake-policy", // Attempt to inject malicious policy name
+			},
+		},
+	}
+	pctx := &PolicyContext{Policy: policy}
+
+	mgr.applyPolicyToRequest(req, pctx)
+
+	require.NotNil(t, req.Context)
+	// _policy should be set by the policy, not from action.parameters
+	assert.Equal(t, "real-policy", req.Context["_policy"])
+}
+
+// TestApplyPolicyToRequest_NilActionParameters verifies that nil action.parameters
+// does not cause issues.
+func TestApplyPolicyToRequest_NilActionParameters(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	req := &authzen.EvaluationRequest{
+		Action: &authzen.Action{
+			Name:       "test",
+			Parameters: nil,
+		},
+	}
+	pctx := &PolicyContext{Policy: nil}
+
+	// Should not panic
+	mgr.applyPolicyToRequest(req, pctx)
+
+	// Context may be nil or empty since no constraints were applied
 }
