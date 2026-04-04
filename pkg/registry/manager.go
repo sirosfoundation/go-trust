@@ -263,6 +263,9 @@ func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, p
 		if len(etsi.Countries) > 0 {
 			req.Context["countries"] = etsi.Countries
 		}
+		if len(etsi.CredentialTypes) > 0 {
+			req.Context["credential_types"] = etsi.CredentialTypes
+		}
 	}
 
 	// Apply DID constraints

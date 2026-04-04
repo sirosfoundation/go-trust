@@ -849,18 +849,47 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 		}
 	}
 
+	// Extract credential_types if specified (from action.parameters or policy)
+	// This is included in the response for audit purposes.
+	// Future: validate against TSL service extensions when available.
+	var credentialTypes []string
+	if req.Context != nil {
+		if v, ok := req.Context["credential_types"]; ok {
+			switch ct := v.(type) {
+			case []string:
+				credentialTypes = ct
+			case []interface{}:
+				for _, c := range ct {
+					if str, ok := c.(string); ok {
+						credentialTypes = append(credentialTypes, str)
+					}
+				}
+			}
+		}
+	}
+
+	// Build response reason map
+	reason := map[string]interface{}{
+		"tsl_count":     len(r.tsls),
+		"trusted_certs": r.certCount,
+		"validation_ms": validationDuration.Milliseconds(),
+		"chain_length":  len(chains),
+		"data_loaded":   r.loadedAt.Format(time.RFC3339),
+		"pool_filter":   poolDesc,
+	}
+
+	// Include credential_types in response if specified
+	if len(credentialTypes) > 0 {
+		reason["requested_credential_types"] = credentialTypes
+		// TODO: When TSL extensions support credential type metadata, validate here
+		// For now, the response indicates what was requested for audit purposes
+	}
+
 	// Success - certificate is trusted
 	return &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
-			Reason: map[string]interface{}{
-				"tsl_count":     len(r.tsls),
-				"trusted_certs": r.certCount,
-				"validation_ms": validationDuration.Milliseconds(),
-				"chain_length":  len(chains),
-				"data_loaded":   r.loadedAt.Format(time.RFC3339),
-				"pool_filter":   poolDesc,
-			},
+			Reason: reason,
 		},
 	}, nil
 }

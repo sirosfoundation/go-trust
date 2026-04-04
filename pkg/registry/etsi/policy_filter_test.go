@@ -366,3 +366,125 @@ func TestTSLRegistry_Evaluate_X5CIntermediateWithFilter(t *testing.T) {
 		t.Error("expected true decision for valid intermediate chain with filter context")
 	}
 }
+// TestTSLRegistry_EvaluateWithCredentialTypesContext verifies credential_types
+// are extracted from context and included in the response.
+func TestTSLRegistry_EvaluateWithCredentialTypesContext(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "etsi-credential-types-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Generate self-signed CA cert
+	caCert, caPEM := generateTestCertificate(t, "Credential Types Test CA")
+	certPath := writeTestCertFile(t, tmpDir, "test-ca.pem", caPEM)
+
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:       "credential-types-test",
+		CertBundle: certPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	certB64 := base64.StdEncoding.EncodeToString(caCert.Raw)
+
+	// Evaluate with credential_types in context
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"credential_types": []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"},
+		},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			Key:  []interface{}{certB64},
+		},
+	}
+
+	resp, err := reg.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should succeed - credential_types doesn't block validation yet
+	if !resp.Decision {
+		t.Error("expected true decision")
+	}
+
+	// Verify requested_credential_types is in the response
+	if resp.Context == nil || resp.Context.Reason == nil {
+		t.Fatal("expected context with reason")
+	}
+
+	reqCT, ok := resp.Context.Reason["requested_credential_types"]
+	if !ok {
+		t.Fatal("expected requested_credential_types in response reason")
+	}
+
+	// Check the credential types are present
+	ctSlice, ok := reqCT.([]string)
+	if !ok {
+		t.Fatalf("expected []string, got %T", reqCT)
+	}
+
+	if len(ctSlice) != 2 {
+		t.Errorf("expected 2 credential types, got %d", len(ctSlice))
+	}
+	if ctSlice[0] != "eu.europa.ec.eudi.pid.1" || ctSlice[1] != "eu.europa.ec.eudi.mdl.1" {
+		t.Errorf("unexpected credential types: %v", ctSlice)
+	}
+}
+
+// TestTSLRegistry_EvaluateWithCredentialTypesAsInterfaceSlice verifies credential_types
+// parsing when marshaled through JSON (as []interface{}).
+func TestTSLRegistry_EvaluateWithCredentialTypesAsInterfaceSlice(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "etsi-credential-types-interface-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	caCert, caPEM := generateTestCertificate(t, "Credential Types Interface Test")
+	certPath := writeTestCertFile(t, tmpDir, "test-ca.pem", caPEM)
+
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:       "credential-types-interface-test",
+		CertBundle: certPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	certB64 := base64.StdEncoding.EncodeToString(caCert.Raw)
+
+	// Simulate JSON unmarshaling where []string becomes []interface{}
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"credential_types": []interface{}{"eu.europa.ec.eudi.pid.1"},
+		},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			Key:  []interface{}{certB64},
+		},
+	}
+
+	resp, err := reg.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.Decision {
+		t.Error("expected true decision")
+	}
+
+	// Verify credential type is extracted correctly
+	if resp.Context != nil && resp.Context.Reason != nil {
+		if reqCT, ok := resp.Context.Reason["requested_credential_types"]; ok {
+			ctSlice, ok := reqCT.([]string)
+			if !ok || len(ctSlice) != 1 || ctSlice[0] != "eu.europa.ec.eudi.pid.1" {
+				t.Errorf("unexpected credential types: %v (type: %T)", reqCT, reqCT)
+			}
+		} else {
+			t.Error("expected requested_credential_types in response")
+		}
+	}
+}

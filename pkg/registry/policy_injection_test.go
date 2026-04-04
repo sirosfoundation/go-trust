@@ -44,6 +44,7 @@ func TestApplyPolicyToRequest_ETSIConstraints(t *testing.T) {
 			ServiceTypes:    []string{"http://uri.etsi.org/TrstSvc/Svctype/CA/QC"},
 			ServiceStatuses: []string{"http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted"},
 			Countries:       []string{"DE", "FR"},
+			CredentialTypes: []string{"eu.europa.ec.eudi.pid.1"},
 		},
 	}
 
@@ -56,6 +57,7 @@ func TestApplyPolicyToRequest_ETSIConstraints(t *testing.T) {
 	assert.Equal(t, []string{"http://uri.etsi.org/TrstSvc/Svctype/CA/QC"}, req.Context["service_types"])
 	assert.Equal(t, []string{"http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted"}, req.Context["service_statuses"])
 	assert.Equal(t, []string{"DE", "FR"}, req.Context["countries"])
+	assert.Equal(t, []string{"eu.europa.ec.eudi.pid.1"}, req.Context["credential_types"])
 	assert.Equal(t, "etsi-test", req.Context["_policy"])
 }
 

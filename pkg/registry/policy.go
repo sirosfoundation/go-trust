@@ -61,6 +61,12 @@ type ETSIPolicyConstraints struct {
 
 	// Countries filters by country codes (e.g., ["DE", "FR"])
 	Countries []string `json:"countries,omitempty" yaml:"countries,omitempty"`
+
+	// CredentialTypes filters by credential type identifiers (e.g., SD-JWT VCT values).
+	// When specified, the PDP will verify that the issuer is authorized to issue
+	// credentials of the specified types. This may be validated against TSL extensions
+	// or service metadata when available.
+	CredentialTypes []string `json:"credential_types,omitempty" yaml:"credential_types,omitempty"`
 }
 
 // DIDPolicyConstraints contains DID method-specific constraints.
