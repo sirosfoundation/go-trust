@@ -503,8 +503,17 @@ func TestWhitelistRegistry_PidProviderRole(t *testing.T) {
 
 // Helper function to generate a JWK from an ECDSA public key
 func ecdsaPubKeyToJWK(pub *ecdsa.PublicKey, kid string) map[string]interface{} {
-	x := base64.RawURLEncoding.EncodeToString(pub.X.Bytes())
-	y := base64.RawURLEncoding.EncodeToString(pub.Y.Bytes())
+	// Use ECDH().Bytes() to avoid deprecated direct X/Y field access (Go 1.26+)
+	ecdhKey, err := pub.ECDH()
+	if err != nil {
+		// Fall back for test purposes - panics are acceptable in test helpers
+		panic(fmt.Sprintf("failed to convert ECDSA key to ECDH: %v", err))
+	}
+	marshaled := ecdhKey.Bytes()
+	byteLen := (pub.Curve.Params().BitSize + 7) / 8
+	// Skip the 0x04 prefix and extract X, Y
+	x := base64.RawURLEncoding.EncodeToString(marshaled[1 : 1+byteLen])
+	y := base64.RawURLEncoding.EncodeToString(marshaled[1+byteLen:])
 
 	crv := ""
 	switch pub.Curve {

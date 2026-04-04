@@ -64,14 +64,21 @@ func PublicKeyToCanonicalJWK(pubKey crypto.PublicKey) (map[string]string, error)
 		}
 
 		byteLen := (key.Curve.Params().BitSize + 7) / 8
-		xBytes := key.X.Bytes()
-		yBytes := key.Y.Bytes()
 
-		// Pad to correct length (required by RFC 7518)
-		xPadded := make([]byte, byteLen)
-		yPadded := make([]byte, byteLen)
-		copy(xPadded[byteLen-len(xBytes):], xBytes)
-		copy(yPadded[byteLen-len(yBytes):], yBytes)
+		// Use ECDH().Bytes() to get the uncompressed point (Go 1.20+).
+		// This avoids deprecated direct access to key.X and key.Y fields.
+		// The returned bytes are in uncompressed format: 0x04 || X || Y
+		ecdhKey, err := key.ECDH()
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert ECDSA key to ECDH: %w", err)
+		}
+		marshaled := ecdhKey.Bytes()
+		if len(marshaled) != 1+2*byteLen {
+			return nil, fmt.Errorf("unexpected marshaled key length: got %d, want %d", len(marshaled), 1+2*byteLen)
+		}
+		// Skip the 0x04 prefix and split into X and Y
+		xPadded := marshaled[1 : 1+byteLen]
+		yPadded := marshaled[1+byteLen:]
 
 		return map[string]string{
 			"kty": "EC",
