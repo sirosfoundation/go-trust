@@ -61,9 +61,16 @@ const (
 	// ContextKeyCredentialTypes specifies credential type identifiers for filtering.
 	// Value: []string of credential type identifiers (e.g., SD-JWT VCT values)
 	// Example: ["eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"]
-	// When specified, the registry includes these in the response for audit purposes.
-	// Future: may be used to validate against trust marks or entity metadata.
+	// When credential_type_trust_marks mapping is configured, the registry validates
+	// that the entity has the required trust marks for each credential type.
 	ContextKeyCredentialTypes = "credential_types"
+
+	// ContextKeyCredentialTypeTrustMarks provides a mapping from credential types to trust marks.
+	// Value: map[string][]string where keys are VCT identifiers and values are trust mark URIs
+	// Example: {"eu.europa.ec.eudi.pid.1": ["https://trust.eu/wallet/pid-issuer"]}
+	// When both credential_types and this mapping are present, the registry validates
+	// that the entity has ALL mapped trust marks for the requested credential types.
+	ContextKeyCredentialTypeTrustMarks = "credential_type_trust_marks"
 )
 
 // OpenID Federation Response Metadata Keys

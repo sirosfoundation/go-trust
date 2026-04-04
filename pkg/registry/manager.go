@@ -249,6 +249,9 @@ func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, p
 		if oidfed.MaxChainDepth > 0 {
 			req.Context["max_chain_depth"] = oidfed.MaxChainDepth
 		}
+		if len(oidfed.CredentialTypeTrustMarks) > 0 {
+			req.Context["credential_type_trust_marks"] = oidfed.CredentialTypeTrustMarks
+		}
 	}
 
 	// Apply ETSI constraints

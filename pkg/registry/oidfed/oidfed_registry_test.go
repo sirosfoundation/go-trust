@@ -2181,3 +2181,174 @@ func TestOIDFedRegistry_ExtractCertificates(t *testing.T) {
 		t.Errorf("extractCertificates() with no JWKS should return empty, got %d", len(certs))
 	}
 }
+// TestExtractCredentialTypeTrustMarks tests the credential type to trust marks mapping extraction.
+func TestExtractCredentialTypeTrustMarks(t *testing.T) {
+	tests := []struct {
+		name     string
+		context  map[string]interface{}
+		expected map[string][]string
+	}{
+		{
+			name:     "nil context",
+			context:  nil,
+			expected: nil,
+		},
+		{
+			name:     "no mapping",
+			context:  map[string]interface{}{},
+			expected: nil,
+		},
+		{
+			name: "direct map[string][]string",
+			context: map[string]interface{}{
+				ContextKeyCredentialTypeTrustMarks: map[string][]string{
+					"eu.europa.ec.eudi.pid.1": {"https://trust.eu/pid-issuer"},
+				},
+			},
+			expected: map[string][]string{
+				"eu.europa.ec.eudi.pid.1": {"https://trust.eu/pid-issuer"},
+			},
+		},
+		{
+			name: "JSON-unmarshaled map[string]interface{}",
+			context: map[string]interface{}{
+				ContextKeyCredentialTypeTrustMarks: map[string]interface{}{
+					"eu.europa.ec.eudi.pid.1": []interface{}{"https://trust.eu/pid-issuer", "https://trust.eu/pid-issuer-v2"},
+				},
+			},
+			expected: map[string][]string{
+				"eu.europa.ec.eudi.pid.1": {"https://trust.eu/pid-issuer", "https://trust.eu/pid-issuer-v2"},
+			},
+		},
+		{
+			name: "multiple credential types",
+			context: map[string]interface{}{
+				ContextKeyCredentialTypeTrustMarks: map[string][]string{
+					"eu.europa.ec.eudi.pid.1": {"https://trust.eu/pid-issuer"},
+					"eu.europa.ec.eudi.mdl.1": {"https://trust.eu/mdl-issuer"},
+				},
+			},
+			expected: map[string][]string{
+				"eu.europa.ec.eudi.pid.1": {"https://trust.eu/pid-issuer"},
+				"eu.europa.ec.eudi.mdl.1": {"https://trust.eu/mdl-issuer"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractCredentialTypeTrustMarks(tt.context)
+			if tt.expected == nil {
+				if result != nil {
+					t.Errorf("expected nil, got %v", result)
+				}
+				return
+			}
+			if len(result) != len(tt.expected) {
+				t.Errorf("expected %d entries, got %d", len(tt.expected), len(result))
+			}
+			for k, v := range tt.expected {
+				if got, ok := result[k]; !ok {
+					t.Errorf("expected key %s not found", k)
+				} else if !equalStringSlices(got, v) {
+					t.Errorf("for key %s: expected %v, got %v", k, v, got)
+				}
+			}
+		})
+	}
+}
+
+// TestExtractConstraintsFromContext_CredentialTypeTrustMarkDerivation tests that trust marks
+// are derived from credential_types when a mapping is present.
+func TestExtractConstraintsFromContext_CredentialTypeTrustMarkDerivation(t *testing.T) {
+	registry, _ := NewOIDFedRegistry(Config{
+		TrustAnchors: []TrustAnchorConfig{{EntityID: "https://ta.example.com"}},
+	})
+
+	tests := []struct {
+		name               string
+		context            map[string]interface{}
+		wantTrustMarks     []string
+		wantCredTypes      []string
+	}{
+		{
+			name: "credential_types with no mapping",
+			context: map[string]interface{}{
+				ContextKeyCredentialTypes: []string{"eu.europa.ec.eudi.pid.1"},
+			},
+			wantTrustMarks: nil, // Registry has no default trust marks
+			wantCredTypes:  []string{"eu.europa.ec.eudi.pid.1"},
+		},
+		{
+			name: "credential_types with mapping derives trust marks",
+			context: map[string]interface{}{
+				ContextKeyCredentialTypes: []string{"eu.europa.ec.eudi.pid.1"},
+				ContextKeyCredentialTypeTrustMarks: map[string][]string{
+					"eu.europa.ec.eudi.pid.1": {"https://trust.eu/pid-issuer"},
+				},
+			},
+			wantTrustMarks: []string{"https://trust.eu/pid-issuer"},
+			wantCredTypes:  []string{"eu.europa.ec.eudi.pid.1"},
+		},
+		{
+			name: "multiple credential_types derive multiple trust marks",
+			context: map[string]interface{}{
+				ContextKeyCredentialTypes: []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"},
+				ContextKeyCredentialTypeTrustMarks: map[string][]string{
+					"eu.europa.ec.eudi.pid.1": {"https://trust.eu/pid-issuer"},
+					"eu.europa.ec.eudi.mdl.1": {"https://trust.eu/mdl-issuer"},
+				},
+			},
+			wantTrustMarks: []string{"https://trust.eu/pid-issuer", "https://trust.eu/mdl-issuer"},
+			wantCredTypes:  []string{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.mdl.1"},
+		},
+		{
+			name: "credential_type without mapping entry is ignored for trust marks",
+			context: map[string]interface{}{
+				ContextKeyCredentialTypes: []string{"eu.europa.ec.eudi.pid.1", "unknown.vct"},
+				ContextKeyCredentialTypeTrustMarks: map[string][]string{
+					"eu.europa.ec.eudi.pid.1": {"https://trust.eu/pid-issuer"},
+					// unknown.vct has no mapping
+				},
+			},
+			wantTrustMarks: []string{"https://trust.eu/pid-issuer"},
+			wantCredTypes:  []string{"eu.europa.ec.eudi.pid.1", "unknown.vct"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &authzen.EvaluationRequest{
+				Subject:  authzen.Subject{Type: "key", ID: "https://entity.example.com"},
+				Resource: authzen.Resource{ID: "https://entity.example.com"},
+				Context:  tt.context,
+			}
+
+			trustMarks, _, credentialTypes, _, _, _ := registry.extractConstraintsFromContext(req)
+
+			if !equalStringSlices(credentialTypes, tt.wantCredTypes) {
+				t.Errorf("credentialTypes = %v, want %v", credentialTypes, tt.wantCredTypes)
+			}
+
+			// For trust marks, check they contain expected values (order may vary due to merging)
+			if tt.wantTrustMarks == nil {
+				if len(trustMarks) != 0 {
+					t.Errorf("expected no trust marks, got %v", trustMarks)
+				}
+			} else {
+				for _, expected := range tt.wantTrustMarks {
+					found := false
+					for _, got := range trustMarks {
+						if got == expected {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("expected trust mark %s not found in %v", expected, trustMarks)
+					}
+				}
+			}
+		})
+	}
+}

@@ -34,6 +34,32 @@ func TestApplyPolicyToRequest_OIDFedConstraints(t *testing.T) {
 	assert.Equal(t, "oidf-test", req.Context["_policy"])
 }
 
+// TestApplyPolicyToRequest_OIDFedCredentialTypeTrustMarks verifies credential_type_trust_marks injection.
+func TestApplyPolicyToRequest_OIDFedCredentialTypeTrustMarks(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	policy := &Policy{
+		Name: "oidf-credential-types",
+		OIDFed: &OIDFedPolicyConstraints{
+			CredentialTypeTrustMarks: map[string][]string{
+				"eu.europa.ec.eudi.pid.1": {"https://trust.eu/wallet/pid-issuer"},
+				"eu.europa.ec.eudi.mdl.1": {"https://trust.eu/wallet/mdl-issuer"},
+			},
+		},
+	}
+
+	req := &authzen.EvaluationRequest{}
+	pctx := &PolicyContext{Policy: policy}
+
+	mgr.applyPolicyToRequest(req, pctx)
+
+	require.NotNil(t, req.Context)
+	ctTrustMarks, ok := req.Context["credential_type_trust_marks"].(map[string][]string)
+	require.True(t, ok, "expected map[string][]string")
+	assert.Equal(t, []string{"https://trust.eu/wallet/pid-issuer"}, ctTrustMarks["eu.europa.ec.eudi.pid.1"])
+	assert.Equal(t, []string{"https://trust.eu/wallet/mdl-issuer"}, ctTrustMarks["eu.europa.ec.eudi.mdl.1"])
+}
+
 // TestApplyPolicyToRequest_ETSIConstraints verifies ETSI constraint injection.
 func TestApplyPolicyToRequest_ETSIConstraints(t *testing.T) {
 	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
