@@ -59,6 +59,7 @@ type WhitelistRegistry struct {
 	configPath string
 	watcher    *fsnotify.Watcher
 	stopCh     chan struct{}
+	stopOnce   sync.Once // guards Close of stopCh
 	logger     *slog.Logger
 
 	// Track refresh state for health reporting.
@@ -70,6 +71,7 @@ type WhitelistRegistry struct {
 	// Background refresh
 	refreshInterval time.Duration
 	refreshStopCh   chan struct{}
+	refreshOnce     sync.Once // guards Close of refreshStopCh
 }
 
 // WhitelistConfig holds the whitelist configuration.
@@ -313,19 +315,24 @@ func (r *WhitelistRegistry) startWatching() error {
 	r.watcher = watcher
 	r.stopCh = make(chan struct{})
 
-	go r.watchLoop()
+	// Capture references for the goroutine to avoid races with Close()
+	stopCh := r.stopCh
+	events := watcher.Events
+	errors := watcher.Errors
+	go r.watchLoop(stopCh, events, errors)
 
 	r.logger.Info("started watching config file", "path", r.configPath)
 	return nil
 }
 
 // watchLoop handles file system events.
-func (r *WhitelistRegistry) watchLoop() {
+// The channels are passed as arguments to avoid data races with Close().
+func (r *WhitelistRegistry) watchLoop(stopCh <-chan struct{}, events <-chan fsnotify.Event, errors <-chan error) {
 	for {
 		select {
-		case <-r.stopCh:
+		case <-stopCh:
 			return
-		case event, ok := <-r.watcher.Events:
+		case event, ok := <-events:
 			if !ok {
 				return
 			}
@@ -340,7 +347,7 @@ func (r *WhitelistRegistry) watchLoop() {
 					r.logger.Error("failed to reload config", "error", err)
 				}
 			}
-		case err, ok := <-r.watcher.Errors:
+		case err, ok := <-errors:
 			if !ok {
 				return
 			}
@@ -369,19 +376,23 @@ func (r *WhitelistRegistry) reloadConfig() error {
 
 // Close stops the file watcher, refresh loop, and releases resources.
 func (r *WhitelistRegistry) Close() error {
+	// Use sync.Once to safely close channels without data races.
+	// The goroutines reading from these channels will see the close
+	// and exit cleanly.
+	r.stopOnce.Do(func() {
+		if r.stopCh != nil {
+			close(r.stopCh)
+		}
+	})
+	r.refreshOnce.Do(func() {
+		if r.refreshStopCh != nil {
+			close(r.refreshStopCh)
+		}
+	})
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Stop file watcher (only once)
-	if r.stopCh != nil {
-		close(r.stopCh)
-		r.stopCh = nil
-	}
-	// Stop refresh loop (only once)
-	if r.refreshStopCh != nil {
-		close(r.refreshStopCh)
-		r.refreshStopCh = nil
-	}
 	if r.watcher != nil {
 		err := r.watcher.Close()
 		r.watcher = nil
@@ -414,22 +425,24 @@ func (r *WhitelistRegistry) StartRefreshLoop(ctx context.Context) error {
 		// Continue anyway - keys may be fetched later via background loop
 	}
 
-	// Start background loop
+	// Start background loop - capture channel reference to avoid races with Close()
 	r.refreshStopCh = make(chan struct{})
-	go r.refreshLoop()
+	stopCh := r.refreshStopCh
+	go r.refreshLoop(stopCh)
 
 	r.logger.Info("started JWKS refresh loop", "interval", r.refreshInterval)
 	return nil
 }
 
 // refreshLoop periodically refreshes JWKS keys.
-func (r *WhitelistRegistry) refreshLoop() {
+// The stopCh is passed as argument to avoid data races with Close().
+func (r *WhitelistRegistry) refreshLoop(stopCh <-chan struct{}) {
 	ticker := time.NewTicker(r.refreshInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-r.refreshStopCh:
+		case <-stopCh:
 			r.logger.Info("stopping JWKS refresh loop")
 			return
 		case <-ticker.C:
