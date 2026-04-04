@@ -6,8 +6,6 @@ replace github.com/moov-io/signedxml v1.2.3 => github.com/leifj/signedxml v1.2.3
 
 replace github.com/russellhaering/goxmldsig v1.5.0 => github.com/sirosfoundation/goxmldsig v1.5.0-leifj1
 
-replace vc => github.com/SUNET/vc v0.4.3
-
 require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gin-gonic/gin v1.11.0
@@ -21,7 +19,6 @@ require (
 	github.com/swaggo/swag v1.16.6
 	golang.org/x/time v0.14.0
 	gopkg.in/yaml.v3 v3.0.1
-	vc v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -45,7 +42,6 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
-	github.com/go-json-experiment/json v0.0.0-20251027170946-4849db3c2f7e // indirect
 	github.com/go-openapi/jsonpointer v0.22.4 // indirect
 	github.com/go-openapi/jsonreference v0.21.4 // indirect
 	github.com/go-openapi/spec v0.22.3 // indirect

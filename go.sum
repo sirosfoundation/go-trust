@@ -1,7 +1,5 @@
 github.com/KyleBanks/depth v1.2.1 h1:5h8fQADFrWtarTdtDudMmGsC7GPbOAu6RVB3ffsVFHc=
 github.com/KyleBanks/depth v1.2.1/go.mod h1:jzSb9d0L43HxTQfT+oSA1EEp2q+ne2uh6XgeJcm8brE=
-github.com/SUNET/vc v0.4.3 h1:Kpc81fxFF8qDTwDebyAWNo6UtFbEwhjDBn3ykzWWv74=
-github.com/SUNET/vc v0.4.3/go.mod h1:iHeSaBCs0z9IMXb/hSO7hHPc8AMiLh+EALNJm5E67uM=
 github.com/ThalesGroup/crypto11 v1.4.1 h1:6YR6aVL8LI8akReXKTEgxf+k0+b8wlV8Ra7tZnCG9y4=
 github.com/ThalesGroup/crypto11 v1.4.1/go.mod h1:vggvBwlVrqePDrooq/B32dMXlfEsdsFY+6YlSD7VOy0=
 github.com/TwiN/gocache/v2 v2.4.0 h1:BZ/TqvhipDQE23MFFTjC0MiI1qZ7GEVtSdOFVVXyr18=
@@ -45,16 +43,14 @@ github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/gabriel-vasile/mimetype v1.4.12 h1:e9hWvmLYvtp846tLHam2o++qitpguFiYCKbn0w9jyqw=
 github.com/gabriel-vasile/mimetype v1.4.12/go.mod h1:d+9Oxyo1wTzWdyVUPMmXFvp4F9tea18J8ufA774AB3s=
-github.com/gin-contrib/gzip v1.2.5 h1:fIZs0S+l17pIu1P5XRJOo/YNqfIuPCrZZ3TWB7pjckI=
-github.com/gin-contrib/gzip v1.2.5/go.mod h1:aomRgR7ftdZV3uWY0gW/m8rChfxau0n8YVvwlOHONzw=
+github.com/gin-contrib/gzip v0.0.6 h1:NjcunTcGAj5CO1gn4N8jHOSIeRFHIbn51z6K+xaN4d4=
+github.com/gin-contrib/gzip v0.0.6/go.mod h1:QOJlmV2xmayAjkNS2Y8NQsMneuRShOU/kjovCXNuzzk=
 github.com/gin-contrib/sse v1.1.0 h1:n0w2GMuUpWDVp7qSpvze6fAu9iRxJY4Hmj6AmBOU05w=
 github.com/gin-contrib/sse v1.1.0/go.mod h1:hxRZ5gVpWMT7Z0B0gSNYqqsSCNIJMjzvm6fqCz9vjwM=
 github.com/gin-gonic/gin v1.11.0 h1:OW/6PLjyusp2PPXtyxKHU0RbX6I/l28FTdDlae5ueWk=
 github.com/gin-gonic/gin v1.11.0/go.mod h1:+iq/FyxlGzII0KHiBGjuNn4UNENUlKbGlNmc+W50Dls=
 github.com/go-jose/go-jose/v4 v4.1.3 h1:CVLmWDhDVRa6Mi/IgCgaopNosCaHz7zrMeF9MlZRkrs=
 github.com/go-jose/go-jose/v4 v4.1.3/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
-github.com/go-json-experiment/json v0.0.0-20251027170946-4849db3c2f7e h1:Lf/gRkoycfOBPa42vU2bbgPurFong6zXeFtPoxholzU=
-github.com/go-json-experiment/json v0.0.0-20251027170946-4849db3c2f7e/go.mod h1:uNVvRXArCGbZ508SxYYTC5v1JWoz2voff5pm25jU1Ok=
 github.com/go-oidfed/lib v0.9.0 h1:Xm9b3Ai3yJZF5Et/sE6KTvp7b8S4TT9YKKUuosYyNuU=
 github.com/go-oidfed/lib v0.9.0/go.mod h1:ncM9VgiWMRAV6/g76mCreP4Hqu/IqoMWgMh65bg+tLQ=
 github.com/go-openapi/jsonpointer v0.22.4 h1:dZtK82WlNpVLDW2jlA1YCiVJFVqkED1MegOUy9kR5T4=
