@@ -688,7 +688,8 @@ func (r *WhitelistRegistry) Info() registry.RegistryInfo {
 		Healthy:        r.keysLoaded,
 	}
 	if !r.lastRefresh.IsZero() {
-		info.LastUpdated = &r.lastRefresh
+		lastRefresh := r.lastRefresh
+		info.LastUpdated = &lastRefresh
 	}
 	return info
 }
