@@ -246,6 +246,26 @@ func TestRefresh(t *testing.T) {
 	assert.True(t, resp.Decision)
 }
 
+func TestInfo_LastUpdated(t *testing.T) {
+	dir := t.TempDir()
+	path := writeLoTE(t, dir, "lote.json", testLoTE())
+
+	reg, err := New(Config{Sources: []string{path}})
+	require.NoError(t, err)
+
+	info := reg.Info()
+	require.NotNil(t, info.LastUpdated, "expected LastUpdated to be set")
+	assert.False(t, info.LastUpdated.IsZero())
+
+	before := *info.LastUpdated
+	time.Sleep(10 * time.Millisecond)
+
+	require.NoError(t, reg.Refresh(context.Background()))
+
+	info = reg.Info()
+	assert.True(t, info.LastUpdated.After(before), "expected LastUpdated to advance after refresh")
+}
+
 func TestMultipleSources(t *testing.T) {
 	dir := t.TempDir()
 

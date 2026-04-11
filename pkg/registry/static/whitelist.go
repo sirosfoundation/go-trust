@@ -678,7 +678,7 @@ func (r *WhitelistRegistry) Info() registry.RegistryInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return registry.RegistryInfo{
+	info := registry.RegistryInfo{
 		Name:           r.name,
 		Type:           "static_whitelist",
 		Description:    r.description,
@@ -687,6 +687,10 @@ func (r *WhitelistRegistry) Info() registry.RegistryInfo {
 		ResolutionOnly: true,
 		Healthy:        r.keysLoaded,
 	}
+	if !r.lastRefresh.IsZero() {
+		info.LastUpdated = &r.lastRefresh
+	}
+	return info
 }
 
 // Healthy returns true when the most recent JWKS refresh loaded keys for

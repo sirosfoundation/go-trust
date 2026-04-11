@@ -51,10 +51,11 @@ type Config struct {
 type Registry struct {
 	config Config
 
-	mu      sync.RWMutex
-	lotes   []*etsi119602.ListOfTrustedEntities
-	index   *entityIndex
-	healthy bool
+	mu          sync.RWMutex
+	lotes       []*etsi119602.ListOfTrustedEntities
+	index       *entityIndex
+	healthy     bool
+	lastUpdated time.Time
 
 	stopCh chan struct{}
 }
@@ -244,7 +245,7 @@ func (r *Registry) SupportsResolutionOnly() bool {
 func (r *Registry) Info() registry.RegistryInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return registry.RegistryInfo{
+	info := registry.RegistryInfo{
 		Name:           r.config.Name,
 		Type:           "lote",
 		Description:    r.config.Description,
@@ -253,6 +254,10 @@ func (r *Registry) Info() registry.RegistryInfo {
 		ResolutionOnly: true,
 		Healthy:        r.healthy,
 	}
+	if !r.lastUpdated.IsZero() {
+		info.LastUpdated = &r.lastUpdated
+	}
+	return info
 }
 
 func (r *Registry) Healthy() bool {
@@ -387,6 +392,7 @@ func (r *Registry) refresh() error {
 	r.lotes = lotes
 	r.index = idx
 	r.healthy = true
+	r.lastUpdated = time.Now()
 	r.mu.Unlock()
 
 	if r.config.Logger != nil {

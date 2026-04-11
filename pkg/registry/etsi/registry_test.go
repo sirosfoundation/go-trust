@@ -2230,3 +2230,38 @@ func TestTSLRegistry_StartRefreshLoop_ContextCancel(t *testing.T) {
 		t.Error("expected refresh to stop after context cancellation")
 	}
 }
+
+func TestTSLRegistry_Info_LastUpdated(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	_, pemData := generateTestCertificate(t, "LastUpdated CA")
+	certPath := writeTestCertFile(t, tmpDir, "ca.pem", pemData)
+
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:       "last-updated-test",
+		CertBundle: certPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	info := reg.Info()
+	if info.LastUpdated == nil {
+		t.Fatal("expected LastUpdated to be set after initial load")
+	}
+	if info.LastUpdated.IsZero() {
+		t.Fatal("expected LastUpdated to be non-zero")
+	}
+
+	before := *info.LastUpdated
+	time.Sleep(10 * time.Millisecond)
+
+	if err := reg.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+
+	info = reg.Info()
+	if !info.LastUpdated.After(before) {
+		t.Error("expected LastUpdated to advance after refresh")
+	}
+}

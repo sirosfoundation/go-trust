@@ -974,6 +974,7 @@ func (r *TSLRegistry) Info() registry.RegistryInfo {
 		Description:  r.config.Description,
 		Version:      "1.0.0",
 		TrustAnchors: trustAnchors,
+		LastUpdated:  &r.loadedAt,
 	}
 }
 
