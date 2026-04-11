@@ -255,7 +255,8 @@ func (r *Registry) Info() registry.RegistryInfo {
 		Healthy:        r.healthy,
 	}
 	if !r.lastUpdated.IsZero() {
-		info.LastUpdated = &r.lastUpdated
+		lastUpdated := r.lastUpdated
+		info.LastUpdated = &lastUpdated
 	}
 	return info
 }

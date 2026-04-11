@@ -2038,10 +2038,10 @@ func TestTSLRegistry_UnsupportedResourceType(t *testing.T) {
 	certB64 := base64.StdEncoding.EncodeToString(cert.Raw)
 
 	tests := []struct {
-		name            string
-		resourceType    string
-		expectKnown     bool // known-but-unsupported vs completely unknown
-		expectSecNote   bool // should include security note
+		name          string
+		resourceType  string
+		expectKnown   bool // known-but-unsupported vs completely unknown
+		expectSecNote bool // should include security note
 	}{
 		{
 			name:          "completely unknown type",
@@ -2161,6 +2161,27 @@ func TestTSLRegistry_StartRefreshLoop_ZeroInterval(t *testing.T) {
 	// Should be a no-op
 	if err := reg.StartRefreshLoop(context.Background()); err != nil {
 		t.Fatalf("StartRefreshLoop should succeed with zero interval: %v", err)
+	}
+}
+
+func TestTSLRegistry_StartRefreshLoop_NegativeInterval(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	_, pemData := generateTestCertificate(t, "Negative Interval CA")
+	certPath := writeTestCertFile(t, tmpDir, "ca.pem", pemData)
+
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:            "negative-interval-test",
+		CertBundle:      certPath,
+		RefreshInterval: -1 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	err = reg.StartRefreshLoop(context.Background())
+	if err == nil {
+		t.Fatal("expected error for negative RefreshInterval")
 	}
 }
 
