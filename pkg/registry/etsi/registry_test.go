@@ -2106,3 +2106,127 @@ func TestTSLRegistry_UnsupportedResourceType(t *testing.T) {
 		})
 	}
 }
+
+func TestTSLRegistry_StartRefreshLoop(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	_, pemData := generateTestCertificate(t, "Refresh Loop CA")
+	certPath := writeTestCertFile(t, tmpDir, "ca.pem", pemData)
+
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:            "refresh-loop-test",
+		CertBundle:      certPath,
+		RefreshInterval: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	originalLoadedAt := reg.LoadedAt()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := reg.StartRefreshLoop(ctx); err != nil {
+		t.Fatalf("StartRefreshLoop failed: %v", err)
+	}
+	defer reg.Stop()
+
+	// Wait for at least one tick to fire
+	time.Sleep(120 * time.Millisecond)
+
+	if !reg.LoadedAt().After(originalLoadedAt) {
+		t.Error("expected LoadedAt to advance after refresh loop tick")
+	}
+	if !reg.Healthy() {
+		t.Error("expected registry to remain healthy after refresh")
+	}
+}
+
+func TestTSLRegistry_StartRefreshLoop_ZeroInterval(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	_, pemData := generateTestCertificate(t, "No Refresh CA")
+	certPath := writeTestCertFile(t, tmpDir, "ca.pem", pemData)
+
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:       "no-refresh-test",
+		CertBundle: certPath,
+		// RefreshInterval defaults to zero
+	})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	// Should be a no-op
+	if err := reg.StartRefreshLoop(context.Background()); err != nil {
+		t.Fatalf("StartRefreshLoop should succeed with zero interval: %v", err)
+	}
+}
+
+func TestTSLRegistry_Stop(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	_, pemData := generateTestCertificate(t, "Stop CA")
+	certPath := writeTestCertFile(t, tmpDir, "ca.pem", pemData)
+
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:            "stop-test",
+		CertBundle:      certPath,
+		RefreshInterval: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := reg.StartRefreshLoop(ctx); err != nil {
+		t.Fatalf("StartRefreshLoop failed: %v", err)
+	}
+
+	// Stop should be safe to call
+	reg.Stop()
+
+	// Double-stop should not panic
+	reg.Stop()
+
+	loadedAt := reg.LoadedAt()
+	time.Sleep(120 * time.Millisecond)
+
+	// After stop, loadedAt should not advance
+	if reg.LoadedAt().After(loadedAt) {
+		t.Error("expected refresh to stop after Stop()")
+	}
+}
+
+func TestTSLRegistry_StartRefreshLoop_ContextCancel(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	_, pemData := generateTestCertificate(t, "Ctx Cancel CA")
+	certPath := writeTestCertFile(t, tmpDir, "ca.pem", pemData)
+
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:            "ctx-cancel-test",
+		CertBundle:      certPath,
+		RefreshInterval: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := reg.StartRefreshLoop(ctx); err != nil {
+		t.Fatalf("StartRefreshLoop failed: %v", err)
+	}
+
+	// Cancel the context
+	cancel()
+
+	loadedAt := reg.LoadedAt()
+	time.Sleep(120 * time.Millisecond)
+
+	// After context cancel, loadedAt should not advance
+	if reg.LoadedAt().After(loadedAt) {
+		t.Error("expected refresh to stop after context cancellation")
+	}
+}
