@@ -24,7 +24,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
     -o gt ./cmd/gt
 
 # Runtime stage - minimal alpine for healthcheck support
-FROM alpine:3.21
+FROM alpine:3.23
 
 WORKDIR /app
 
