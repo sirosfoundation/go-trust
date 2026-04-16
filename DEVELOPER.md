@@ -211,7 +211,7 @@ Integration tests cover:
 - **Health endpoints**: `/healthz` and `/readyz` for liveness/readiness probes
 - **Metrics endpoint**: `/metrics` for Prometheus metrics
 - **AuthZEN discovery**: `/.well-known/authzen-configuration`
-- **TSL information**: `/tsls` endpoint
+- **Registry information**: `/registries` endpoint
 - **Evaluation endpoint**: `/evaluation` with various scenarios:
   - Valid requests with mock registries
   - Trusted certificates (generated test CA)

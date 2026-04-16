@@ -107,14 +107,14 @@
         },
         "/info": {
             "get": {
-                "description": "Returns detailed summaries of all loaded Trust Status Lists\n\nDEPRECATED: This endpoint is deprecated. Use GET /tsls instead.\n\nThis endpoint provides comprehensive information about each TSL including:\n- Territory code\n- Sequence number\n- Issue date\n- Next update date\n- Number of services",
+                "description": "Returns detailed summaries of all loaded Trust Status Lists\n\nDEPRECATED: This endpoint is deprecated. Use GET /registries instead.\n\nThis endpoint provides comprehensive information about each TSL including:\n- Territory code\n- Sequence number\n- Issue date\n- Next update date\n- Number of services",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Status"
                 ],
-                "summary": "Get TSL information (DEPRECATED - use GET /tsls)",
+                "summary": "Get TSL information (DEPRECATED - use GET /registries)",
                 "deprecated": true,
                 "responses": {
                     "200": {
@@ -183,7 +183,7 @@
                 }
             }
         },
-        "/tsls": {
+        "/registries": {
             "get": {
                 "description": "Returns comprehensive information about all configured trust registries\n\nThis is the primary endpoint for retrieving registry metadata including:\n- Registry names and types\n- Supported resource types\n- Health status\n- Last processing timestamp",
                 "produces": [
@@ -195,7 +195,29 @@
                 "summary": "List Trust Registries",
                 "responses": {
                     "200": {
-                        "description": "count, last_updated, registries",
+                        "description": "count, registries",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tsls": {
+            "get": {
+                "description": "DEPRECATED: Use GET /registries instead.\n\nReturns comprehensive information about all configured trust registries. This endpoint is kept for backward compatibility and will be removed in v2.0.0.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Registries"
+                ],
+                "summary": "List Trust Registries (DEPRECATED - use GET /registries)",
+                "deprecated": true,
+                "responses": {
+                    "200": {
+                        "description": "count, registries",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -220,14 +242,17 @@
         "api.ReadinessResponse": {
             "type": "object",
             "properties": {
-                "last_processed": {
-                    "type": "string"
-                },
                 "message": {
                     "type": "string"
                 },
                 "ready": {
                     "type": "boolean"
+                },
+                "registry_count": {
+                    "type": "integer"
+                },
+                "healthy_count": {
+                    "type": "integer"
                 },
                 "status": {
                     "type": "string"
@@ -235,10 +260,7 @@
                 "timestamp": {
                     "type": "string"
                 },
-                "tsl_count": {
-                    "type": "integer"
-                },
-                "tsls": {
+                "registries": {
                     "description": "Only included with ?verbose=true",
                     "type": "array",
                     "items": {
@@ -382,7 +404,7 @@
             }
         },
         "authzen.Resource": {
-            "description": "Resource (public key) in an AuthZEN trust evaluation request",
+            "description": "Resource (public key) in an AuthZEN trust evaluation request.\\n\\nFor full trust evaluation: type and key are REQUIRED.\\nFor resolution-only requests: omit type and key to resolve the subject without key validation. Registries supporting resolution (did:web, did:key, OpenID Federation) will return the resolved document in context.trust_metadata.",
             "type": "object",
             "properties": {
                 "id": {

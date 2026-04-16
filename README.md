@@ -105,7 +105,7 @@ Environment variable: `GO_TRUST_EXTERNAL_URL` for external URL.
 | `GET /readyz` | Kubernetes readiness probe (503 until TSLs loaded) |
 | `GET /readyz?verbose=true` | Readiness with detailed TSL info |
 | `GET /metrics` | Prometheus metrics |
-| `GET /tsls` | List loaded Trust Status Lists |
+| `GET /registries` | List configured trust registries |
 
 ### AuthZEN Evaluation Request
 

@@ -9,19 +9,19 @@ definitions:
     type: object
   api.ReadinessResponse:
     properties:
-      last_processed:
-        type: string
       message:
         type: string
       ready:
         type: boolean
+      registry_count:
+        type: integer
+      healthy_count:
+        type: integer
       status:
         type: string
       timestamp:
         type: string
-      tsl_count:
-        type: integer
-      tsls:
+      registries:
         description: Only included with ?verbose=true
         items:
           additionalProperties: true
@@ -131,7 +131,13 @@ definitions:
         type: string
     type: object
   authzen.Resource:
-    description: Resource (public key) in an AuthZEN trust evaluation request
+    description: |-
+      Resource (public key) in an AuthZEN trust evaluation request.
+
+      For full trust evaluation: type and key are REQUIRED.
+      For resolution-only requests: omit type and key to resolve the subject
+      without key validation. Registries supporting resolution (did:web, did:key,
+      OpenID Federation) will return the resolved document in context.trust_metadata.
     properties:
       id:
         description: MUST match subject.id
@@ -263,7 +269,7 @@ paths:
       description: |-
         Returns detailed summaries of all loaded Trust Status Lists
 
-        DEPRECATED: This endpoint is deprecated. Use GET /tsls instead.
+        DEPRECATED: This endpoint is deprecated. Use GET /registries instead.
 
         This endpoint provides comprehensive information about each TSL including:
         - Territory code
@@ -279,7 +285,7 @@ paths:
           schema:
             additionalProperties: true
             type: object
-      summary: Get TSL information (DEPRECATED - use GET /tsls)
+      summary: Get TSL information (DEPRECATED - use GET /registries)
       tags:
       - Status
   /readyz:
@@ -326,7 +332,7 @@ paths:
       summary: Get server status (DEPRECATED - use GET /readyz)
       tags:
       - Status
-  /tsls:
+  /registries:
     get:
       description: |-
         Returns comprehensive information about all configured trust registries
@@ -340,11 +346,30 @@ paths:
       - application/json
       responses:
         "200":
-          description: count, last_updated, registries
+          description: count, registries
           schema:
             additionalProperties: true
             type: object
       summary: List Trust Registries
+      tags:
+      - Registries
+  /tsls:
+    get:
+      deprecated: true
+      description: |-
+        DEPRECATED: Use GET /registries instead.
+
+        Returns comprehensive information about all configured trust registries.
+        This endpoint is kept for backward compatibility and will be removed in v2.0.0.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: count, registries
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List Trust Registries (DEPRECATED - use GET /registries)
       tags:
       - Registries
 schemes:

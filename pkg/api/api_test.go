@@ -772,8 +772,8 @@ func TestNilRegistryManager(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "no registry manager")
 }
 
-// TestTSLsHandler_EmptyRegistryManager tests TSLsHandler when no ETSI registries exist
-func TestTSLsHandler_EmptyRegistryManager(t *testing.T) {
+// TestRegistriesHandler_EmptyRegistryManager tests RegistriesHandler when no ETSI registries exist
+func TestRegistriesHandler_EmptyRegistryManager(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	logger := logging.NewLogger(logging.InfoLevel)
@@ -788,7 +788,7 @@ func TestTSLsHandler_EmptyRegistryManager(t *testing.T) {
 	router := gin.New()
 	RegisterAPIRoutes(router, serverCtx)
 
-	req := httptest.NewRequest("GET", "/tsls", nil)
+	req := httptest.NewRequest("GET", "/registries", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -797,8 +797,28 @@ func TestTSLsHandler_EmptyRegistryManager(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "registries")
 }
 
-// TestTSLsHandler_NilRegistryManager tests TSLsHandler when RegistryManager is nil
-func TestTSLsHandler_NilRegistryManager(t *testing.T) {
+// TestRegistriesHandler_NilRegistryManager tests RegistriesHandler when RegistryManager is nil
+func TestRegistriesHandler_NilRegistryManager(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	logger := logging.NewLogger(logging.InfoLevel)
+	serverCtx := NewServerContext(logger)
+	serverCtx.RegistryManager = nil
+
+	router := gin.New()
+	RegisterAPIRoutes(router, serverCtx)
+
+	req := httptest.NewRequest("GET", "/registries", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// When RegistryManager is nil, it returns 200 with empty registries
+	assert.Equal(t, 200, w.Code)
+	assert.Contains(t, w.Body.String(), "count")
+}
+
+// TestDeprecatedTSLsEndpoint tests that the legacy /tsls path still works
+func TestDeprecatedTSLsEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	logger := logging.NewLogger(logging.InfoLevel)
@@ -812,7 +832,6 @@ func TestTSLsHandler_NilRegistryManager(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// When RegistryManager is nil, it returns 200 with empty registries
 	assert.Equal(t, 200, w.Code)
 	assert.Contains(t, w.Body.String(), "count")
 }

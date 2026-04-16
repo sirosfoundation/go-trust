@@ -178,10 +178,10 @@ func AuthZENDecisionHandler(serverCtx *ServerContext) gin.HandlerFunc {
 }
 
 // InfoHandler godoc
-// @Summary Get TSL information (DEPRECATED - use GET /tsls)
+// @Summary Get TSL information (DEPRECATED - use GET /registries)
 // @Description Returns detailed summaries of all loaded Trust Status Lists
 // @Description
-// @Description DEPRECATED: This endpoint is deprecated. Use GET /tsls instead.
+// @Description DEPRECATED: This endpoint is deprecated. Use GET /registries instead.
 // @Description
 // @Description This endpoint provides comprehensive information about each TSL including:
 // @Description - Territory code
@@ -198,8 +198,8 @@ func InfoHandler(serverCtx *ServerContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Add deprecation headers
 		c.Header("Deprecation", "true")
-		c.Header("Link", "</tsls>; rel=\"alternate\"")
-		c.Header("X-API-Warn", "This endpoint is deprecated. Please use GET /tsls instead.")
+		c.Header("Link", "</registries>; rel=\"alternate\"")
+		c.Header("X-API-Warn", "This endpoint is deprecated. Please use GET /registries instead.")
 
 		serverCtx.RLock()
 		defer serverCtx.RUnlock()
@@ -226,7 +226,7 @@ func InfoHandler(serverCtx *ServerContext) gin.HandlerFunc {
 		serverCtx.Logger.Debug("API info request (deprecated endpoint)",
 			logging.F("remote_ip", c.ClientIP()),
 			logging.F("registry_count", registryCount),
-			logging.F("replacement", "GET /tsls"))
+			logging.F("replacement", "GET /registries"))
 
 		c.JSON(200, gin.H{
 			"registries": registryInfos,
@@ -234,7 +234,7 @@ func InfoHandler(serverCtx *ServerContext) gin.HandlerFunc {
 	}
 }
 
-// TSLsHandler godoc
+// RegistriesHandler godoc
 // @Summary List Trust Registries
 // @Description Returns comprehensive information about all configured trust registries
 // @Description
@@ -245,9 +245,9 @@ func InfoHandler(serverCtx *ServerContext) gin.HandlerFunc {
 // @Description - Last processing timestamp
 // @Tags Registries
 // @Produce json
-// @Success 200 {object} map[string]interface{} "count, last_updated, registries"
-// @Router /tsls [get]
-func TSLsHandler(serverCtx *ServerContext) gin.HandlerFunc {
+// @Success 200 {object} map[string]interface{} "count, registries"
+// @Router /registries [get]
+func RegistriesHandler(serverCtx *ServerContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		serverCtx.RLock()
 		defer serverCtx.RUnlock()
@@ -270,7 +270,7 @@ func TSLsHandler(serverCtx *ServerContext) gin.HandlerFunc {
 			registryCount = len(registryInfos)
 		}
 
-		serverCtx.Logger.Debug("API /tsls request",
+		serverCtx.Logger.Debug("API /registries request",
 			logging.F("remote_ip", c.ClientIP()),
 			logging.F("registry_count", registryCount))
 
