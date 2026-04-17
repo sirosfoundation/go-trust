@@ -178,21 +178,15 @@ func AuthZENDecisionHandler(serverCtx *ServerContext) gin.HandlerFunc {
 }
 
 // InfoHandler godoc
-// @Summary Get TSL information (DEPRECATED - use GET /registries)
-// @Description Returns detailed summaries of all loaded Trust Status Lists
+// @Summary Get registry information (DEPRECATED - use GET /registries)
+// @Description Returns the same registry metadata as GET /registries.
 // @Description
 // @Description DEPRECATED: This endpoint is deprecated. Use GET /registries instead.
-// @Description
-// @Description This endpoint provides comprehensive information about each TSL including:
-// @Description - Territory code
-// @Description - Sequence number
-// @Description - Issue date
-// @Description - Next update date
-// @Description - Number of services
+// @Description Response includes deprecation headers.
 // @Tags Status
 // @Deprecated true
 // @Produce json
-// @Success 200 {object} map[string]interface{} "tsl_summaries"
+// @Success 200 {object} map[string]interface{} "registries"
 // @Router /info [get]
 func InfoHandler(serverCtx *ServerContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -242,7 +236,6 @@ func InfoHandler(serverCtx *ServerContext) gin.HandlerFunc {
 // @Description - Registry names and types
 // @Description - Supported resource types
 // @Description - Health status
-// @Description - Last processing timestamp
 // @Tags Registries
 // @Produce json
 // @Success 200 {object} map[string]interface{} "count, registries"
@@ -278,6 +271,19 @@ func RegistriesHandler(serverCtx *ServerContext) gin.HandlerFunc {
 			"count":      registryCount,
 			"registries": registryInfos,
 		})
+	}
+}
+
+// DeprecatedTSLsHandler wraps RegistriesHandler with deprecation headers.
+// This preserves backward compatibility for clients still using GET /tsls
+// while signaling they should migrate to GET /registries.
+func DeprecatedTSLsHandler(serverCtx *ServerContext) gin.HandlerFunc {
+	handler := RegistriesHandler(serverCtx)
+	return func(c *gin.Context) {
+		c.Header("Deprecation", "true")
+		c.Header("Link", "</registries>; rel=\"alternate\"")
+		c.Header("X-API-Warn", "This endpoint is deprecated. Please use GET /registries instead.")
+		handler(c)
 	}
 }
 

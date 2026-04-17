@@ -107,18 +107,18 @@
         },
         "/info": {
             "get": {
-                "description": "Returns detailed summaries of all loaded Trust Status Lists\n\nDEPRECATED: This endpoint is deprecated. Use GET /registries instead.\n\nThis endpoint provides comprehensive information about each TSL including:\n- Territory code\n- Sequence number\n- Issue date\n- Next update date\n- Number of services",
+                "description": "Returns the same registry metadata as GET /registries.\n\nDEPRECATED: This endpoint is deprecated. Use GET /registries instead.\nResponse includes deprecation headers.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Status"
                 ],
-                "summary": "Get TSL information (DEPRECATED - use GET /registries)",
+                "summary": "Get registry information (DEPRECATED - use GET /registries)",
                 "deprecated": true,
                 "responses": {
                     "200": {
-                        "description": "tsl_summaries",
+                        "description": "registries",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -185,7 +185,7 @@
         },
         "/registries": {
             "get": {
-                "description": "Returns comprehensive information about all configured trust registries\n\nThis is the primary endpoint for retrieving registry metadata including:\n- Registry names and types\n- Supported resource types\n- Health status\n- Last processing timestamp",
+                "description": "Returns comprehensive information about all configured trust registries\n\nThis is the primary endpoint for retrieving registry metadata including:\n- Registry names and types\n- Supported resource types\n- Health status",
                 "produces": [
                     "application/json"
                 ],

@@ -817,7 +817,7 @@ func TestRegistriesHandler_NilRegistryManager(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "count")
 }
 
-// TestDeprecatedTSLsEndpoint tests that the legacy /tsls path still works
+// TestDeprecatedTSLsEndpoint tests that the legacy /tsls path still works and emits deprecation headers
 func TestDeprecatedTSLsEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -834,4 +834,9 @@ func TestDeprecatedTSLsEndpoint(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code)
 	assert.Contains(t, w.Body.String(), "count")
+
+	// Verify deprecation signaling
+	assert.Equal(t, "true", w.Header().Get("Deprecation"))
+	assert.Contains(t, w.Header().Get("Link"), "/registries")
+	assert.Contains(t, w.Header().Get("X-API-Warn"), "/registries")
 }

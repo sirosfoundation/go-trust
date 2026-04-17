@@ -195,7 +195,7 @@ func RegisterAPIRoutes(r *gin.Engine, serverCtx *ServerContext) {
 	r.GET("/registries", RegistriesHandler(serverCtx))
 
 	// Deprecated endpoints (kept for backward compatibility)
-	r.GET("/tsls", RegistriesHandler(serverCtx)) // DEPRECATED: use /registries
+	r.GET("/tsls", DeprecatedTSLsHandler(serverCtx))
 	r.GET("/status", StatusHandler(serverCtx))
 	r.GET("/info", InfoHandler(serverCtx))
 

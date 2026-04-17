@@ -267,25 +267,19 @@ paths:
     get:
       deprecated: true
       description: |-
-        Returns detailed summaries of all loaded Trust Status Lists
+        Returns the same registry metadata as GET /registries.
 
         DEPRECATED: This endpoint is deprecated. Use GET /registries instead.
-
-        This endpoint provides comprehensive information about each TSL including:
-        - Territory code
-        - Sequence number
-        - Issue date
-        - Next update date
-        - Number of services
+        Response includes deprecation headers.
       produces:
       - application/json
       responses:
         "200":
-          description: tsl_summaries
+          description: registries
           schema:
             additionalProperties: true
             type: object
-      summary: Get TSL information (DEPRECATED - use GET /registries)
+      summary: Get registry information (DEPRECATED - use GET /registries)
       tags:
       - Status
   /readyz:
@@ -341,7 +335,6 @@ paths:
         - Registry names and types
         - Supported resource types
         - Health status
-        - Last processing timestamp
       produces:
       - application/json
       responses:
