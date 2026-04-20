@@ -21,8 +21,8 @@ import (
 
 const (
 	// Published LoTE URLs from trust.siros.org (GitHub Pages).
-	loteURL    = "https://sirosfoundation.github.io/trust-lists/lote-SE.json"
-	loteJWSURL = "https://sirosfoundation.github.io/trust-lists/lote-SE.json.jws"
+	loteURL    = "https://sirosfoundation.github.io/trust-lists/lote-demo.json"
+	loteJWSURL = "https://sirosfoundation.github.io/trust-lists/lote-demo.json.jws"
 )
 
 func skipIfOffline(t *testing.T) {
