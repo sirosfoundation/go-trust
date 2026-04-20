@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,11 +28,15 @@ const (
 func skipIfOffline(t *testing.T) {
 	t.Helper()
 	if os.Getenv("GO_TRUST_INTEGRATION") == "" {
-		t.Skip("set GO_TRUST_INTEGRATION=1 to run live integration tests")
+		t.Skip("set GO_TRUST_INTEGRATION to a non-empty value to run live integration tests")
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Head(loteURL)
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
+		t.Skipf("cannot reach %s — skipping", loteURL)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
 		t.Skipf("cannot reach %s — skipping", loteURL)
 	}
 }
@@ -70,9 +75,16 @@ func TestPublishedLoTE_SchemeInformation(t *testing.T) {
 	assert.Equal(t, "SE", l.SchemeInformation.Territory)
 	assert.GreaterOrEqual(t, l.SchemeInformation.SequenceNumber, 1)
 
-	// Operator name should reference SIROS Foundation
+	// Operator name should reference SIROS Foundation (any language entry)
 	require.NotEmpty(t, l.SchemeInformation.SchemeOperator)
-	assert.Equal(t, "SIROS Foundation", l.SchemeInformation.SchemeOperator[0].Value)
+	foundOperator := false
+	for _, operator := range l.SchemeInformation.SchemeOperator {
+		if operator.Value == "SIROS Foundation" {
+			foundOperator = true
+			break
+		}
+	}
+	assert.True(t, foundOperator, "expected SchemeOperator to include SIROS Foundation")
 }
 
 // TestPublishedLoTE_ResolveGrantedEntity verifies that the known granted
@@ -134,8 +146,8 @@ func TestPublishedLoTE_JWSAvailable(t *testing.T) {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024))
 	require.NoError(t, err)
 
-	compact := string(body)
-	parts := splitDot(compact)
+	compact := strings.TrimSpace(string(body))
+	parts := strings.Split(compact, ".")
 	assert.Equal(t, 3, len(parts), "JWS compact serialization must have 3 parts (header.payload.signature)")
 	for i, p := range parts {
 		assert.NotEmpty(t, p, "JWS part %d must not be empty", i)
@@ -179,16 +191,4 @@ func TestPublishedLoTE_WithTestServer(t *testing.T) {
 	assert.False(t, resp.Decision)
 }
 
-// splitDot splits a string on '.' without importing strings to keep deps minimal.
-func splitDot(s string) []string {
-	var parts []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '.' {
-			parts = append(parts, s[start:i])
-			start = i + 1
-		}
-	}
-	parts = append(parts, s[start:])
-	return parts
-}
+
