@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/sirosfoundation/g119612/pkg/etsi119612"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
@@ -93,7 +92,7 @@ func (r *TSLRegistry) extractSignerCertsFromPointers(tsl *etsi119612.TSL, lotlLo
 		}
 
 		// If lotlLocation is specified, only extract from matching pointers
-		if lotlLocation != "" && !strings.EqualFold(pointer.TSLLocation, lotlLocation) {
+		if lotlLocation != "" && pointer.TSLLocation != lotlLocation {
 			continue
 		}
 
@@ -145,7 +144,8 @@ func (r *TSLRegistry) resolvePivotChain(tsl *etsi119612.TSL, lotlSigners []*x509
 	// The LOTL location is the source URL of the TSL we're trying to verify
 	lotlLocation := tsl.Source
 
-	var pivotVerified bool
+	var pivotVerified bool  // at least one pivot was signature-verified
+	var newSignerFound bool // at least one new signer cert was discovered
 
 	// Process pivots oldest-to-newest so trust chains build incrementally
 	for _, pivotURL := range pivotURLs {
@@ -176,6 +176,8 @@ func (r *TSLRegistry) resolvePivotChain(tsl *etsi119612.TSL, lotlSigners []*x509
 			continue
 		}
 
+		pivotVerified = true
+
 		// Extract new signer certificates from the pivot's PointersToOtherTSL.
 		// Look for pointers to the same LOTL location (or all pointers if location is empty).
 		newSigners := r.extractSignerCertsFromPointers(pivotTSL, lotlLocation)
@@ -187,7 +189,7 @@ func (r *TSLRegistry) resolvePivotChain(tsl *etsi119612.TSL, lotlSigners []*x509
 		for _, newSigner := range newSigners {
 			if !containsCert(trustedSigners, newSigner) {
 				trustedSigners = append(trustedSigners, newSigner)
-				pivotVerified = true
+				newSignerFound = true
 				if r.config.Logger != nil {
 					r.config.Logger.Info("discovered new LOTL signer via pivot",
 						"pivot", pivotURL,
@@ -200,6 +202,9 @@ func (r *TSLRegistry) resolvePivotChain(tsl *etsi119612.TSL, lotlSigners []*x509
 
 	if !pivotVerified {
 		return lotlSigners, fmt.Errorf("no pivot LOTLs could be verified with the current trust set")
+	}
+	if !newSignerFound {
+		return trustedSigners, fmt.Errorf("pivot LOTLs were verified but no new signer certificates were discovered")
 	}
 
 	return trustedSigners, nil

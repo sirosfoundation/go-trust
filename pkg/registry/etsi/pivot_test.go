@@ -394,12 +394,8 @@ func TestResolvePivotChain_WithHTTPServer(t *testing.T) {
 
 func TestVerifyTSLSignature_ReturnsUpdatedSigners(t *testing.T) {
 	// When FollowPivots is false and signer is trusted, returns original signers
-	cert, pemData, _ := generateTestCertAndKey(t, "Signer")
+	cert, _, _ := generateTestCertAndKey(t, "Signer")
 	tsl := makeTSLWithSigner("https://example.com/tsl.xml", cert, nil)
-
-	tmpDir := t.TempDir()
-	certPath := filepath.Join(tmpDir, "trust.pem")
-	os.WriteFile(certPath, pemData, 0644)
 
 	reg := &TSLRegistry{config: TSLConfig{}}
 	signers := []*x509.Certificate{cert}
@@ -521,9 +517,11 @@ func TestResolvePivotChain_HTTPIntegration(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create LOTL with pivot URLs pointing to our test server
+	// Create LOTL with pivot URLs pointing to our test server.
+	// The pivot filename must match the production pivot URL pattern
+	// (`-pivot-<seq>.xml`) so resolvePivotChain will actually attempt an HTTP fetch.
 	lotl := makeTSLWithSigner(server.URL+"/lotl.xml", signerA, []string{
-		server.URL + "/pivot-100.xml",
+		server.URL + "/eu-lotl-pivot-100.xml",
 	})
 
 	reg := &TSLRegistry{config: TSLConfig{

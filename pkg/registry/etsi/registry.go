@@ -429,22 +429,30 @@ func (r *TSLRegistry) verifyTSLSignature(tsl *etsi119612.TSL, lotlSigners []*x50
 
 	// Signer not in trusted list - attempt pivot resolution if enabled
 	if r.config.FollowPivots {
-		updatedSigners, err := r.resolvePivotChain(tsl, lotlSigners)
-		if err == nil {
-			// Re-check with updated signers
-			for _, trustedSigner := range updatedSigners {
-				if signerCert.Equal(trustedSigner) {
-					if r.config.Logger != nil {
-						r.config.Logger.Info("TSL signature verified via pivot chain",
-							"source", tsl.Source,
-							"signer_cn", signerCert.Subject.CommonName,
-						)
-					}
-					return updatedSigners, nil
-				}
+		if !r.config.AllowNetworkAccess {
+			if r.config.Logger != nil {
+				r.config.Logger.Warn("pivot chain resolution skipped because network access is disabled",
+					"source", tsl.Source,
+				)
 			}
-		} else if r.config.Logger != nil {
-			r.config.Logger.Warn("pivot chain resolution failed", "source", tsl.Source, "error", err)
+		} else {
+			updatedSigners, err := r.resolvePivotChain(tsl, lotlSigners)
+			if err == nil {
+				// Re-check with updated signers
+				for _, trustedSigner := range updatedSigners {
+					if signerCert.Equal(trustedSigner) {
+						if r.config.Logger != nil {
+							r.config.Logger.Info("TSL signature verified via pivot chain",
+								"source", tsl.Source,
+								"signer_cn", signerCert.Subject.CommonName,
+							)
+						}
+						return updatedSigners, nil
+					}
+				}
+			} else if r.config.Logger != nil {
+				r.config.Logger.Warn("pivot chain resolution failed", "source", tsl.Source, "error", err)
+			}
 		}
 	}
 
