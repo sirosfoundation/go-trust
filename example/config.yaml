@@ -112,6 +112,10 @@ registries:
     # Requires lotl_signer_bundle to be configured.
     require_signature: false
 
+    # When true, process ETSI TS 119 615 pivot LOTLs for signer certificate rollover.
+    # Requires allow_network_access to be true.
+    follow_pivots: false
+
   # ---------------------------------------------------------------------------
   # OpenID Federation Registry (entity trust chains)
   # ---------------------------------------------------------------------------

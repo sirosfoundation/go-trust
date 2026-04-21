@@ -61,6 +61,9 @@ type ETSIRegistryConfig struct {
 	// RequireSignature controls whether TSLs must have valid signatures.
 	// When true, LOTLSignerBundle must also be configured.
 	RequireSignature bool `yaml:"require_signature"`
+	// FollowPivots enables ETSI TS 119 615 pivot LOTL processing for signer certificate rollover.
+	// When true, the registry will fetch pivot LOTLs to discover new signer certificates.
+	FollowPivots bool `yaml:"follow_pivots"`
 }
 
 // WhitelistRegistryConfig contains whitelist registry configuration.

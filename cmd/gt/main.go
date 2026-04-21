@@ -350,6 +350,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			TSLFiles:         etsiCfg.TSLFiles,
 			LOTLSignerBundle: etsiCfg.LOTLSignerBundle,
 			RequireSignature: etsiCfg.RequireSignature,
+			FollowPivots:     etsiCfg.FollowPivots,
 		}
 
 		if tslConfig.Name == "" {

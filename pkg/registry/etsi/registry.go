@@ -104,6 +104,14 @@ type TSLConfig struct {
 	// Default: false
 	RequireSignature bool
 
+	// FollowPivots controls whether to process ETSI TS 119 615 pivot LOTLs
+	// for signer certificate rollover. When true and signature verification fails
+	// because the signer is unknown, the registry will fetch pivot LOTLs from
+	// SchemeInformationURI to discover new trusted signers.
+	// Requires AllowNetworkAccess=true since pivots must be fetched remotely.
+	// Default: false
+	FollowPivots bool
+
 	// CryptoExt provides extensible certificate parsing for non-standard curves
 	// (e.g. brainpool). If nil, standard x509.ParseCertificate is used.
 	CryptoExt *cryptoutil.Extensions
@@ -214,10 +222,12 @@ func (r *TSLRegistry) load() error {
 		}
 
 		// Verify TSL signature if LOTL signers are configured
-		if err := r.verifyTSLSignature(tsl, lotlSigners); err != nil {
+		updatedSigners, err := r.verifyTSLSignature(tsl, lotlSigners)
+		if err != nil {
 			r.setError(err)
 			return err
 		}
+		lotlSigners = updatedSigners
 
 		tsls = append(tsls, tsl)
 		absPath, _ := filepath.Abs(tslPath)
@@ -251,10 +261,12 @@ func (r *TSLRegistry) load() error {
 
 		// Verify TSL signatures if LOTL signers are configured
 		for _, tsl := range loadedTSLs {
-			if err := r.verifyTSLSignature(tsl, lotlSigners); err != nil {
+			updatedSigners, err := r.verifyTSLSignature(tsl, lotlSigners)
+			if err != nil {
 				r.setError(err)
 				return err
 			}
+			lotlSigners = updatedSigners
 		}
 
 		tsls = append(tsls, loadedTSLs...)
@@ -378,47 +390,70 @@ func (r *TSLRegistry) loadLOTLSignerBundle(path string) ([]*x509.Certificate, er
 
 // verifyTSLSignature verifies that a TSL's signature was created by a trusted LOTL signer.
 // This implements ETSI TS 119 615 LOTL signature validation.
-// Returns nil if signature is valid or signature verification is not required.
-func (r *TSLRegistry) verifyTSLSignature(tsl *etsi119612.TSL, lotlSigners []*x509.Certificate) error {
+// When FollowPivots is enabled and the signer is unknown, it attempts to discover
+// new trusted signers via the pivot chain (ETSI TS 119 615 signer rollover).
+// Returns the (possibly updated) signer list and nil error if verification succeeds
+// or is not required.
+func (r *TSLRegistry) verifyTSLSignature(tsl *etsi119612.TSL, lotlSigners []*x509.Certificate) ([]*x509.Certificate, error) {
 	// If no LOTL signer certificates configured, skip verification
 	if len(lotlSigners) == 0 {
 		if r.config.RequireSignature {
-			return fmt.Errorf("signature verification required but no LOTL signer certificates configured")
+			return lotlSigners, fmt.Errorf("signature verification required but no LOTL signer certificates configured")
 		}
-		return nil
+		return lotlSigners, nil
 	}
 
 	// Check if TSL is signed
 	if !tsl.Signed {
 		if r.config.RequireSignature {
-			return fmt.Errorf("TSL from %s is not signed", tsl.Source)
+			return lotlSigners, fmt.Errorf("TSL from %s is not signed", tsl.Source)
 		}
-		return nil
+		return lotlSigners, nil
 	}
 
 	// Verify signer certificate is one of the trusted LOTL signers
 	signerCert := &tsl.Signer
 	if len(signerCert.Raw) == 0 {
 		if r.config.RequireSignature {
-			return fmt.Errorf("TSL from %s has no signer certificate", tsl.Source)
+			return lotlSigners, fmt.Errorf("TSL from %s has no signer certificate", tsl.Source)
 		}
-		return nil
+		return lotlSigners, nil
 	}
 
 	// Check if signer is in the trusted list
 	for _, trustedSigner := range lotlSigners {
 		if signerCert.Equal(trustedSigner) {
-			return nil // Signature verified - signer is trusted
+			return lotlSigners, nil // Signature verified - signer is trusted
 		}
 	}
 
-	// Signer not in trusted list
+	// Signer not in trusted list - attempt pivot resolution if enabled
+	if r.config.FollowPivots {
+		updatedSigners, err := r.resolvePivotChain(tsl, lotlSigners)
+		if err == nil {
+			// Re-check with updated signers
+			for _, trustedSigner := range updatedSigners {
+				if signerCert.Equal(trustedSigner) {
+					if r.config.Logger != nil {
+						r.config.Logger.Info("TSL signature verified via pivot chain",
+							"source", tsl.Source,
+							"signer_cn", signerCert.Subject.CommonName,
+						)
+					}
+					return updatedSigners, nil
+				}
+			}
+		} else if r.config.Logger != nil {
+			r.config.Logger.Warn("pivot chain resolution failed", "source", tsl.Source, "error", err)
+		}
+	}
+
 	if r.config.RequireSignature {
-		return fmt.Errorf("TSL from %s signed by untrusted certificate: %s", tsl.Source, signerCert.Subject.CommonName)
+		return lotlSigners, fmt.Errorf("TSL from %s signed by untrusted certificate: %s", tsl.Source, signerCert.Subject.CommonName)
 	}
 
 	// Opportunistic verification - log warning but don't fail
-	return nil
+	return lotlSigners, nil
 }
 
 // loadLocalTSL loads a TSL from a local file path.
