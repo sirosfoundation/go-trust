@@ -86,7 +86,7 @@ func TestNew_Basic(t *testing.T) {
 func TestNew_NoSources(t *testing.T) {
 	_, err := New(Config{})
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one source")
+	assert.Contains(t, err.Error(), "at least one source or lotl_sources")
 }
 
 func TestNew_BadSource(t *testing.T) {
@@ -735,7 +735,7 @@ func TestNew_LoTLSource(t *testing.T) {
 	lotl := &etsi119602.ListOfTrustedLists{
 		Version: "1.0",
 		SchemeInformation: etsi119602.SchemeInformation{
-			Territory: "EU",
+			Territory:  "EU",
 			SchemeType: etsi119602.LoTLTypeEU,
 		},
 		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
@@ -908,7 +908,7 @@ func TestNew_LoTLWithEmptyPointer(t *testing.T) {
 		Version:           "1.0",
 		SchemeInformation: etsi119602.SchemeInformation{Territory: "EU", SchemeType: etsi119602.LoTLTypeEU},
 		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
-			{Location: ""},   // empty location — should be skipped
+			{Location: ""},                  // empty location — should be skipped
 			{Location: "/nonexistent.json"}, // bad path — should warn and continue
 		},
 	}
@@ -918,12 +918,6 @@ func TestNew_LoTLWithEmptyPointer(t *testing.T) {
 	reg, err := New(Config{LoTLSources: []string{lotlPath}})
 	require.NoError(t, err)
 	assert.True(t, reg.Healthy())
-}
-
-func TestNew_NoSourcesOrLoTLSources(t *testing.T) {
-	_, err := New(Config{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one source or lotl_source")
 }
 
 func TestNew_LoTLOnlyNoDirectSources(t *testing.T) {
@@ -958,4 +952,56 @@ func TestNew_LoTLOnlyNoDirectSources(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, resp.Decision)
+}
+
+func TestNew_LoTLCycleDetection(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a LoTE that we'll actually discover
+	lote := &etsi119602.ListOfTrustedEntities{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "SE"},
+		TrustedEntities: []etsi119602.TrustedEntity{
+			{EntityID: "https://cycle.example.com", EntityStatus: etsi119602.StatusGranted},
+		},
+	}
+	lotePath := writeLoTE(t, dir, "lote.json", lote)
+
+	// Create two LoTLs that point to each other (cycle: A → B → A)
+	// Also have A point to the LoTE so we can verify resolution completes.
+	lotlAPath := filepath.Join(dir, "lotl-a.json")
+	lotlBPath := filepath.Join(dir, "lotl-b.json")
+
+	lotlA := &etsi119602.ListOfTrustedLists{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "EU", SchemeType: etsi119602.LoTLTypeEU},
+		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
+			{Location: lotePath, SchemeType: etsi119602.LoTETypePIDProviders},
+			{Location: lotlBPath, SchemeType: etsi119602.LoTLTypeEU},
+		},
+	}
+	lotlB := &etsi119602.ListOfTrustedLists{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "EU", SchemeType: etsi119602.LoTLTypeEU},
+		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
+			{Location: lotlAPath, SchemeType: etsi119602.LoTLTypeEU},
+		},
+	}
+
+	dataA, _ := json.Marshal(lotlA)
+	dataB, _ := json.Marshal(lotlB)
+	require.NoError(t, os.WriteFile(lotlAPath, dataA, 0644))
+	require.NoError(t, os.WriteFile(lotlBPath, dataB, 0644))
+
+	// Should complete without infinite recursion and find the LoTE
+	reg, err := New(Config{LoTLSources: []string{lotlAPath}})
+	require.NoError(t, err)
+	assert.True(t, reg.Healthy())
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "https://cycle.example.com"},
+		Resource: authzen.Resource{ID: "https://cycle.example.com"},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Decision, "should find entity despite LoTL cycle")
 }

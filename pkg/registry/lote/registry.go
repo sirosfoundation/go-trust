@@ -94,7 +94,7 @@ var _ registry.TrustRegistry = (*Registry)(nil)
 // New creates a new LoTE registry with the given config.
 func New(cfg Config) (*Registry, error) {
 	if len(cfg.Sources) == 0 && len(cfg.LoTLSources) == 0 {
-		return nil, fmt.Errorf("lote registry requires at least one source or lotl_source")
+		return nil, fmt.Errorf("lote registry requires at least one source or lotl_sources")
 	}
 	if cfg.Name == "" {
 		cfg.Name = "LoTE"
@@ -259,7 +259,7 @@ func (r *Registry) Info() registry.RegistryInfo {
 		Name:           r.config.Name,
 		Type:           "lote",
 		Description:    r.config.Description,
-		TrustAnchors:   append(r.config.Sources, r.config.LoTLSources...),
+		TrustAnchors:   append(append([]string{}, r.config.Sources...), r.config.LoTLSources...),
 		ResourceTypes:  r.SupportedResourceTypes(),
 		ResolutionOnly: true,
 		Healthy:        r.healthy,
@@ -399,8 +399,9 @@ func (r *Registry) refresh() error {
 	}
 
 	// Load LoTL sources and follow pointers to discover LoTEs.
+	visited := make(map[string]bool)
 	for _, src := range r.config.LoTLSources {
-		discovered, err := r.resolveLoTL(src, opts, 0)
+		discovered, err := r.resolveLoTL(src, opts, 0, visited)
 		if err != nil {
 			return fmt.Errorf("failed to resolve LoTL from %s: %w", src, err)
 		}
@@ -627,8 +628,8 @@ func hashResourceKey(req *authzen.EvaluationRequest, ext *cryptoutil.Extensions)
 
 // resolveLoTL fetches a LoTL document and follows its pointers to load LoTEs.
 // Nested LoTLs (pointers with LoTL scheme types) are resolved recursively up
-// to MaxDereferenceDepth.
-func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int) ([]*etsi119602.ListOfTrustedEntities, error) {
+// to MaxDereferenceDepth. The visited set prevents cycles.
+func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int, visited map[string]bool) ([]*etsi119602.ListOfTrustedEntities, error) {
 	if r.config.MaxDereferenceDepth > 0 && depth >= r.config.MaxDereferenceDepth {
 		if r.config.Logger != nil {
 			r.config.Logger.Warn("LoTL dereference depth limit reached",
@@ -637,6 +638,15 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 		}
 		return nil, nil
 	}
+
+	if visited[location] {
+		if r.config.Logger != nil {
+			r.config.Logger.Warn("LoTL cycle detected, skipping",
+				slog.String("location", location))
+		}
+		return nil, nil
+	}
+	visited[location] = true
 
 	if r.config.Logger != nil {
 		r.config.Logger.Info("resolving LoTL", slog.String("location", location), slog.Int("depth", depth))
@@ -656,7 +666,7 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 
 		if etsi119602.IsLoTLSchemeType(ptr.SchemeType) {
 			// Nested LoTL — resolve recursively.
-			nested, err := r.resolveLoTL(ptr.Location, opts, depth+1)
+			nested, err := r.resolveLoTL(ptr.Location, opts, depth+1, visited)
 			if err != nil {
 				if r.config.Logger != nil {
 					r.config.Logger.Warn("failed to resolve nested LoTL",
