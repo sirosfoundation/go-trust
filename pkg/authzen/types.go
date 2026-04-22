@@ -89,9 +89,9 @@ type EvaluationResponseContext struct {
 //
 // Resolution-only requests are supported by registries that implement SupportsResolutionOnly().
 func (r *EvaluationRequest) Validate() error {
-	// Subject.type MUST be "key"
-	if r.Subject.Type != "key" {
-		return fmt.Errorf("subject.type must be 'key', got '%s'", r.Subject.Type)
+	// Subject.type MUST be "key" or "url"
+	if r.Subject.Type != "key" && r.Subject.Type != "url" {
+		return fmt.Errorf("subject.type must be 'key' or 'url', got '%s'", r.Subject.Type)
 	}
 
 	// Subject.id MUST be present

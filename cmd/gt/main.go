@@ -18,6 +18,7 @@ import (
 	"github.com/sirosfoundation/go-trust/pkg/registry/didweb"
 	"github.com/sirosfoundation/go-trust/pkg/registry/didwebvh"
 	"github.com/sirosfoundation/go-trust/pkg/registry/etsi"
+	"github.com/sirosfoundation/go-trust/pkg/registry/issuerurl"
 	"github.com/sirosfoundation/go-trust/pkg/registry/lote"
 	"github.com/sirosfoundation/go-trust/pkg/registry/mdociaca"
 	"github.com/sirosfoundation/go-trust/pkg/registry/oidfed"
@@ -683,6 +684,46 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		registryMgr.Register(mdocReg)
 		logger.Info("mDOC IACA registry registered from config",
 			logging.F("issuer_allowlist", len(mdocCfg.IssuerAllowlist)))
+	}
+
+	// Issuer URL resolution registry
+	if cfg.Registries.IssuerURL != nil && cfg.Registries.IssuerURL.Enabled {
+		logger.Info("Configuring issuer URL registry from config file")
+		iuCfg := cfg.Registries.IssuerURL
+
+		iuConfig := &issuerurl.Config{
+			Name:        iuCfg.Name,
+			Description: iuCfg.Description,
+		}
+
+		if iuCfg.CacheTTL != "" {
+			if ttl, err := time.ParseDuration(iuCfg.CacheTTL); err == nil {
+				iuConfig.CacheTTL = ttl
+			} else {
+				logger.Warn("Invalid cache_ttl for issuer_url registry, using default",
+					logging.F("value", iuCfg.CacheTTL),
+					logging.F("error", err.Error()))
+			}
+		}
+
+		if iuCfg.HTTPTimeout != "" {
+			if timeout, err := time.ParseDuration(iuCfg.HTTPTimeout); err == nil {
+				iuConfig.HTTPTimeout = timeout
+			} else {
+				logger.Warn("Invalid http_timeout for issuer_url registry, using default",
+					logging.F("value", iuCfg.HTTPTimeout),
+					logging.F("error", err.Error()))
+			}
+		}
+
+		iuReg, err := issuerurl.New(iuConfig)
+		if err != nil {
+			logger.Fatal("Failed to create issuer URL registry from config",
+				logging.F("error", err.Error()))
+		}
+
+		registryMgr.Register(iuReg)
+		logger.Info("Issuer URL registry registered from config")
 	}
 }
 

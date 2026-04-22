@@ -28,7 +28,7 @@ func TestEvaluationRequestValidation(t *testing.T) {
 				Resource: Resource{Type: "x5c", ID: "alice", Key: []interface{}{"cert"}},
 			},
 			wantError: true,
-			errorMsg:  "subject.type must be 'key'",
+			errorMsg:  "subject.type must be 'key' or 'url'",
 		},
 		{
 			name: "resource.id does not match subject.id",
