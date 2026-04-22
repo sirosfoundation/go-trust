@@ -598,11 +598,13 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		loteCfg := cfg.Registries.LoTE
 
 		loteConfig := lote.Config{
-			Name:        loteCfg.Name,
-			Description: loteCfg.Description,
-			Sources:     loteCfg.Sources,
-			VerifyJWS:   loteCfg.VerifyJWS,
-			Logger:      slog.Default(),
+			Name:                loteCfg.Name,
+			Description:         loteCfg.Description,
+			Sources:             loteCfg.Sources,
+			LoTLSources:         loteCfg.LoTLSources,
+			MaxDereferenceDepth: loteCfg.MaxDereferenceDepth,
+			VerifyJWS:           loteCfg.VerifyJWS,
+			Logger:              slog.Default(),
 		}
 
 		if loteCfg.FetchTimeout != "" {

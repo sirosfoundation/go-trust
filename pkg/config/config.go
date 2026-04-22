@@ -153,13 +153,15 @@ type MDOCIACARegistryConfig struct {
 
 // LoTERegistryConfig contains ETSI TS 119 602 LoTE registry configuration.
 type LoTERegistryConfig struct {
-	Enabled         bool     `yaml:"enabled"`
-	Name            string   `yaml:"name,omitempty"`
-	Description     string   `yaml:"description,omitempty"`
-	Sources         []string `yaml:"sources"`
-	VerifyJWS       bool     `yaml:"verify_jws,omitempty"`
-	FetchTimeout    string   `yaml:"fetch_timeout,omitempty"`
-	RefreshInterval string   `yaml:"refresh_interval,omitempty"`
+	Enabled             bool     `yaml:"enabled"`
+	Name                string   `yaml:"name,omitempty"`
+	Description         string   `yaml:"description,omitempty"`
+	Sources             []string `yaml:"sources"`
+	LoTLSources         []string `yaml:"lotl_sources,omitempty"`
+	MaxDereferenceDepth int      `yaml:"max_dereference_depth,omitempty"`
+	VerifyJWS           bool     `yaml:"verify_jws,omitempty"`
+	FetchTimeout        string   `yaml:"fetch_timeout,omitempty"`
+	RefreshInterval     string   `yaml:"refresh_interval,omitempty"`
 }
 
 // =============================================================================

@@ -1,7 +1,8 @@
 // Package lote provides a TrustRegistry backed by ETSI TS 119 602 Lists of
-// Trusted Entities (LoTE). It loads LoTE JSON documents from URLs or local
-// files, indexes entities by identifier and digital identity, and evaluates
-// AuthZEN trust requests against them.
+// Trusted Entities (LoTE). It loads LoTE documents (JSON or XML) from URLs or
+// local files, indexes entities by identifier and digital identity, and evaluates
+// AuthZEN trust requests against them. It also supports loading Lists of Trusted
+// Lists (LoTL) and following their pointers to discover individual LoTEs.
 package lote
 
 import (
@@ -27,8 +28,17 @@ type Config struct {
 	Name        string
 	Description string
 
-	// Sources are LoTE JSON document locations (URLs or file paths).
+	// Sources are LoTE document locations (URLs or file paths).
+	// Both JSON and XML formats are auto-detected.
 	Sources []string
+
+	// LoTLSources are LoTL document locations (URLs or file paths).
+	// Each LoTL's PointersToOtherLoTEs are followed to discover LoTEs.
+	// Both JSON and XML formats are auto-detected.
+	LoTLSources []string
+
+	// MaxDereferenceDepth limits nested LoTL resolution. Zero means no limit.
+	MaxDereferenceDepth int
 
 	// VerifyJWS controls whether JWS signatures on LoTE documents are verified.
 	VerifyJWS bool
@@ -83,8 +93,8 @@ var _ registry.TrustRegistry = (*Registry)(nil)
 
 // New creates a new LoTE registry with the given config.
 func New(cfg Config) (*Registry, error) {
-	if len(cfg.Sources) == 0 {
-		return nil, fmt.Errorf("lote registry requires at least one source")
+	if len(cfg.Sources) == 0 && len(cfg.LoTLSources) == 0 {
+		return nil, fmt.Errorf("lote registry requires at least one source or lotl_source")
 	}
 	if cfg.Name == "" {
 		cfg.Name = "LoTE"
@@ -249,7 +259,7 @@ func (r *Registry) Info() registry.RegistryInfo {
 		Name:           r.config.Name,
 		Type:           "lote",
 		Description:    r.config.Description,
-		TrustAnchors:   r.config.Sources,
+		TrustAnchors:   append(r.config.Sources, r.config.LoTLSources...),
 		ResourceTypes:  r.SupportedResourceTypes(),
 		ResolutionOnly: true,
 		Healthy:        r.healthy,
@@ -379,12 +389,22 @@ func (r *Registry) refresh() error {
 		Timeout: r.config.FetchTimeout,
 	}
 
+	// Load direct LoTE sources (JSON or XML, auto-detected).
 	for _, src := range r.config.Sources {
 		lote, err := etsi119602.FetchLoTE(src, opts)
 		if err != nil {
 			return fmt.Errorf("failed to fetch LoTE from %s: %w", src, err)
 		}
 		lotes = append(lotes, lote)
+	}
+
+	// Load LoTL sources and follow pointers to discover LoTEs.
+	for _, src := range r.config.LoTLSources {
+		discovered, err := r.resolveLoTL(src, opts, 0)
+		if err != nil {
+			return fmt.Errorf("failed to resolve LoTL from %s: %w", src, err)
+		}
+		lotes = append(lotes, discovered...)
 	}
 
 	idx := buildIndex(lotes, r.config.CryptoExt)
@@ -399,6 +419,8 @@ func (r *Registry) refresh() error {
 	if r.config.Logger != nil {
 		r.config.Logger.Info("LoTE registry refreshed",
 			slog.Int("sources", len(r.config.Sources)),
+			slog.Int("lotl_sources", len(r.config.LoTLSources)),
+			slog.Int("lotes_loaded", len(lotes)),
 			slog.Int("entities", len(idx.byID)))
 	}
 
@@ -601,4 +623,69 @@ func hashResourceKey(req *authzen.EvaluationRequest, ext *cryptoutil.Extensions)
 	default:
 		return "", fmt.Errorf("unsupported resource type: %s", req.Resource.Type)
 	}
+}
+
+// resolveLoTL fetches a LoTL document and follows its pointers to load LoTEs.
+// Nested LoTLs (pointers with LoTL scheme types) are resolved recursively up
+// to MaxDereferenceDepth.
+func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int) ([]*etsi119602.ListOfTrustedEntities, error) {
+	if r.config.MaxDereferenceDepth > 0 && depth >= r.config.MaxDereferenceDepth {
+		if r.config.Logger != nil {
+			r.config.Logger.Warn("LoTL dereference depth limit reached",
+				slog.String("location", location),
+				slog.Int("depth", depth))
+		}
+		return nil, nil
+	}
+
+	if r.config.Logger != nil {
+		r.config.Logger.Info("resolving LoTL", slog.String("location", location), slog.Int("depth", depth))
+	}
+
+	lotl, err := etsi119602.FetchLoTL(location, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch LoTL from %s: %w", location, err)
+	}
+
+	var lotes []*etsi119602.ListOfTrustedEntities
+
+	for _, ptr := range lotl.PointersToOtherLoTEs {
+		if ptr.Location == "" {
+			continue
+		}
+
+		if etsi119602.IsLoTLSchemeType(ptr.SchemeType) {
+			// Nested LoTL — resolve recursively.
+			nested, err := r.resolveLoTL(ptr.Location, opts, depth+1)
+			if err != nil {
+				if r.config.Logger != nil {
+					r.config.Logger.Warn("failed to resolve nested LoTL",
+						slog.String("location", ptr.Location),
+						slog.String("error", err.Error()))
+				}
+				continue
+			}
+			lotes = append(lotes, nested...)
+		} else {
+			// LoTE pointer — fetch the LoTE directly.
+			lote, err := etsi119602.FetchLoTE(ptr.Location, opts)
+			if err != nil {
+				if r.config.Logger != nil {
+					r.config.Logger.Warn("failed to fetch LoTE from LoTL pointer",
+						slog.String("location", ptr.Location),
+						slog.String("error", err.Error()))
+				}
+				continue
+			}
+			lotes = append(lotes, lote)
+		}
+	}
+
+	if r.config.Logger != nil {
+		r.config.Logger.Info("LoTL resolved",
+			slog.String("location", location),
+			slog.Int("lotes_discovered", len(lotes)))
+	}
+
+	return lotes, nil
 }

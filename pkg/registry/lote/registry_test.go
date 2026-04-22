@@ -612,3 +612,350 @@ func TestEvaluate_NoCredentialTypesInContext(t *testing.T) {
 	_, hasCredTypes := resp.Context.Reason["requested_credential_types"]
 	assert.False(t, hasCredTypes)
 }
+
+// --- XML LoTE format tests ---
+
+func writeLoTEXML(t *testing.T, dir, name string, lote *etsi119602.ListOfTrustedEntities) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	require.NoError(t, lote.EncodeXMLToFile(path))
+	return path
+}
+
+func TestNew_XMLSource(t *testing.T) {
+	dir := t.TempDir()
+	path := writeLoTEXML(t, dir, "lote.xml", testLoTE())
+
+	reg, err := New(Config{Sources: []string{path}})
+	require.NoError(t, err)
+	assert.True(t, reg.Healthy())
+
+	// Entity from the XML LoTE should be findable
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "https://issuer.example.com"},
+		Resource: authzen.Resource{ID: "https://issuer.example.com"},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+}
+
+func TestNew_XMLSource_JWKMatch(t *testing.T) {
+	dir := t.TempDir()
+	path := writeLoTEXML(t, dir, "lote.xml", testLoTE())
+
+	reg, err := New(Config{Sources: []string{path}})
+	require.NoError(t, err)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://issuer.example.com"},
+		Resource: authzen.Resource{
+			Type: "jwk",
+			ID:   "https://issuer.example.com",
+			Key: []interface{}{
+				map[string]interface{}{
+					"kty": "EC",
+					"crv": "P-256",
+					"x":   "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+					"y":   "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+}
+
+func TestNew_MixedJSONAndXMLSources(t *testing.T) {
+	dir := t.TempDir()
+
+	lote1 := &etsi119602.ListOfTrustedEntities{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "SE"},
+		TrustedEntities: []etsi119602.TrustedEntity{
+			{EntityID: "https://se.example.com", EntityStatus: etsi119602.StatusGranted},
+		},
+	}
+	lote2 := &etsi119602.ListOfTrustedEntities{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "NO"},
+		TrustedEntities: []etsi119602.TrustedEntity{
+			{EntityID: "https://no.example.com", EntityStatus: etsi119602.StatusGranted},
+		},
+	}
+
+	jsonPath := writeLoTE(t, dir, "se.json", lote1)
+	xmlPath := writeLoTEXML(t, dir, "no.xml", lote2)
+
+	reg, err := New(Config{Sources: []string{jsonPath, xmlPath}})
+	require.NoError(t, err)
+
+	for _, id := range []string{"https://se.example.com", "https://no.example.com"} {
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{Type: "key", ID: id},
+			Resource: authzen.Resource{ID: id},
+		})
+		require.NoError(t, err)
+		assert.True(t, resp.Decision, "should find %s", id)
+	}
+}
+
+// --- LoTL resolution tests ---
+
+func writeLoTL(t *testing.T, dir, name string, lotl *etsi119602.ListOfTrustedLists) string {
+	t.Helper()
+	data, err := json.Marshal(lotl)
+	require.NoError(t, err)
+	path := filepath.Join(dir, name)
+	require.NoError(t, os.WriteFile(path, data, 0644))
+	return path
+}
+
+func TestNew_LoTLSource(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create two LoTEs
+	lote1 := &etsi119602.ListOfTrustedEntities{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "SE"},
+		TrustedEntities: []etsi119602.TrustedEntity{
+			{EntityID: "https://se-pid.example.com", EntityStatus: etsi119602.StatusGranted},
+		},
+	}
+	lote2 := &etsi119602.ListOfTrustedEntities{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "DE"},
+		TrustedEntities: []etsi119602.TrustedEntity{
+			{EntityID: "https://de-pid.example.com", EntityStatus: etsi119602.StatusGranted},
+		},
+	}
+	path1 := writeLoTE(t, dir, "se-pid.json", lote1)
+	path2 := writeLoTE(t, dir, "de-pid.json", lote2)
+
+	// Create a LoTL pointing to both LoTEs
+	lotl := &etsi119602.ListOfTrustedLists{
+		Version: "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{
+			Territory: "EU",
+			SchemeType: etsi119602.LoTLTypeEU,
+		},
+		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
+			{Location: path1, SchemeTerritory: "SE", SchemeType: etsi119602.LoTETypePIDProviders},
+			{Location: path2, SchemeTerritory: "DE", SchemeType: etsi119602.LoTETypePIDProviders},
+		},
+	}
+	lotlPath := writeLoTL(t, dir, "eu-lotl.json", lotl)
+
+	reg, err := New(Config{LoTLSources: []string{lotlPath}})
+	require.NoError(t, err)
+	assert.True(t, reg.Healthy())
+
+	// Both entities from the LoTL-referenced LoTEs should be discoverable
+	for _, id := range []string{"https://se-pid.example.com", "https://de-pid.example.com"} {
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{Type: "key", ID: id},
+			Resource: authzen.Resource{ID: id},
+		})
+		require.NoError(t, err)
+		assert.True(t, resp.Decision, "should find %s via LoTL", id)
+	}
+}
+
+func TestNew_LoTLAndDirectSources(t *testing.T) {
+	dir := t.TempDir()
+
+	// Direct LoTE source
+	directLoTE := &etsi119602.ListOfTrustedEntities{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "SE"},
+		TrustedEntities: []etsi119602.TrustedEntity{
+			{EntityID: "https://direct.example.com", EntityStatus: etsi119602.StatusGranted},
+		},
+	}
+	directPath := writeLoTE(t, dir, "direct.json", directLoTE)
+
+	// LoTL-referenced LoTE
+	lotlLoTE := &etsi119602.ListOfTrustedEntities{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "DE"},
+		TrustedEntities: []etsi119602.TrustedEntity{
+			{EntityID: "https://via-lotl.example.com", EntityStatus: etsi119602.StatusGranted},
+		},
+	}
+	lotlLotePath := writeLoTE(t, dir, "via-lotl.json", lotlLoTE)
+
+	lotl := &etsi119602.ListOfTrustedLists{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "EU", SchemeType: etsi119602.LoTLTypeEU},
+		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
+			{Location: lotlLotePath, SchemeType: etsi119602.LoTETypePIDProviders},
+		},
+	}
+	lotlPath := writeLoTL(t, dir, "lotl.json", lotl)
+
+	reg, err := New(Config{
+		Sources:     []string{directPath},
+		LoTLSources: []string{lotlPath},
+	})
+	require.NoError(t, err)
+
+	// Both direct and LoTL-discovered entities should be found
+	for _, id := range []string{"https://direct.example.com", "https://via-lotl.example.com"} {
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{Type: "key", ID: id},
+			Resource: authzen.Resource{ID: id},
+		})
+		require.NoError(t, err)
+		assert.True(t, resp.Decision, "should find %s", id)
+	}
+}
+
+func TestNew_NestedLoTL(t *testing.T) {
+	dir := t.TempDir()
+
+	// Leaf LoTE
+	lote := &etsi119602.ListOfTrustedEntities{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "SE"},
+		TrustedEntities: []etsi119602.TrustedEntity{
+			{EntityID: "https://nested.example.com", EntityStatus: etsi119602.StatusGranted},
+		},
+	}
+	lotePath := writeLoTE(t, dir, "lote.json", lote)
+
+	// Inner LoTL pointing to the LoTE
+	innerLoTL := &etsi119602.ListOfTrustedLists{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "SE", SchemeType: etsi119602.LoTLTypeEU},
+		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
+			{Location: lotePath, SchemeType: etsi119602.LoTETypePIDProviders},
+		},
+	}
+	innerPath := writeLoTL(t, dir, "inner-lotl.json", innerLoTL)
+
+	// Outer LoTL pointing to the inner LoTL
+	outerLoTL := &etsi119602.ListOfTrustedLists{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "EU", SchemeType: etsi119602.LoTLTypeEU},
+		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
+			{Location: innerPath, SchemeType: etsi119602.LoTLTypeEU},
+		},
+	}
+	outerPath := writeLoTL(t, dir, "outer-lotl.json", outerLoTL)
+
+	reg, err := New(Config{LoTLSources: []string{outerPath}})
+	require.NoError(t, err)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "https://nested.example.com"},
+		Resource: authzen.Resource{ID: "https://nested.example.com"},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Decision, "should find entity discovered via nested LoTL")
+}
+
+func TestNew_LoTLDepthLimit(t *testing.T) {
+	dir := t.TempDir()
+
+	// Leaf LoTE
+	lote := &etsi119602.ListOfTrustedEntities{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "SE"},
+		TrustedEntities: []etsi119602.TrustedEntity{
+			{EntityID: "https://deep.example.com", EntityStatus: etsi119602.StatusGranted},
+		},
+	}
+	lotePath := writeLoTE(t, dir, "lote.json", lote)
+
+	// Create a chain: depth-2 → depth-1 → lote
+	depth1 := &etsi119602.ListOfTrustedLists{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "SE", SchemeType: etsi119602.LoTLTypeEU},
+		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
+			{Location: lotePath, SchemeType: etsi119602.LoTETypePIDProviders},
+		},
+	}
+	depth1Path := writeLoTL(t, dir, "depth1.json", depth1)
+
+	depth2 := &etsi119602.ListOfTrustedLists{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "EU", SchemeType: etsi119602.LoTLTypeEU},
+		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
+			{Location: depth1Path, SchemeType: etsi119602.LoTLTypeEU},
+		},
+	}
+	depth2Path := writeLoTL(t, dir, "depth2.json", depth2)
+
+	// With MaxDereferenceDepth=1, nested LoTL at depth 1 should be cut off
+	reg, err := New(Config{
+		LoTLSources:         []string{depth2Path},
+		MaxDereferenceDepth: 1,
+	})
+	require.NoError(t, err)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "https://deep.example.com"},
+		Resource: authzen.Resource{ID: "https://deep.example.com"},
+	})
+	require.NoError(t, err)
+	// The entity should NOT be found because the nested LoTL was depth-limited
+	assert.False(t, resp.Decision, "should NOT find entity beyond depth limit")
+}
+
+func TestNew_LoTLWithEmptyPointer(t *testing.T) {
+	dir := t.TempDir()
+
+	lotl := &etsi119602.ListOfTrustedLists{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "EU", SchemeType: etsi119602.LoTLTypeEU},
+		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
+			{Location: ""},   // empty location — should be skipped
+			{Location: "/nonexistent.json"}, // bad path — should warn and continue
+		},
+	}
+	lotlPath := writeLoTL(t, dir, "lotl.json", lotl)
+
+	// Should succeed even though pointers fail — just loads zero entities
+	reg, err := New(Config{LoTLSources: []string{lotlPath}})
+	require.NoError(t, err)
+	assert.True(t, reg.Healthy())
+}
+
+func TestNew_NoSourcesOrLoTLSources(t *testing.T) {
+	_, err := New(Config{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one source or lotl_source")
+}
+
+func TestNew_LoTLOnlyNoDirectSources(t *testing.T) {
+	dir := t.TempDir()
+
+	lote := &etsi119602.ListOfTrustedEntities{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "SE"},
+		TrustedEntities: []etsi119602.TrustedEntity{
+			{EntityID: "https://lotl-only.example.com", EntityStatus: etsi119602.StatusGranted},
+		},
+	}
+	lotePath := writeLoTE(t, dir, "lote.json", lote)
+
+	lotl := &etsi119602.ListOfTrustedLists{
+		Version:           "1.0",
+		SchemeInformation: etsi119602.SchemeInformation{Territory: "EU", SchemeType: etsi119602.LoTLTypeEU},
+		PointersToOtherLoTEs: []etsi119602.LoTEPointer{
+			{Location: lotePath, SchemeType: etsi119602.LoTETypePIDProviders},
+		},
+	}
+	lotlPath := writeLoTL(t, dir, "lotl.json", lotl)
+
+	// No Sources, only LoTLSources
+	reg, err := New(Config{LoTLSources: []string{lotlPath}})
+	require.NoError(t, err)
+	assert.True(t, reg.Healthy())
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "https://lotl-only.example.com"},
+		Resource: authzen.Resource{ID: "https://lotl-only.example.com"},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+}
