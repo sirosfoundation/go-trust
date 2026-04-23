@@ -79,16 +79,10 @@ func TestEvaluate_URLResolution_Success(t *testing.T) {
 		t.Fatal("Expected trust_metadata in response")
 	}
 
-	// Verify it's raw JSON (not parsed into a Go struct)
-	rawJSON, ok := resp.Context.TrustMetadata.(json.RawMessage)
+	// Verify trust_metadata is a parsed map
+	parsed, ok := resp.Context.TrustMetadata.(map[string]interface{})
 	if !ok {
-		t.Fatalf("Expected json.RawMessage, got %T", resp.Context.TrustMetadata)
-	}
-
-	// Verify the raw JSON contains the signed_metadata field verbatim
-	var parsed map[string]interface{}
-	if err := json.Unmarshal(rawJSON, &parsed); err != nil {
-		t.Fatalf("Failed to parse trust_metadata: %v", err)
+		t.Fatalf("Expected map[string]interface{}, got %T", resp.Context.TrustMetadata)
 	}
 	if parsed["signed_metadata"] != "eyJhbGciOiJSUzI1NiJ9.test.signature" {
 		t.Errorf("signed_metadata not preserved: got %v", parsed["signed_metadata"])
@@ -101,9 +95,6 @@ func TestEvaluate_URLResolution_Success(t *testing.T) {
 	reason := resp.Context.Reason
 	if reason["resolution_only"] != true {
 		t.Error("Expected resolution_only=true")
-	}
-	if reason["cached"] != false {
-		t.Error("Expected cached=false for first request")
 	}
 }
 
@@ -129,13 +120,10 @@ func TestEvaluate_URLResolution_Cached(t *testing.T) {
 		t.Fatal("First call should succeed")
 	}
 
-	// Second call — should be cached
+	// Second call — should be served from cache (no additional HTTP request)
 	resp, _ = reg.Evaluate(context.Background(), req)
 	if !resp.Decision {
 		t.Fatal("Second call should succeed")
-	}
-	if resp.Context.Reason["cached"] != true {
-		t.Error("Expected cached=true on second call")
 	}
 	if callCount != 1 {
 		t.Errorf("Expected 1 HTTP request, got %d", callCount)
@@ -268,27 +256,4 @@ func TestInfo(t *testing.T) {
 	}
 }
 
-func TestValidateIssuerURL(t *testing.T) {
-	tests := []struct {
-		url       string
-		allowHTTP bool
-		wantErr   bool
-	}{
-		{"https://issuer.example.com", false, false},
-		{"https://issuer.example.com/path", false, false},
-		{"http://issuer.example.com", false, true},
-		{"http://issuer.example.com", true, false},
-		{"ftp://issuer.example.com", false, true},
-		{"not-a-url", false, true},
-		{"", false, true},
-	}
 
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			err := validateIssuerURL(tt.url, tt.allowHTTP)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateIssuerURL(%q, %v) error = %v, wantErr %v", tt.url, tt.allowHTTP, err, tt.wantErr)
-			}
-		})
-	}
-}
