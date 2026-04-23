@@ -72,13 +72,13 @@ func TestPublishedLoTE_SchemeInformation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "SE", l.SchemeInformation.Territory)
-	assert.GreaterOrEqual(t, l.SchemeInformation.SequenceNumber, 1)
+	assert.Equal(t, "SE", l.ListAndSchemeInformation.SchemeTerritory)
+	assert.GreaterOrEqual(t, l.ListAndSchemeInformation.LoTESequenceNumber, 1)
 
 	// Operator name should reference SIROS Foundation (any language entry)
-	require.NotEmpty(t, l.SchemeInformation.SchemeOperator)
+	require.NotEmpty(t, l.ListAndSchemeInformation.SchemeOperatorName)
 	foundOperator := false
-	for _, operator := range l.SchemeInformation.SchemeOperator {
+	for _, operator := range l.ListAndSchemeInformation.SchemeOperatorName {
 		if operator.Value == "SIROS Foundation" {
 			foundOperator = true
 			break
@@ -190,5 +190,3 @@ func TestPublishedLoTE_WithTestServer(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, resp.Decision)
 }
-
-

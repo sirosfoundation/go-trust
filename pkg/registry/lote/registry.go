@@ -82,6 +82,7 @@ type entityIndex struct {
 // indexedEntity holds a single entity and its precomputed key hashes.
 type indexedEntity struct {
 	entity    etsi119602.TrustedEntity
+	entityID  string
 	territory string
 	keyHashes map[string]bool // SHA-256 fingerprints of all digital identities
 	// certPool contains X.509 certificates from this entity's digital identities,
@@ -181,19 +182,8 @@ func (r *Registry) Evaluate(_ context.Context, req *authzen.EvaluationRequest) (
 		}, nil
 	}
 
-	// Check entity status.
-	if ent.entity.EntityStatus != "" && ent.entity.EntityStatus != etsi119602.StatusGranted {
-		reason := map[string]interface{}{
-			"admin": fmt.Sprintf("entity %q has status %q", subjectID, ent.entity.EntityStatus),
-		}
-		addCredentialTypesToReason(reason, credentialTypes)
-		return &authzen.EvaluationResponse{
-			Decision: false,
-			Context: &authzen.EvaluationResponseContext{
-				Reason: reason,
-			},
-		}, nil
-	}
+	// Per ETSI TS 119 602-1: presence in the list = trusted (no entity-level status).
+	// Withdrawn services are excluded during indexing.
 
 	// Resolution-only: no key check needed.
 	if req.IsResolutionOnlyRequest() {
@@ -354,7 +344,7 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 	}
 
 	if _, err := certs[0].Verify(opts); err == nil {
-		return r.buildSuccessResponse(ent.entity.EntityID, ent.territory, "x5c chain validates against trust anchor for entity", credentialTypes)
+		return r.buildSuccessResponse(ent.entityID, ent.territory, "x5c chain validates against trust anchor for entity", credentialTypes)
 	}
 	return nil
 }
@@ -435,29 +425,34 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 	}
 
 	for _, lote := range lotes {
-		territory := lote.SchemeInformation.Territory
-		for _, ent := range lote.TrustedEntities {
+		territory := lote.ListAndSchemeInformation.SchemeTerritory
+		for _, ent := range lote.TrustedEntitiesList {
+			id := entityID(ent)
 			ie := &indexedEntity{
 				entity:    ent,
+				entityID:  id,
 				territory: territory,
 				keyHashes: make(map[string]bool),
 			}
 
-			// Index digital identities and build cert pool for X.509 entries
-			for _, di := range ent.DigitalIdentities {
-				hashes := hashDigitalIdentity(di, ext)
+			// Index service digital identities; skip withdrawn services.
+			for _, svc := range ent.TrustedEntityServices {
+				if isWithdrawnStatus(svc.ServiceInformation.ServiceStatus) {
+					continue
+				}
+				sdi := svc.ServiceInformation.ServiceDigitalIdentity
+				hashes := hashServiceDigitalIdentity(sdi, ext)
 				for _, h := range hashes {
 					ie.keyHashes[h] = true
-
 					if idx.byKeyHash[h] == nil {
 						idx.byKeyHash[h] = make(map[string]bool)
 					}
-					idx.byKeyHash[h][ent.EntityID] = true
+					idx.byKeyHash[h][id] = true
 				}
 
-				// Add X.509 certs to the entity's cert pool for path validation
-				if di.Type == "x509" && di.X509Certificate != "" {
-					der, err := base64.StdEncoding.DecodeString(di.X509Certificate)
+				// Add X.509 certs to the entity's cert pool for path validation.
+				for _, cert509 := range sdi.X509Certificates {
+					der, err := base64.StdEncoding.DecodeString(cert509.Val)
 					if err == nil {
 						cert, err := registry.ParseCertificate(der, ext)
 						if err == nil {
@@ -470,54 +465,50 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 				}
 			}
 
-			idx.byID[ent.EntityID] = ie
+			idx.byID[id] = ie
 		}
 	}
 
 	return idx
 }
 
-// hashDigitalIdentity produces SHA-256 fingerprints for a LoTE digital identity.
-func hashDigitalIdentity(di etsi119602.DigitalIdentity, ext *cryptoutil.Extensions) []string {
+// hashServiceDigitalIdentity produces SHA-256 fingerprints for an ETSI TS 119 602-1
+// ServiceDigitalIdentity containing X.509 certificates, JWK public key values,
+// and/or X.509 subject names.
+func hashServiceDigitalIdentity(sdi etsi119602.ServiceDigitalIdentity, ext *cryptoutil.Extensions) []string {
 	var hashes []string
 
-	switch di.Type {
-	case "x509":
-		if di.X509Certificate != "" {
-			der, err := base64.StdEncoding.DecodeString(di.X509Certificate)
+	// X.509 certificates
+	for _, cert509 := range sdi.X509Certificates {
+		der, err := base64.StdEncoding.DecodeString(cert509.Val)
+		if err == nil {
+			cert, err := registry.ParseCertificate(der, ext)
 			if err == nil {
-				cert, err := registry.ParseCertificate(der, ext)
+				pubDER, err := x509.MarshalPKIXPublicKey(cert.PublicKey)
 				if err == nil {
-					// Hash the public key
-					pubDER, err := x509.MarshalPKIXPublicKey(cert.PublicKey)
-					if err == nil {
-						h := sha256.Sum256(pubDER)
-						hashes = append(hashes, fmt.Sprintf("%x", h))
-					}
+					h := sha256.Sum256(pubDER)
+					hashes = append(hashes, fmt.Sprintf("%x", h))
 				}
 			}
 		}
+	}
 
-	case "jwk":
-		if di.JWK != nil {
-			// Canonical JSON hash of the JWK
-			data, err := json.Marshal(di.JWK)
-			if err == nil {
-				h := sha256.Sum256(data)
-				hashes = append(hashes, fmt.Sprintf("%x", h))
-			}
-			// Also hash the public key material specifically for matching against
-			// request keys that may have different field ordering
-			if h := hashJWKPublicKey(di.JWK); h != "" {
-				hashes = append(hashes, h)
-			}
-		}
-
-	case "x509_subject_name":
-		if di.X509SubjectName != "" {
-			h := sha256.Sum256([]byte(di.X509SubjectName))
+	// JWK public key values
+	for _, jwk := range sdi.PublicKeyValues {
+		data, err := json.Marshal(jwk)
+		if err == nil {
+			h := sha256.Sum256(data)
 			hashes = append(hashes, fmt.Sprintf("%x", h))
 		}
+		if h := hashJWKPublicKey(jwk); h != "" {
+			hashes = append(hashes, h)
+		}
+	}
+
+	// X.509 subject names
+	for _, subj := range sdi.X509SubjectNames {
+		h := sha256.Sum256([]byte(subj))
+		hashes = append(hashes, fmt.Sprintf("%x", h))
 	}
 
 	return hashes
@@ -659,18 +650,18 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 
 	var lotes []*etsi119602.ListOfTrustedEntities
 
-	for _, ptr := range lotl.PointersToOtherLoTEs {
-		if ptr.Location == "" {
+	for _, ptr := range lotl.ListAndSchemeInformation.PointersToOtherLoTE {
+		if ptr.LoTELocation == "" {
 			continue
 		}
 
-		if etsi119602.IsLoTLSchemeType(ptr.SchemeType) {
+		if etsi119602.IsLoTLSchemeType(pointerSchemeType(ptr)) {
 			// Nested LoTL — resolve recursively.
-			nested, err := r.resolveLoTL(ptr.Location, opts, depth+1, visited)
+			nested, err := r.resolveLoTL(ptr.LoTELocation, opts, depth+1, visited)
 			if err != nil {
 				if r.config.Logger != nil {
 					r.config.Logger.Warn("failed to resolve nested LoTL",
-						slog.String("location", ptr.Location),
+						slog.String("location", ptr.LoTELocation),
 						slog.String("error", err.Error()))
 				}
 				continue
@@ -678,11 +669,11 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 			lotes = append(lotes, nested...)
 		} else {
 			// LoTE pointer — fetch the LoTE directly.
-			lote, err := etsi119602.FetchLoTE(ptr.Location, opts)
+			lote, err := etsi119602.FetchLoTE(ptr.LoTELocation, opts)
 			if err != nil {
 				if r.config.Logger != nil {
 					r.config.Logger.Warn("failed to fetch LoTE from LoTL pointer",
-						slog.String("location", ptr.Location),
+						slog.String("location", ptr.LoTELocation),
 						slog.String("error", err.Error()))
 				}
 				continue
@@ -698,4 +689,29 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 	}
 
 	return lotes, nil
+}
+
+// entityID derives the entity identifier from a TrustedEntity.
+// Prefers TEInformationURI[0].URIValue, falls back to TEName[0].Value.
+func entityID(ent etsi119602.TrustedEntity) string {
+	if len(ent.TrustedEntityInformation.TEInformationURI) > 0 {
+		return ent.TrustedEntityInformation.TEInformationURI[0].URIValue
+	}
+	if len(ent.TrustedEntityInformation.TEName) > 0 {
+		return ent.TrustedEntityInformation.TEName[0].Value
+	}
+	return ""
+}
+
+// isWithdrawnStatus returns true if the service status URI indicates withdrawal.
+func isWithdrawnStatus(status string) bool {
+	return strings.Contains(strings.ToLower(status), "withdrawn")
+}
+
+// pointerSchemeType extracts the LoTE type from a LoTL pointer's qualifiers.
+func pointerSchemeType(ptr etsi119602.OtherLoTEPointer) string {
+	if len(ptr.LoTEQualifiers) > 0 {
+		return ptr.LoTEQualifiers[0].LoTEType
+	}
+	return ""
 }
