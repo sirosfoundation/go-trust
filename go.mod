@@ -13,7 +13,7 @@ require (
 	github.com/go-oidfed/lib v0.10.2
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.23.2
-	github.com/sirosfoundation/g119612 v0.3.0
+	github.com/sirosfoundation/g119612 v0.3.3-0.20260424115313-28620f4a80ab
 	github.com/sirosfoundation/go-cryptoutil v0.5.0
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/files v1.0.1
