@@ -1069,3 +1069,48 @@ func TestIsWithdrawnStatus(t *testing.T) {
 	assert.True(t, isWithdrawnStatus("http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/withdrawn"))
 	assert.True(t, isWithdrawnStatus(etsi119602.StatusWithdrawn))
 }
+
+// TestBuildIndex_ImplicitTrust verifies that entities/services without an explicit
+// ServiceStatus (the "presence = trusted" model per ETSI TS 119 602 Annexes D-I
+// for non-Pub-EAA profiles) are correctly indexed and trusted.
+func TestBuildIndex_ImplicitTrust(t *testing.T) {
+	lote := &etsi119602.ListOfTrustedEntities{
+		ListAndSchemeInformation: etsi119602.ListAndSchemeInformation{
+			LoTEVersionIdentifier: 1,
+			LoTEType:              etsi119602.LoTETypePIDProviders,
+			SchemeTerritory:       "SE",
+			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "Test"}},
+			ListIssueDateTime:     "2026-01-01T00:00:00Z",
+			NextUpdate:            "2027-01-01T00:00:00Z",
+		},
+		TrustedEntitiesList: []etsi119602.TrustedEntity{
+			{
+				TrustedEntityInformation: etsi119602.TrustedEntityInformation{
+					TEName:           etsi119602.NameSet{{Lang: "en", Value: "Implicit Trust Entity"}},
+					TEInformationURI: []etsi119602.NonEmptyMultiLangURI{{Lang: "en", URIValue: "https://implicit.example.com"}},
+				},
+				TrustedEntityServices: []etsi119602.TrustedEntityService{
+					{
+						ServiceInformation: etsi119602.ServiceInformation{
+							ServiceName: etsi119602.NameSet{{Lang: "en", Value: "PID Service"}},
+							// ServiceStatus intentionally absent — implicit trust
+							ServiceDigitalIdentity: etsi119602.ServiceDigitalIdentity{
+								PublicKeyValues: []map[string]any{
+									{"kty": "EC", "crv": "P-256", "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU", "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	idx := buildIndex([]*etsi119602.ListOfTrustedEntities{lote}, nil)
+
+	// Entity should be indexed (presence = trusted)
+	assert.Len(t, idx.byID, 1, "entity with no ServiceStatus should be indexed")
+
+	// Service key should be indexed
+	assert.NotEmpty(t, idx.byKeyHash, "service keys should be indexed when ServiceStatus is absent")
+}
