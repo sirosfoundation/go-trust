@@ -193,6 +193,10 @@ func (r *Resolver) fetch(ctx context.Context, metadataURL string) (map[string]in
 // validateSignedMetadata verifies the signed_metadata JWT against the issuer's
 // JWKS and returns the JWT payload claims as the authoritative metadata.
 // The signed_metadata string is preserved in the returned map.
+//
+// Key selection: if the JWT header contains a kid, keys matching that kid are
+// tried first. If none match the kid or no kid is present, all JWKS keys are
+// tried in order.
 func (r *Resolver) validateSignedMetadata(ctx context.Context, raw map[string]interface{}, signedMetadata string) (map[string]interface{}, error) {
 	jws, err := jose.ParseSigned(signedMetadata, supportedSignatureAlgorithms)
 	if err != nil {
@@ -204,10 +208,22 @@ func (r *Resolver) validateSignedMetadata(ctx context.Context, raw map[string]in
 		return nil, fmt.Errorf("resolving JWKS for signed_metadata verification: %w", err)
 	}
 
+	// Determine the candidate keys to try for verification.
+	// When the JWT header specifies a kid and the JWKS contains matching keys,
+	// only those keys are tried. Otherwise all keys are tried.
+	candidates := jwks.Keys
+	if len(jws.Signatures) > 0 {
+		if kid := jws.Signatures[0].Protected.KeyID; kid != "" {
+			if matching := jwks.Key(kid); len(matching) > 0 {
+				candidates = matching
+			}
+		}
+	}
+
 	var payload []byte
 	verified := false
-	for i := range jwks.Keys {
-		pubKey := jwks.Keys[i].Public()
+	for i := range candidates {
+		pubKey := candidates[i].Public()
 		if payload, err = jws.Verify(pubKey.Key); err == nil {
 			verified = true
 			break

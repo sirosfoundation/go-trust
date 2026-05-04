@@ -265,6 +265,72 @@ func TestResolve_SignedMetadata_NoJWKS(t *testing.T) {
 	}
 }
 
+// TestResolve_SignedMetadata_KIDSelection verifies that when the JWT header
+// carries a kid, only the matching key in the JWKS is used for verification
+// (the JWKS may contain additional keys for other purposes).
+func TestResolve_SignedMetadata_KIDSelection(t *testing.T) {
+	priv, pub := newTestKey(t)
+	pub.KeyID = "sig-2024"
+	_, unrelatedPub := newTestKey(t) // an unrelated key in the JWKS
+	unrelatedPub.KeyID = "enc-2024"
+
+	// Build JWKS with both keys; sign with the specific kid.
+	b, err := json.Marshal(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{unrelatedPub, pub}})
+	if err != nil {
+		t.Fatalf("marshaling JWKS: %v", err)
+	}
+	var jwksMap map[string]interface{}
+	if err := json.Unmarshal(b, &jwksMap); err != nil {
+		t.Fatalf("unmarshaling JWKS: %v", err)
+	}
+
+	// Sign with the private key carrying kid="sig-2024".
+	signingKey := jose.SigningKey{Algorithm: jose.ES256, Key: &jose.JSONWebKey{Key: priv, KeyID: "sig-2024"}}
+	signer, err := jose.NewSigner(signingKey, (&jose.SignerOptions{}).WithType("JWT"))
+	if err != nil {
+		t.Fatalf("creating signer: %v", err)
+	}
+	payload, err := json.Marshal(map[string]interface{}{"credential_issuer": "https://issuer.example.com"})
+	if err != nil {
+		t.Fatalf("marshaling payload: %v", err)
+	}
+	jws, err := signer.Sign(payload)
+	if err != nil {
+		t.Fatalf("signing: %v", err)
+	}
+	token, err := jws.CompactSerialize()
+	if err != nil {
+		t.Fatalf("serializing: %v", err)
+	}
+
+	outer := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"jwks":              jwksMap,
+		"signed_metadata":   token,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/openid-credential-issuer" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(outer) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	got, err := newTestResolver(t).Resolve(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if got["credential_issuer"] != "https://issuer.example.com" {
+		t.Errorf("credential_issuer: got %v", got["credential_issuer"])
+	}
+	if got["signed_metadata"] != token {
+		t.Errorf("signed_metadata not preserved: got %v", got["signed_metadata"])
+	}
+}
+
 func TestResolve_Cached(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
