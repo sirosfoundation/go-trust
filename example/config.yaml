@@ -202,6 +202,39 @@ registries:
     allow_http: false
 
   # ---------------------------------------------------------------------------
+  # LoTE Registry (ETSI TS 119 602 Lists of Trusted Entities)
+  # ---------------------------------------------------------------------------
+  # Validates entities against ETSI TS 119 602 LoTE documents.
+  # Best for: EU wallet ecosystem, PID/EAA provider trust lists
+  #
+  # Supported resource types: jwk, x5c
+  # Resolution-only: Yes (can resolve entity metadata)
+
+  # lote:
+  #   enabled: true
+  #   name: "LoTE"
+  #   description: "ETSI TS 119 602 List of Trusted Entities"
+  #
+  #   # Direct LoTE sources (JSON or XML, auto-detected)
+  #   sources:
+  #     - "https://registry.siros.org/lote/se-pid-providers.json"
+  #     - "/var/lib/lotes/se-pid-providers.xml"
+  #
+  #   # LoTL sources — follow pointers to discover LoTEs automatically
+  #   lotl_sources:
+  #     - "https://registry.siros.org/lotl/eu-lotl.json"
+  #
+  #   # Max depth for nested LoTL resolution (0 = unlimited)
+  #   max_dereference_depth: 3
+  #
+  #   # JWS signature verification for JSON LoTE documents
+  #   verify_jws: false
+  #
+  #   # Fetch settings
+  #   fetch_timeout: "30s"
+  #   refresh_interval: "1h"
+
+  # ---------------------------------------------------------------------------
   # mDOC IACA Registry (dynamic IACA validation)
   # ---------------------------------------------------------------------------
   # Validates mDOC/mDL X.509 certificate chains against IACA certificates

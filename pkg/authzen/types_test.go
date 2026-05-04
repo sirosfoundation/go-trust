@@ -28,7 +28,7 @@ func TestEvaluationRequestValidation(t *testing.T) {
 				Resource: Resource{Type: "x5c", ID: "alice", Key: []interface{}{"cert"}},
 			},
 			wantError: true,
-			errorMsg:  "subject.type must be 'key' or 'url'",
+			errorMsg:  "subject.type must be 'key' or 'url', got 'user'",
 		},
 		{
 			name: "resource.id does not match subject.id",
@@ -97,7 +97,7 @@ func TestEvaluationRequestValidation(t *testing.T) {
 				Resource: Resource{Type: "pem", ID: "did:example:123", Key: []interface{}{"pemdata"}},
 			},
 			wantError: true,
-			errorMsg:  "resource.type must be 'jwk' or 'x5c'",
+			errorMsg:  "resource.type must be 'jwk' or 'x5c', got 'pem'",
 		},
 	}
 
@@ -109,6 +109,11 @@ func TestEvaluationRequestValidation(t *testing.T) {
 			}
 			if !tt.wantError && err != nil {
 				t.Errorf("Unexpected error: %v", err)
+			}
+			if tt.wantError && err != nil && tt.errorMsg != "" {
+				if got := err.Error(); got != tt.errorMsg {
+					t.Errorf("Error message = %q, want %q", got, tt.errorMsg)
+				}
 			}
 		})
 	}

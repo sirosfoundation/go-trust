@@ -98,6 +98,12 @@ func New(cfg Config) (*Resolver, error) {
 	}, nil
 }
 
+// ResolveResult contains the resolved metadata and cache-hit information.
+type ResolveResult struct {
+	Metadata map[string]interface{}
+	Cached   bool
+}
+
 // Resolve returns the authoritative issuer metadata for the given issuer URL,
 // using a TTL-cached result when available.
 //
@@ -111,6 +117,16 @@ func New(cfg Config) (*Resolver, error) {
 // and signed_metadata is preserved as a raw string. If verification fails an
 // error is returned so the caller never receives unverified metadata claims.
 func (r *Resolver) Resolve(ctx context.Context, issuerURL string) (map[string]interface{}, error) {
+	result, err := r.ResolveWithInfo(ctx, issuerURL)
+	if err != nil {
+		return nil, err
+	}
+	return result.Metadata, nil
+}
+
+// ResolveWithInfo is like Resolve but additionally reports whether the result
+// was served from cache.
+func (r *Resolver) ResolveWithInfo(ctx context.Context, issuerURL string) (*ResolveResult, error) {
 	issuerURL = strings.TrimSuffix(issuerURL, "/")
 
 	if err := r.validateURL(issuerURL); err != nil {
@@ -118,7 +134,7 @@ func (r *Resolver) Resolve(ctx context.Context, issuerURL string) (map[string]in
 	}
 
 	if cached := r.getCached(issuerURL); cached != nil {
-		return cached, nil
+		return &ResolveResult{Metadata: cached, Cached: true}, nil
 	}
 
 	metadataURL := issuerURL + "/.well-known/openid-credential-issuer"
@@ -128,7 +144,7 @@ func (r *Resolver) Resolve(ctx context.Context, issuerURL string) (map[string]in
 	}
 
 	r.setCache(issuerURL, parsed)
-	return parsed, nil
+	return &ResolveResult{Metadata: parsed, Cached: false}, nil
 }
 
 func (r *Resolver) validateURL(issuerURL string) error {

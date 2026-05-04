@@ -81,7 +81,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		return r.denyWithReason("missing issuer URL in subject.id"), nil
 	}
 
-	parsed, err := r.resolver.Resolve(ctx, issuerURL)
+	parsed, err := r.resolver.ResolveWithInfo(ctx, issuerURL)
 	if err != nil {
 		return r.denyWithReason(fmt.Sprintf("failed to fetch issuer metadata: %v", err)), nil
 	}
@@ -94,8 +94,9 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 				"resolution_only": true,
 				"resolution_ms":   time.Since(startTime).Milliseconds(),
 				"registry":        r.config.Name,
+				"cached":          parsed.Cached,
 			},
-			TrustMetadata: parsed,
+			TrustMetadata: parsed.Metadata,
 		},
 	}, nil
 }
