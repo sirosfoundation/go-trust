@@ -2,16 +2,20 @@ package issuerurl
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 )
 
-func newTestRegistry(t *testing.T, server *httptest.Server) *Registry {
+func newTestRegistry(t *testing.T) *Registry {
 	t.Helper()
 	cfg := &Config{
 		Name:            "test-issuer-url",
@@ -27,21 +31,79 @@ func newTestRegistry(t *testing.T, server *httptest.Server) *Registry {
 	return reg
 }
 
+// newTestKey returns a fresh ECDSA P-256 key pair and its public JWK.
+func newTestKey(t *testing.T) (*ecdsa.PrivateKey, jose.JSONWebKey) {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating ECDSA key: %v", err)
+	}
+	return priv, jose.JSONWebKey{Key: priv.Public(), Algorithm: string(jose.ES256), Use: "sig"}
+}
+
+// signClaims signs the given claims as a compact JWS (ES256).
+func signClaims(t *testing.T, priv *ecdsa.PrivateKey, claims map[string]interface{}) string {
+	t.Helper()
+	signer, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.ES256, Key: priv},
+		(&jose.SignerOptions{}).WithType("JWT"),
+	)
+	if err != nil {
+		t.Fatalf("creating signer: %v", err)
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshaling claims: %v", err)
+	}
+	jws, err := signer.Sign(payload)
+	if err != nil {
+		t.Fatalf("signing: %v", err)
+	}
+	compact, err := jws.CompactSerialize()
+	if err != nil {
+		t.Fatalf("serializing JWS: %v", err)
+	}
+	return compact
+}
+
+// inlineJWKS returns the JWKS map for the given public JWK.
+func inlineJWKS(t *testing.T, pub jose.JSONWebKey) map[string]interface{} {
+	t.Helper()
+	b, err := json.Marshal(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{pub}})
+	if err != nil {
+		t.Fatalf("marshaling JWKS: %v", err)
+	}
+	var jwksMap map[string]interface{}
+	if err := json.Unmarshal(b, &jwksMap); err != nil {
+		t.Fatalf("unmarshaling JWKS: %v", err)
+	}
+	return jwksMap
+}
+
 func TestEvaluate_URLResolution_Success(t *testing.T) {
-	issuerMetadata := map[string]interface{}{
+	priv, pub := newTestKey(t)
+
+	// JWT payload is the authoritative metadata.
+	jwtClaims := map[string]interface{}{
 		"credential_issuer": "https://issuer.example.com",
 		"credential_configurations_supported": map[string]interface{}{
 			"UniversityDegree": map[string]interface{}{
 				"format": "vc+sd-jwt",
 			},
 		},
+	}
+	token := signClaims(t, priv, jwtClaims)
+
+	issuerMetadata := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
 		"display": []interface{}{
 			map[string]interface{}{
 				"name":   "Example University",
 				"locale": "en-US",
 			},
 		},
-		"signed_metadata": "eyJhbGciOiJSUzI1NiJ9.test.signature",
+		"jwks":            inlineJWKS(t, pub),
+		"signed_metadata": token,
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +117,7 @@ func TestEvaluate_URLResolution_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	reg := newTestRegistry(t, server)
+	reg := newTestRegistry(t)
 
 	req := &authzen.EvaluationRequest{
 		Subject: authzen.Subject{
@@ -79,19 +141,22 @@ func TestEvaluate_URLResolution_Success(t *testing.T) {
 		t.Fatal("Expected trust_metadata in response")
 	}
 
-	// Verify trust_metadata is a parsed map
+	// Verify trust_metadata is a parsed map with JWT payload claims.
 	parsed, ok := resp.Context.TrustMetadata.(map[string]interface{})
 	if !ok {
 		t.Fatalf("Expected map[string]interface{}, got %T", resp.Context.TrustMetadata)
 	}
-	if parsed["signed_metadata"] != "eyJhbGciOiJSUzI1NiJ9.test.signature" {
+	if parsed["signed_metadata"] != token {
 		t.Errorf("signed_metadata not preserved: got %v", parsed["signed_metadata"])
 	}
 	if parsed["credential_issuer"] != "https://issuer.example.com" {
 		t.Errorf("credential_issuer missing: got %v", parsed["credential_issuer"])
 	}
+	if _, ok := parsed["credential_configurations_supported"]; !ok {
+		t.Error("credential_configurations_supported not found in JWT payload claims")
+	}
 
-	// Verify reason fields
+	// Verify reason fields.
 	reason := resp.Context.Reason
 	if reason["resolution_only"] != true {
 		t.Error("Expected resolution_only=true")
@@ -107,7 +172,7 @@ func TestEvaluate_URLResolution_Cached(t *testing.T) {
 	}))
 	defer server.Close()
 
-	reg := newTestRegistry(t, server)
+	reg := newTestRegistry(t)
 
 	req := &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "url", ID: server.URL},
@@ -131,7 +196,7 @@ func TestEvaluate_URLResolution_Cached(t *testing.T) {
 }
 
 func TestEvaluate_RejectsNonURLSubject(t *testing.T) {
-	reg := newTestRegistry(t, nil)
+	reg := newTestRegistry(t)
 
 	req := &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "key", ID: "did:web:example.com"},
@@ -148,7 +213,7 @@ func TestEvaluate_RejectsNonURLSubject(t *testing.T) {
 }
 
 func TestEvaluate_RejectsNonResolutionRequest(t *testing.T) {
-	reg := newTestRegistry(t, nil)
+	reg := newTestRegistry(t)
 
 	req := &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "url", ID: "https://issuer.example.com"},
@@ -191,7 +256,7 @@ func TestEvaluate_IssuerReturns404(t *testing.T) {
 	}))
 	defer server.Close()
 
-	reg := newTestRegistry(t, server)
+	reg := newTestRegistry(t)
 
 	req := &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "url", ID: server.URL},
@@ -214,7 +279,7 @@ func TestEvaluate_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	reg := newTestRegistry(t, server)
+	reg := newTestRegistry(t)
 
 	req := &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "url", ID: server.URL},
@@ -231,14 +296,14 @@ func TestEvaluate_InvalidJSON(t *testing.T) {
 }
 
 func TestSupportsResolutionOnly(t *testing.T) {
-	reg := newTestRegistry(t, nil)
+	reg := newTestRegistry(t)
 	if !reg.SupportsResolutionOnly() {
 		t.Error("Expected SupportsResolutionOnly() = true")
 	}
 }
 
 func TestSupportedResourceTypes(t *testing.T) {
-	reg := newTestRegistry(t, nil)
+	reg := newTestRegistry(t)
 	types := reg.SupportedResourceTypes()
 	if len(types) != 0 {
 		t.Errorf("Expected empty SupportedResourceTypes, got %v", types)
@@ -246,7 +311,7 @@ func TestSupportedResourceTypes(t *testing.T) {
 }
 
 func TestInfo(t *testing.T) {
-	reg := newTestRegistry(t, nil)
+	reg := newTestRegistry(t)
 	info := reg.Info()
 	if info.Type != "issuer_url" {
 		t.Errorf("Expected type 'issuer_url', got %q", info.Type)
@@ -255,5 +320,3 @@ func TestInfo(t *testing.T) {
 		t.Error("Expected ResolutionOnly=true in info")
 	}
 }
-
-
