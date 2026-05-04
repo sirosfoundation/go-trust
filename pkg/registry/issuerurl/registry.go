@@ -63,8 +63,9 @@ func New(cfg *Config) (*Registry, error) {
 }
 
 // Evaluate handles issuer URL resolution requests.
-// Only resolution-only requests with subject.type = "url" are supported.
-// The parsed issuer metadata JSON object is returned as trust_metadata.
+// Accepts requests with subject.type = "url" and either resource.type = "credential_issuer"
+// or resolution-only requests (empty resource.type). The parsed issuer metadata JSON
+// object is returned as trust_metadata.
 func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	startTime := time.Now()
 
@@ -72,8 +73,8 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		return r.denyWithReason("issuer-url registry only handles subject.type 'url'"), nil
 	}
 
-	if !req.IsResolutionOnlyRequest() {
-		return r.denyWithReason("issuer-url registry only supports resolution-only requests"), nil
+	if req.Resource.Type != "" && req.Resource.Type != "credential_issuer" {
+		return r.denyWithReason("issuer-url registry only supports resource.type 'credential_issuer'"), nil
 	}
 
 	issuerURL := strings.TrimSuffix(req.Subject.ID, "/")
@@ -101,10 +102,9 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	}, nil
 }
 
-// SupportedResourceTypes returns an empty slice — this registry only handles
-// resolution-only requests (no resource.type matching needed).
+// SupportedResourceTypes returns the resource types this registry handles.
 func (r *Registry) SupportedResourceTypes() []string {
-	return []string{}
+	return []string{"credential_issuer"}
 }
 
 // SupportsResolutionOnly returns true.

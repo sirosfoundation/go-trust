@@ -125,7 +125,7 @@ func TestEvaluate_URLResolution_Success(t *testing.T) {
 			ID:   server.URL,
 		},
 		Resource: authzen.Resource{
-			Type: "resolution",
+			Type: "credential_issuer",
 			ID:   server.URL,
 		},
 	}
@@ -176,7 +176,7 @@ func TestEvaluate_URLResolution_Cached(t *testing.T) {
 
 	req := &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "url", ID: server.URL},
-		Resource: authzen.Resource{Type: "resolution", ID: server.URL},
+		Resource: authzen.Resource{Type: "credential_issuer", ID: server.URL},
 	}
 
 	// First call — fetches
@@ -200,7 +200,7 @@ func TestEvaluate_RejectsNonURLSubject(t *testing.T) {
 
 	req := &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "key", ID: "did:web:example.com"},
-		Resource: authzen.Resource{Type: "resolution", ID: "did:web:example.com"},
+		Resource: authzen.Resource{Type: "credential_issuer", ID: "did:web:example.com"},
 	}
 
 	resp, err := reg.Evaluate(context.Background(), req)
@@ -238,7 +238,7 @@ func TestEvaluate_RejectsHTTP(t *testing.T) {
 
 	req := &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "url", ID: "http://insecure.example.com"},
-		Resource: authzen.Resource{Type: "resolution", ID: "http://insecure.example.com"},
+		Resource: authzen.Resource{Type: "credential_issuer", ID: "http://insecure.example.com"},
 	}
 
 	resp, err := reg.Evaluate(context.Background(), req)
@@ -260,7 +260,7 @@ func TestEvaluate_IssuerReturns404(t *testing.T) {
 
 	req := &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "url", ID: server.URL},
-		Resource: authzen.Resource{Type: "resolution", ID: server.URL},
+		Resource: authzen.Resource{Type: "credential_issuer", ID: server.URL},
 	}
 
 	resp, err := reg.Evaluate(context.Background(), req)
@@ -283,7 +283,7 @@ func TestEvaluate_InvalidJSON(t *testing.T) {
 
 	req := &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "url", ID: server.URL},
-		Resource: authzen.Resource{Type: "resolution", ID: server.URL},
+		Resource: authzen.Resource{Type: "credential_issuer", ID: server.URL},
 	}
 
 	resp, err := reg.Evaluate(context.Background(), req)
@@ -305,8 +305,8 @@ func TestSupportsResolutionOnly(t *testing.T) {
 func TestSupportedResourceTypes(t *testing.T) {
 	reg := newTestRegistry(t)
 	types := reg.SupportedResourceTypes()
-	if len(types) != 0 {
-		t.Errorf("Expected empty SupportedResourceTypes, got %v", types)
+	if len(types) != 1 || types[0] != "credential_issuer" {
+		t.Errorf("Expected SupportedResourceTypes=[credential_issuer], got %v", types)
 	}
 }
 
