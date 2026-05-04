@@ -186,7 +186,7 @@ func (r *Resolver) ResolveWithInfo(ctx context.Context, issuerURL string) (*Reso
 	}
 
 	r.setCache(issuerURL, result.metadata, result.validated)
-	return &ResolveResult{Metadata: result.metadata, Cached: false, Validated: result.validated}, nil
+	return &ResolveResult{Metadata: deepCopyMap(result.metadata), Cached: false, Validated: result.validated}, nil
 }
 
 func (r *Resolver) validateURL(issuerURL string) error {
@@ -244,12 +244,15 @@ func (r *Resolver) fetch(ctx context.Context, issuerURL, metadataURL string) (*f
 
 	// Determine format from Content-Type header.
 	contentType := resp.Header.Get("Content-Type")
-	mediaType, _, _ := mime.ParseMediaType(contentType)
+	mediaType, _, parseErr := mime.ParseMediaType(contentType)
+	if contentType != "" && parseErr != nil {
+		return nil, fmt.Errorf("malformed Content-Type %q: %w", contentType, parseErr)
+	}
 
 	switch mediaType {
 	case "application/jwt":
 		// Entire response body is a JWS per OpenID4VCI §12.2.3
-		return r.handleJWTResponse(ctx, issuerURL, string(body))
+		return r.handleJWTResponse(ctx, issuerURL, strings.TrimSpace(string(body)))
 
 	case "application/json", "":
 		// Standard JSON response, possibly with legacy signed_metadata field
@@ -294,7 +297,10 @@ func (r *Resolver) handleJWTResponse(ctx context.Context, issuerURL, jwtString s
 		return nil, err
 	}
 
-	return &fetchResult{metadata: claims, validated: true}, nil
+	// Validated is true only when a TrustEvaluator is configured and approved
+	// the signer. Without a TrustEvaluator, the signature is verified but no
+	// trust decision is made.
+	return &fetchResult{metadata: claims, validated: r.cfg.TrustEvaluator != nil}, nil
 }
 
 // handleJSONResponse processes an application/json response.
@@ -317,7 +323,8 @@ func (r *Resolver) handleJSONResponse(ctx context.Context, issuerURL string, bod
 			if err != nil {
 				return nil, err
 			}
-			return &fetchResult{metadata: claims, validated: true}, nil
+			// Validated only when a TrustEvaluator is configured and approved.
+			return &fetchResult{metadata: claims, validated: r.cfg.TrustEvaluator != nil}, nil
 		}
 	}
 
@@ -386,8 +393,8 @@ func (r *Resolver) verifyJWSFromHeader(ctx context.Context, issuerURL string, jw
 	headers := jws.Signatures[0].Protected
 
 	// Try x5c header: extract certs from the raw JWS header.
-	certs, err := r.extractX5CCerts(jws)
-	if err == nil && len(certs) > 0 {
+	certs, x5cErr := r.extractX5CCerts(jws)
+	if x5cErr == nil && len(certs) > 0 {
 		leaf := certs[0]
 		payload, err := jws.Verify(leaf.PublicKey)
 		if err != nil {
@@ -404,6 +411,11 @@ func (r *Resolver) verifyJWSFromHeader(ctx context.Context, issuerURL string, jw
 			return nil, fmt.Errorf("parsing JWT payload claims: %w", err)
 		}
 		return claims, nil
+	}
+
+	// If x5c was present but malformed, surface the real error.
+	if x5cErr != nil && x5cErr.Error() != "no x5c header" {
+		return nil, fmt.Errorf("parsing x5c certificate chain: %w", x5cErr)
 	}
 
 	// Try kid — look up from issuer's JWKS (fetch metadata as JSON to get JWKS)
@@ -491,9 +503,13 @@ func (r *Resolver) evaluateSignerTrust(ctx context.Context, issuerURL string, jw
 	}
 
 	// If x5c is present in the header, use certificate chain trust evaluation.
-	certs, err := r.extractX5CCerts(jws)
-	if err == nil && len(certs) > 0 {
+	certs, x5cErr := r.extractX5CCerts(jws)
+	if x5cErr == nil && len(certs) > 0 {
 		return r.evaluateX5CTrust(ctx, issuerURL, certs)
+	}
+	// Surface malformed x5c errors (but not "no x5c header").
+	if x5cErr != nil && x5cErr.Error() != "no x5c header" {
+		return fmt.Errorf("parsing x5c certificate chain: %w", x5cErr)
 	}
 
 	// Otherwise evaluate the bare public key as a JWK.

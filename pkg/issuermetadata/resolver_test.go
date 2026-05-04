@@ -534,8 +534,45 @@ func signClaimsWithX5C(t *testing.T, priv *ecdsa.PrivateKey, certs []*x509.Certi
 }
 
 // TestResolveWithInfo_Validated_SignedMetadata verifies that ResolveWithInfo
-// reports Validated=true when signed_metadata is present and valid.
+// reports Validated=true when signed_metadata is present, valid, and a
+// TrustEvaluator is configured that approves the signer.
 func TestResolveWithInfo_Validated_SignedMetadata(t *testing.T) {
+	priv, pub := newTestKey(t)
+	jwtClaims := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+	}
+	token := signClaims(t, priv, jwtClaims)
+
+	outer := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"jwks":              inlineJWKS(t, pub),
+		"signed_metadata":   token,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(outer) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	evaluator := &mockTrustEvaluator{decision: true}
+	resolver, _ := New(Config{
+		AllowHTTP:       true,
+		AllowPrivateIPs: true,
+		TrustEvaluator:  evaluator,
+	})
+	result, err := resolver.ResolveWithInfo(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("ResolveWithInfo() error: %v", err)
+	}
+	if !result.Validated {
+		t.Error("expected Validated=true for signed_metadata response with TrustEvaluator")
+	}
+}
+
+// TestResolveWithInfo_NotValidated_SignedWithoutEvaluator verifies that
+// Validated=false when signed_metadata is present but no TrustEvaluator is configured.
+func TestResolveWithInfo_NotValidated_SignedWithoutEvaluator(t *testing.T) {
 	priv, pub := newTestKey(t)
 	jwtClaims := map[string]interface{}{
 		"credential_issuer": "https://issuer.example.com",
@@ -558,8 +595,8 @@ func TestResolveWithInfo_Validated_SignedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveWithInfo() error: %v", err)
 	}
-	if !result.Validated {
-		t.Error("expected Validated=true for signed_metadata response")
+	if result.Validated {
+		t.Error("expected Validated=false for signed_metadata without TrustEvaluator")
 	}
 }
 

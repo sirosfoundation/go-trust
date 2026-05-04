@@ -31,7 +31,7 @@ type Config struct {
 	AllowPrivateIPs bool `yaml:"allow_private_ips"`
 	// TrustEvaluator, when set, is used to evaluate whether the signer of
 	// signed metadata is trusted as a credential issuer.
-	TrustEvaluator issuermetadata.TrustEvaluator
+	TrustEvaluator issuermetadata.TrustEvaluator `yaml:"-"`
 }
 
 // Registry implements TrustRegistry for OpenID4VCI issuer metadata resolution.
