@@ -187,10 +187,25 @@ func (m *RegistryManager) Evaluate(ctx context.Context, req *authzen.EvaluationR
 			logging.F("error", err.Error()),
 			logging.F("duration_ms", duration.Milliseconds()))
 	} else {
-		logger.Debug("Evaluate: completed",
+		// Log decision with reason: deny at Info level, allow at Debug level.
+		action := ""
+		if req.Action != nil {
+			action = req.Action.Name
+		}
+		reason := extractDecisionReason(resp)
+		fields := []logging.Field{
 			logging.F("decision", resp.Decision),
+			logging.F("subject_id", req.Subject.ID),
+			logging.F("resource_type", req.Resource.Type),
+			logging.F("action", action),
+			logging.F("reason", reason),
 			logging.F("duration_ms", duration.Milliseconds()),
-			logging.F("subject_id", req.Subject.ID))
+		}
+		if resp.Decision {
+			logger.Debug("trust decision: allow", fields...)
+		} else {
+			logger.Info("trust decision: deny", fields...)
+		}
 	}
 
 	return resp, err
@@ -567,4 +582,21 @@ func NormalizeSubjectID(id string) string {
 		}
 	}
 	return id
+}
+
+// extractDecisionReason extracts a human-readable reason string from an
+// evaluation response. It checks for common reason keys in Context.Reason.
+func extractDecisionReason(resp *authzen.EvaluationResponse) string {
+	if resp.Context == nil || resp.Context.Reason == nil {
+		return ""
+	}
+	// "user" is set by registries for allow decisions (e.g. "trusted via whitelist (pid-issuers)")
+	if v, ok := resp.Context.Reason["user"]; ok {
+		return fmt.Sprintf("%v", v)
+	}
+	// "error" is set for deny decisions (e.g. "subject not in whitelist for action 'issuer'")
+	if v, ok := resp.Context.Reason["error"]; ok {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
 }
