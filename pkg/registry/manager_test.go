@@ -677,3 +677,75 @@ func TestRegistryManager_Evaluate_WithPolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Decision)
 }
+
+func TestNormalizeSubjectID(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"https://example.com", "https://example.com"},
+		{"x509_san_dns:example.com", "https://example.com"},
+		{"x509_san_uri:https://example.com", "https://example.com"},
+		{"x509_san_dns:sub.example.com", "https://sub.example.com"},
+		{"plain-id", "plain-id"},
+		{"did:web:example.com", "did:web:example.com"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := NormalizeSubjectID(tt.input)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+// captureMockRegistry wraps a mockRegistry to capture the request before evaluation.
+type captureMockRegistry struct {
+	*mockRegistry
+	onEvaluate func(req *authzen.EvaluationRequest)
+}
+
+func (c *captureMockRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	if c.onEvaluate != nil {
+		c.onEvaluate(req)
+	}
+	return c.mockRegistry.Evaluate(ctx, req)
+}
+
+func TestRegistryManager_Evaluate_NormalizesSubjectID(t *testing.T) {
+	var capturedSubjectID string
+	reg := &captureMockRegistry{
+		mockRegistry: &mockRegistry{
+			name:          "capture-registry",
+			resourceTypes: []string{"x5c"},
+			healthy:       true,
+			evaluateResponse: &authzen.EvaluationResponse{
+				Decision: true,
+			},
+		},
+		onEvaluate: func(req *authzen.EvaluationRequest) {
+			capturedSubjectID = req.Subject.ID
+		},
+	}
+
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+	mgr.Register(reg)
+
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{
+			Type: "key",
+			ID:   "x509_san_dns:verifier.example.com",
+		},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "x509_san_dns:verifier.example.com",
+			Key:  []interface{}{"test"},
+		},
+	}
+
+	ctx := context.Background()
+	resp, err := mgr.Evaluate(ctx, req)
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+	assert.Equal(t, "https://verifier.example.com", capturedSubjectID)
+}
