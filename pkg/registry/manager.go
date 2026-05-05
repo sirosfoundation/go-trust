@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -111,6 +112,11 @@ func (m *RegistryManager) Evaluate(ctx context.Context, req *authzen.EvaluationR
 			},
 		}, nil
 	}
+
+	// Normalize subject ID: strip OpenID4VP client_id_scheme prefixes
+	// (e.g. "x509_san_dns:host" -> "https://host") so all registries
+	// receive a consistent identifier.
+	req.Subject.ID = NormalizeSubjectID(req.Subject.ID)
 
 	// Resolve policy from action.name
 	policyCtx := m.resolvePolicyContext(req)
@@ -538,4 +544,27 @@ func (m *RegistryManager) ListRegistries() []RegistryInfo {
 		infos[i] = info
 	}
 	return infos
+}
+
+// NormalizeSubjectID normalizes a subject ID by stripping OpenID4VP
+// client_id_scheme prefixes and converting bare hostnames to https:// URLs.
+// This ensures all registries receive a consistent identifier format.
+//
+// Examples:
+//
+//	"x509_san_dns:example.com" -> "https://example.com"
+//	"x509_san_uri:https://example.com" -> "https://example.com"
+//	"https://example.com" -> "https://example.com" (unchanged)
+func NormalizeSubjectID(id string) string {
+	for _, prefix := range []string{"x509_san_dns:", "x509_san_uri:"} {
+		if strings.HasPrefix(id, prefix) {
+			bare := strings.TrimPrefix(id, prefix)
+			// x509_san_uri values are already URIs; x509_san_dns values are bare hostnames
+			if prefix == "x509_san_dns:" {
+				return "https://" + bare
+			}
+			return bare
+		}
+	}
+	return id
 }

@@ -341,8 +341,14 @@ func TestWhitelistRegistry_InterfaceMethods(t *testing.T) {
 
 	// Test SupportedResourceTypes - now returns specific types for key validation
 	types := reg.SupportedResourceTypes()
-	if len(types) != 2 || (types[0] != "jwk" && types[0] != "x5c") {
-		t.Errorf("expected [jwk x5c], got %v", types)
+	expected := map[string]bool{"jwk": true, "x5c": true, "x509_san_dns": true}
+	if len(types) != len(expected) {
+		t.Errorf("expected %d resource types, got %v", len(expected), types)
+	}
+	for _, rt := range types {
+		if !expected[rt] {
+			t.Errorf("unexpected resource type %q in %v", rt, types)
+		}
 	}
 
 	// Test SupportsResolutionOnly

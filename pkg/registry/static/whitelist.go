@@ -664,7 +664,7 @@ func (r *WhitelistRegistry) deny(subject, reason string) (*authzen.EvaluationRes
 
 // SupportedResourceTypes returns the resource types this registry can validate.
 func (r *WhitelistRegistry) SupportedResourceTypes() []string {
-	return []string{"jwk", "x5c"}
+	return []string{"jwk", "x5c", "x509_san_dns"}
 }
 
 // SupportsResolutionOnly returns true since whitelist supports resolution-only requests
