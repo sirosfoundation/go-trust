@@ -462,11 +462,28 @@ func (r *WhitelistRegistry) refreshLoop(stopCh <-chan struct{}) {
 // Evaluate checks if the name-to-key binding is trusted.
 // The subject ID must be in the whitelist AND the provided key must match
 // one of the entity's registered keys (fetched from their JWKS endpoint).
+// normalizeSubjectID normalizes a subject ID by stripping OpenID4VP client_id_scheme
+// prefixes (e.g. "x509_san_dns:", "x509_san_uri:") and converting bare hostnames
+// to https:// URLs to match whitelist entries.
+func normalizeSubjectID(id string) string {
+	for _, prefix := range []string{"x509_san_dns:", "x509_san_uri:"} {
+		if strings.HasPrefix(id, prefix) {
+			bare := strings.TrimPrefix(id, prefix)
+			// x509_san_uri values are already URIs; x509_san_dns values are bare hostnames
+			if prefix == "x509_san_dns:" {
+				return "https://" + bare
+			}
+			return bare
+		}
+	}
+	return id
+}
+
 func (r *WhitelistRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	subjectID := req.Subject.ID
+	subjectID := normalizeSubjectID(req.Subject.ID)
 	role := r.extractRole(req)
 
 	// Look up which list this action maps to
@@ -664,7 +681,7 @@ func (r *WhitelistRegistry) deny(subject, reason string) (*authzen.EvaluationRes
 
 // SupportedResourceTypes returns the resource types this registry can validate.
 func (r *WhitelistRegistry) SupportedResourceTypes() []string {
-	return []string{"jwk", "x5c"}
+	return []string{"jwk", "x5c", "x509_san_dns", "x509_san_uri"}
 }
 
 // SupportsResolutionOnly returns true since whitelist supports resolution-only requests

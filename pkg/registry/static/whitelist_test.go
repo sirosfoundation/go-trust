@@ -341,8 +341,8 @@ func TestWhitelistRegistry_InterfaceMethods(t *testing.T) {
 
 	// Test SupportedResourceTypes - now returns specific types for key validation
 	types := reg.SupportedResourceTypes()
-	if len(types) != 2 || (types[0] != "jwk" && types[0] != "x5c") {
-		t.Errorf("expected [jwk x5c], got %v", types)
+	if len(types) != 4 {
+		t.Errorf("expected [jwk x5c x509_san_dns x509_san_uri], got %v", types)
 	}
 
 	// Test SupportsResolutionOnly
@@ -1917,4 +1917,44 @@ func TestWhitelist_CredentialTypesInResponse(t *testing.T) {
 			t.Error("should not have requested_credential_types when not provided")
 		}
 	})
+}
+
+func TestNormalizeSubjectID(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"https://example.com", "https://example.com"},
+		{"x509_san_dns:example.com", "https://example.com"},
+		{"x509_san_uri:https://example.com", "https://example.com"},
+		{"x509_san_dns:sub.example.com", "https://sub.example.com"},
+		{"plain-id", "plain-id"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := normalizeSubjectID(tt.input)
+			if got != tt.expected {
+				t.Errorf("normalizeSubjectID(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestWhitelistRegistry_Evaluate_X509SanDNSSubject(t *testing.T) {
+	reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+		Verifiers: []string{"https://tecca.verifier.id.siros.org"},
+	}))
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "x509_san_dns:tecca.verifier.id.siros.org"},
+		Resource: authzen.Resource{Type: "x5c"},
+		Action:   &authzen.Action{Name: "credential-verifier"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Decision {
+		t.Errorf("expected decision=true for x509_san_dns subject, got false; reason: %v", resp.Context.Reason)
+	}
 }
