@@ -3,9 +3,11 @@ package registry
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/sirosfoundation/g119612/pkg/logging"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -748,4 +750,129 @@ func TestRegistryManager_Evaluate_NormalizesSubjectID(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Decision)
 	assert.Equal(t, "https://verifier.example.com", capturedSubjectID)
+}
+
+// logEntry records a single log call.
+type logEntry struct {
+	level  logging.LogLevel
+	msg    string
+	fields []logging.Field
+}
+
+// capturingLogger records log calls for test assertions.
+type capturingLogger struct {
+	mu      sync.Mutex
+	entries []logEntry
+	level   logging.LogLevel
+}
+
+func (l *capturingLogger) log(level logging.LogLevel, msg string, fields ...logging.Field) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.entries = append(l.entries, logEntry{level: level, msg: msg, fields: fields})
+}
+
+func (l *capturingLogger) Debug(msg string, fields ...logging.Field) {
+	l.log(logging.DebugLevel, msg, fields...)
+}
+func (l *capturingLogger) Info(msg string, fields ...logging.Field) {
+	l.log(logging.InfoLevel, msg, fields...)
+}
+func (l *capturingLogger) Warn(msg string, fields ...logging.Field) {
+	l.log(logging.WarnLevel, msg, fields...)
+}
+func (l *capturingLogger) Error(msg string, fields ...logging.Field) {
+	l.log(logging.ErrorLevel, msg, fields...)
+}
+func (l *capturingLogger) Fatal(msg string, fields ...logging.Field) {
+	l.log(logging.FatalLevel, msg, fields...)
+}
+func (l *capturingLogger) WithContext(_ context.Context) logging.Logger     { return l }
+func (l *capturingLogger) WithField(_ string, _ interface{}) logging.Logger { return l }
+func (l *capturingLogger) WithFields(_ ...logging.Field) logging.Logger     { return l }
+func (l *capturingLogger) GetLevel() logging.LogLevel                       { return l.level }
+func (l *capturingLogger) SetLevel(level logging.LogLevel)                  { l.level = level }
+
+func (l *capturingLogger) findEntry(msg string) *logEntry {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := range l.entries {
+		if l.entries[i].msg == msg {
+			return &l.entries[i]
+		}
+	}
+	return nil
+}
+
+func TestRegistryManager_DecisionLogging_DenyAtInfo(t *testing.T) {
+	logger := &capturingLogger{level: logging.DebugLevel}
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+	mgr.SetLogger(logger)
+
+	// Registry that denies
+	reg := &mockRegistry{
+		name:          "deny-registry",
+		resourceTypes: []string{"x5c"},
+		healthy:       true,
+		evaluateResponse: &authzen.EvaluationResponse{
+			Decision: false,
+			Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{
+					"error": "subject not in whitelist",
+				},
+			},
+		},
+	}
+	mgr.Register(reg)
+
+	req := &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "https://untrusted.example.com"},
+		Resource: authzen.Resource{Type: "x5c", ID: "https://untrusted.example.com", Key: []interface{}{"test"}},
+		Action:   &authzen.Action{Name: "verifier"},
+	}
+
+	resp, err := mgr.Evaluate(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, resp.Decision)
+
+	entry := logger.findEntry("trust decision: deny")
+	require.NotNil(t, entry, "expected 'trust decision: deny' log entry")
+	assert.Equal(t, logging.InfoLevel, entry.level, "deny decisions should log at Info level")
+}
+
+func TestRegistryManager_DecisionLogging_AllowAtDebug(t *testing.T) {
+	logger := &capturingLogger{level: logging.DebugLevel}
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+	mgr.SetLogger(logger)
+
+	// Registry that allows
+	reg := &mockRegistry{
+		name:          "allow-registry",
+		resourceTypes: []string{"x5c"},
+		healthy:       true,
+		evaluateResponse: &authzen.EvaluationResponse{
+			Decision: true,
+			Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{
+					"user":     "trusted via whitelist (issuers)",
+					"registry": "test-whitelist",
+				},
+			},
+		},
+	}
+	mgr.Register(reg)
+
+	req := &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "https://trusted.example.com"},
+		Resource: authzen.Resource{Type: "x5c", ID: "https://trusted.example.com", Key: []interface{}{"test"}},
+		Action:   &authzen.Action{Name: "issuer"},
+	}
+
+	resp, err := mgr.Evaluate(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+
+	entry := logger.findEntry("trust decision: allow")
+	require.NotNil(t, entry, "expected 'trust decision: allow' log entry")
+	assert.Equal(t, logging.DebugLevel, entry.level, "allow decisions should log at Debug level")
 }
