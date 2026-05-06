@@ -585,12 +585,17 @@ func NormalizeSubjectID(id string) string {
 }
 
 // extractDecisionReason extracts a human-readable reason string from an
-// evaluation response. It checks for common reason keys in Context.Reason,
-// preferring the key that matches the decision: "error" for denials, "user"
-// for allows, falling back to the other key if the preferred one is absent.
+// evaluation response. It checks for common reason keys in Context.Reason.
+// Priority: "admin" (server-side diagnostics, e.g. from LoTE/whitelist registries),
+// then decision-specific keys: "error" for denials, "user" for allows.
 func extractDecisionReason(resp *authzen.EvaluationResponse) string {
 	if resp.Context == nil || resp.Context.Reason == nil {
 		return ""
+	}
+	// "admin" contains server-side diagnostic detail (e.g. "entity X not found in any LoTE")
+	// and is the most informative reason for operator logs.
+	if v, ok := resp.Context.Reason["admin"]; ok {
+		return fmt.Sprintf("%v", v)
 	}
 	if resp.Decision {
 		// Allow: prefer "user" (e.g. "trusted via whitelist (pid-issuers)")
