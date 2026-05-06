@@ -5,13 +5,20 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/sirosfoundation/go-trust/pkg/authzen"
 )
 
 func newTestResolver(t *testing.T) *Resolver {
@@ -446,5 +453,532 @@ func TestResolve_CacheTTLExpiry(t *testing.T) {
 
 	if calls != 2 {
 		t.Errorf("expected 2 HTTP requests after TTL expiry, got %d", calls)
+	}
+}
+
+// mockTrustEvaluator implements TrustEvaluator for testing.
+type mockTrustEvaluator struct {
+	decision bool
+	err      error
+	requests []*authzen.EvaluationRequest
+}
+
+func (m *mockTrustEvaluator) Evaluate(_ context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	m.requests = append(m.requests, req)
+	if m.err != nil {
+		return nil, m.err
+	}
+	resp := &authzen.EvaluationResponse{Decision: m.decision}
+	if !m.decision {
+		resp.Context = &authzen.EvaluationResponseContext{
+			Reason: map[string]interface{}{"error": "not trusted"},
+		}
+	}
+	return resp, nil
+}
+
+// newTestCert creates a self-signed X.509 certificate for the given key.
+func newTestCert(t *testing.T, priv *ecdsa.PrivateKey) *x509.Certificate {
+	t.Helper()
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	derBytes, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("creating test certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(derBytes)
+	if err != nil {
+		t.Fatalf("parsing test certificate: %v", err)
+	}
+	return cert
+}
+
+// signClaimsWithX5C signs claims as a compact JWS with x5c header.
+func signClaimsWithX5C(t *testing.T, priv *ecdsa.PrivateKey, certs []*x509.Certificate, typ string, claims map[string]interface{}) string {
+	t.Helper()
+	opts := &jose.SignerOptions{}
+	if typ != "" {
+		opts = opts.WithType(jose.ContentType(typ))
+	}
+	// Add x5c header
+	b64Certs := make([]interface{}, len(certs))
+	for i, cert := range certs {
+		b64Certs[i] = base64.StdEncoding.EncodeToString(cert.Raw)
+	}
+	opts = opts.WithHeader("x5c", b64Certs)
+
+	signer, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.ES256, Key: priv},
+		opts,
+	)
+	if err != nil {
+		t.Fatalf("creating signer: %v", err)
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshaling claims: %v", err)
+	}
+	jws, err := signer.Sign(payload)
+	if err != nil {
+		t.Fatalf("signing: %v", err)
+	}
+	compact, err := jws.CompactSerialize()
+	if err != nil {
+		t.Fatalf("serializing JWS: %v", err)
+	}
+	return compact
+}
+
+// TestResolveWithInfo_Validated_SignedMetadata verifies that ResolveWithInfo
+// reports Validated=true when signed_metadata is present, valid, and a
+// TrustEvaluator is configured that approves the signer.
+func TestResolveWithInfo_Validated_SignedMetadata(t *testing.T) {
+	priv, pub := newTestKey(t)
+	jwtClaims := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+	}
+	token := signClaims(t, priv, jwtClaims)
+
+	outer := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"jwks":              inlineJWKS(t, pub),
+		"signed_metadata":   token,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(outer) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	evaluator := &mockTrustEvaluator{decision: true}
+	resolver, _ := New(Config{
+		AllowHTTP:       true,
+		AllowPrivateIPs: true,
+		TrustEvaluator:  evaluator,
+	})
+	result, err := resolver.ResolveWithInfo(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("ResolveWithInfo() error: %v", err)
+	}
+	if !result.Validated {
+		t.Error("expected Validated=true for signed_metadata response with TrustEvaluator")
+	}
+}
+
+// TestResolveWithInfo_NotValidated_SignedWithoutEvaluator verifies that
+// Validated=false when signed_metadata is present but no TrustEvaluator is configured.
+func TestResolveWithInfo_NotValidated_SignedWithoutEvaluator(t *testing.T) {
+	priv, pub := newTestKey(t)
+	jwtClaims := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+	}
+	token := signClaims(t, priv, jwtClaims)
+
+	outer := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"jwks":              inlineJWKS(t, pub),
+		"signed_metadata":   token,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(outer) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	result, err := newTestResolver(t).ResolveWithInfo(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("ResolveWithInfo() error: %v", err)
+	}
+	if result.Validated {
+		t.Error("expected Validated=false for signed_metadata without TrustEvaluator")
+	}
+}
+
+// TestResolveWithInfo_NotValidated_UnsignedJSON verifies that ResolveWithInfo
+// reports Validated=false for plain unsigned JSON.
+func TestResolveWithInfo_NotValidated_UnsignedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"credential_issuer": "https://test.com"}) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	result, err := newTestResolver(t).ResolveWithInfo(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("ResolveWithInfo() error: %v", err)
+	}
+	if result.Validated {
+		t.Error("expected Validated=false for unsigned JSON response")
+	}
+}
+
+// TestResolve_ApplicationJWT_WithX5C tests the application/jwt Content-Type
+// response path with x5c certificate chain in the JOSE header.
+func TestResolve_ApplicationJWT_WithX5C(t *testing.T) {
+	priv, _ := newTestKey(t)
+	cert := newTestCert(t, priv)
+
+	evaluator := &mockTrustEvaluator{decision: true}
+
+	// We need the server URL for the sub claim, so create server first with a handler
+	// that will be set after we know the URL.
+	var token string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/jwt")
+		w.Write([]byte(token)) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	// Now create the token with sub matching the test server URL
+	claims := map[string]interface{}{
+		"credential_issuer": server.URL,
+		"sub":               server.URL,
+		"iat":               time.Now().Unix(),
+	}
+	token = signClaimsWithX5C(t, priv, []*x509.Certificate{cert}, "openidvci-issuer-metadata+jwt", claims)
+
+	resolver, err := New(Config{
+		CacheTTL:        5 * time.Minute,
+		HTTPTimeout:     5 * time.Second,
+		AllowHTTP:       true,
+		AllowPrivateIPs: true,
+		TrustEvaluator:  evaluator,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	result, err := resolver.ResolveWithInfo(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("ResolveWithInfo() error: %v", err)
+	}
+	if !result.Validated {
+		t.Error("expected Validated=true for application/jwt response")
+	}
+	if result.Metadata["sub"] != server.URL {
+		t.Errorf("expected sub=%q, got %v", server.URL, result.Metadata["sub"])
+	}
+
+	// Verify trust evaluator was called with x5c
+	if len(evaluator.requests) != 1 {
+		t.Fatalf("expected 1 trust evaluation request, got %d", len(evaluator.requests))
+	}
+	req := evaluator.requests[0]
+	if req.Resource.Type != "x5c" {
+		t.Errorf("expected resource.type=x5c, got %q", req.Resource.Type)
+	}
+	if req.Action == nil || req.Action.Name != "credential-issuer" {
+		t.Error("expected action.name=credential-issuer")
+	}
+}
+
+// TestResolve_ApplicationJWT_TrustEvaluatorRejects tests that when the trust
+// evaluator rejects the signer, the metadata is not returned.
+func TestResolve_ApplicationJWT_TrustEvaluatorRejects(t *testing.T) {
+	priv, _ := newTestKey(t)
+	cert := newTestCert(t, priv)
+
+	evaluator := &mockTrustEvaluator{decision: false}
+
+	var token string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/jwt")
+		w.Write([]byte(token)) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	claims := map[string]interface{}{
+		"credential_issuer": server.URL,
+		"sub":               server.URL,
+		"iat":               time.Now().Unix(),
+	}
+	token = signClaimsWithX5C(t, priv, []*x509.Certificate{cert}, "openidvci-issuer-metadata+jwt", claims)
+
+	resolver, _ := New(Config{
+		CacheTTL:        5 * time.Minute,
+		HTTPTimeout:     5 * time.Second,
+		AllowHTTP:       true,
+		AllowPrivateIPs: true,
+		TrustEvaluator:  evaluator,
+	})
+
+	_, err := resolver.Resolve(context.Background(), server.URL)
+	if err == nil {
+		t.Error("expected error when trust evaluator rejects signer")
+	}
+	if !strings.Contains(err.Error(), "not trusted") {
+		t.Errorf("expected 'not trusted' in error, got: %v", err)
+	}
+}
+
+// TestResolve_ApplicationJWT_WrongTyp tests that a JWT with wrong typ header is rejected.
+func TestResolve_ApplicationJWT_WrongTyp(t *testing.T) {
+	priv, _ := newTestKey(t)
+	cert := newTestCert(t, priv)
+
+	issuerURL := "https://issuer.example.com"
+	claims := map[string]interface{}{
+		"credential_issuer": issuerURL,
+		"sub":               issuerURL,
+		"iat":               time.Now().Unix(),
+	}
+	// Wrong typ
+	token := signClaimsWithX5C(t, priv, []*x509.Certificate{cert}, "JWT", claims)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/jwt")
+		w.Write([]byte(token)) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	resolver, _ := New(Config{
+		AllowHTTP:       true,
+		AllowPrivateIPs: true,
+	})
+
+	_, err := resolver.Resolve(context.Background(), server.URL)
+	if err == nil {
+		t.Error("expected error for wrong typ header")
+	}
+	if !strings.Contains(err.Error(), "openidvci-issuer-metadata+jwt") {
+		t.Errorf("expected typ error message, got: %v", err)
+	}
+}
+
+// TestResolve_ApplicationJWT_MissingSub tests that a JWT without sub claim is rejected.
+func TestResolve_ApplicationJWT_MissingSub(t *testing.T) {
+	priv, _ := newTestKey(t)
+	cert := newTestCert(t, priv)
+
+	claims := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		// missing "sub"
+		"iat": time.Now().Unix(),
+	}
+	token := signClaimsWithX5C(t, priv, []*x509.Certificate{cert}, "openidvci-issuer-metadata+jwt", claims)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/jwt")
+		w.Write([]byte(token)) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	resolver, _ := New(Config{AllowHTTP: true, AllowPrivateIPs: true})
+	_, err := resolver.Resolve(context.Background(), server.URL)
+	if err == nil {
+		t.Error("expected error for missing sub claim")
+	}
+}
+
+// TestResolve_ApplicationJWT_SubMismatch tests that a JWT with sub not matching issuer URL is rejected.
+func TestResolve_ApplicationJWT_SubMismatch(t *testing.T) {
+	priv, _ := newTestKey(t)
+	cert := newTestCert(t, priv)
+
+	claims := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"sub":               "https://different.example.com",
+		"iat":               time.Now().Unix(),
+	}
+	token := signClaimsWithX5C(t, priv, []*x509.Certificate{cert}, "openidvci-issuer-metadata+jwt", claims)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/jwt")
+		w.Write([]byte(token)) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	resolver, _ := New(Config{AllowHTTP: true, AllowPrivateIPs: true})
+	_, err := resolver.Resolve(context.Background(), server.URL)
+	if err == nil {
+		t.Error("expected error for sub mismatch")
+	}
+	if !strings.Contains(err.Error(), "does not match") {
+		t.Errorf("expected sub mismatch error, got: %v", err)
+	}
+}
+
+// TestResolve_ApplicationJWT_MissingIat tests that a JWT without iat claim is rejected.
+func TestResolve_ApplicationJWT_MissingIat(t *testing.T) {
+	priv, _ := newTestKey(t)
+	cert := newTestCert(t, priv)
+
+	claims := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"sub":               "https://issuer.example.com",
+		// missing "iat"
+	}
+	token := signClaimsWithX5C(t, priv, []*x509.Certificate{cert}, "openidvci-issuer-metadata+jwt", claims)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/jwt")
+		w.Write([]byte(token)) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	resolver, _ := New(Config{AllowHTTP: true, AllowPrivateIPs: true})
+	_, err := resolver.Resolve(context.Background(), server.URL)
+	if err == nil {
+		t.Error("expected error for missing iat claim")
+	}
+}
+
+// TestResolve_SignedMetadata_TrustEvaluatorCalled verifies that the trust evaluator
+// is called for the legacy signed_metadata field in JSON responses.
+func TestResolve_SignedMetadata_TrustEvaluatorCalled(t *testing.T) {
+	priv, pub := newTestKey(t)
+	jwtClaims := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+	}
+	token := signClaims(t, priv, jwtClaims)
+
+	outer := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"jwks":              inlineJWKS(t, pub),
+		"signed_metadata":   token,
+	}
+
+	evaluator := &mockTrustEvaluator{decision: true}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(outer) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	resolver, _ := New(Config{
+		AllowHTTP:       true,
+		AllowPrivateIPs: true,
+		TrustEvaluator:  evaluator,
+	})
+
+	_, err := resolver.Resolve(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+
+	// Trust evaluator should have been called with jwk type
+	// (legacy signed_metadata uses JWKS keys, not x5c)
+	if len(evaluator.requests) != 1 {
+		t.Fatalf("expected 1 trust evaluation request, got %d", len(evaluator.requests))
+	}
+	req := evaluator.requests[0]
+	if req.Resource.Type != "jwk" {
+		t.Errorf("expected resource.type=jwk, got %q", req.Resource.Type)
+	}
+}
+
+// TestResolve_SignedMetadata_TrustEvaluatorRejects verifies that when the trust
+// evaluator rejects the signer of signed_metadata, an error is returned.
+func TestResolve_SignedMetadata_TrustEvaluatorRejects(t *testing.T) {
+	priv, pub := newTestKey(t)
+	token := signClaims(t, priv, map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+	})
+
+	outer := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"jwks":              inlineJWKS(t, pub),
+		"signed_metadata":   token,
+	}
+
+	evaluator := &mockTrustEvaluator{decision: false}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(outer) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	resolver, _ := New(Config{
+		AllowHTTP:       true,
+		AllowPrivateIPs: true,
+		TrustEvaluator:  evaluator,
+	})
+
+	_, err := resolver.Resolve(context.Background(), server.URL)
+	if err == nil {
+		t.Error("expected error when trust evaluator rejects signer")
+	}
+}
+
+// TestResolve_AcceptHeader verifies the Accept header is sent correctly.
+func TestResolve_AcceptHeader(t *testing.T) {
+	var acceptHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acceptHeader = r.Header.Get("Accept")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"credential_issuer": "https://test.com"}) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	resolver, _ := New(Config{AllowHTTP: true, AllowPrivateIPs: true})
+	resolver.Resolve(context.Background(), server.URL) //nolint:errcheck
+
+	if !strings.Contains(acceptHeader, "application/jwt") {
+		t.Errorf("expected Accept header to include application/jwt, got %q", acceptHeader)
+	}
+	if !strings.Contains(acceptHeader, "application/json") {
+		t.Errorf("expected Accept header to include application/json, got %q", acceptHeader)
+	}
+}
+
+// TestResolve_UnsupportedContentType verifies that unsupported Content-Types are rejected.
+func TestResolve_UnsupportedContentType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<html>not metadata</html>")
+	}))
+	defer server.Close()
+
+	resolver, _ := New(Config{AllowHTTP: true, AllowPrivateIPs: true})
+	_, err := resolver.Resolve(context.Background(), server.URL)
+	if err == nil {
+		t.Error("expected error for unsupported Content-Type")
+	}
+	if !strings.Contains(err.Error(), "unsupported Content-Type") {
+		t.Errorf("expected Content-Type error, got: %v", err)
+	}
+}
+
+// TestResolve_TrustEvaluatorError verifies that trust evaluator errors propagate.
+func TestResolve_TrustEvaluatorError(t *testing.T) {
+	priv, pub := newTestKey(t)
+	token := signClaims(t, priv, map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+	})
+
+	outer := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"jwks":              inlineJWKS(t, pub),
+		"signed_metadata":   token,
+	}
+
+	evaluator := &mockTrustEvaluator{err: fmt.Errorf("trust engine unavailable")}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(outer) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	resolver, _ := New(Config{
+		AllowHTTP:       true,
+		AllowPrivateIPs: true,
+		TrustEvaluator:  evaluator,
+	})
+
+	_, err := resolver.Resolve(context.Background(), server.URL)
+	if err == nil {
+		t.Error("expected error when trust evaluator returns error")
+	}
+	if !strings.Contains(err.Error(), "trust engine unavailable") {
+		t.Errorf("expected propagated error, got: %v", err)
 	}
 }

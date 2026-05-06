@@ -29,6 +29,9 @@ type Config struct {
 	AllowHTTP bool `yaml:"allow_http"`
 	// AllowPrivateIPs permits fetching from private/internal IPs (testing only).
 	AllowPrivateIPs bool `yaml:"allow_private_ips"`
+	// TrustEvaluator, when set, is used to evaluate whether the signer of
+	// signed metadata is trusted as a credential issuer.
+	TrustEvaluator issuermetadata.TrustEvaluator `yaml:"-"`
 }
 
 // Registry implements TrustRegistry for OpenID4VCI issuer metadata resolution.
@@ -51,6 +54,7 @@ func New(cfg *Config) (*Registry, error) {
 		HTTPTimeout:     cfg.HTTPTimeout,
 		AllowHTTP:       cfg.AllowHTTP,
 		AllowPrivateIPs: cfg.AllowPrivateIPs,
+		TrustEvaluator:  cfg.TrustEvaluator,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating issuermetadata resolver: %w", err)
@@ -96,6 +100,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 				"resolution_ms":   time.Since(startTime).Milliseconds(),
 				"registry":        r.config.Name,
 				"cached":          parsed.Cached,
+				"validated":       parsed.Validated,
 			},
 			TrustMetadata: parsed.Metadata,
 		},
