@@ -253,7 +253,7 @@ func TestResolve_SignedMetadata_NoJWKS(t *testing.T) {
 	outer := map[string]interface{}{
 		"credential_issuer": "https://issuer.example.com",
 		"signed_metadata":   token,
-		// no jwks or jwks_uri
+		// no jwks or jwks_uri, and no x5c in JWT header
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +268,58 @@ func TestResolve_SignedMetadata_NoJWKS(t *testing.T) {
 
 	_, err := newTestResolver(t).Resolve(context.Background(), server.URL)
 	if err == nil {
-		t.Error("expected error when signed_metadata present but no JWKS available, got nil")
+		t.Error("expected error when signed_metadata has no JWKS and no x5c header, got nil")
+	}
+}
+
+// TestResolve_SignedMetadata_X5CFallback verifies that when signed_metadata is
+// present and the outer metadata has no jwks/jwks_uri, the resolver falls back
+// to extracting the signing key from the JWT's x5c header.
+func TestResolve_SignedMetadata_X5CFallback(t *testing.T) {
+	priv, _ := newTestKey(t)
+	cert := newTestCert(t, priv)
+
+	jwtClaims := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"credential_configurations_supported": map[string]interface{}{
+			"PID": map[string]interface{}{"format": "dc+sd-jwt"},
+		},
+	}
+	// Sign with x5c in header and typ=JWT
+	token := signClaimsWithX5C(t, priv, []*x509.Certificate{cert}, "JWT", jwtClaims)
+
+	// Outer metadata has signed_metadata but no jwks or jwks_uri
+	outer := map[string]interface{}{
+		"credential_issuer": "https://issuer.example.com",
+		"signed_metadata":   token,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/openid-credential-issuer" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(outer) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	got, err := newTestResolver(t).Resolve(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+
+	// Authoritative claim comes from the JWT payload.
+	if got["credential_issuer"] != "https://issuer.example.com" {
+		t.Errorf("credential_issuer: got %v", got["credential_issuer"])
+	}
+	// signed_metadata is preserved.
+	if got["signed_metadata"] != token {
+		t.Errorf("signed_metadata not preserved")
+	}
+	// JWT payload claim is returned.
+	if _, ok := got["credential_configurations_supported"]; !ok {
+		t.Error("credential_configurations_supported not found in JWT payload claims")
 	}
 }
 

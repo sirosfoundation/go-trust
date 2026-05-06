@@ -31,6 +31,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -335,18 +336,34 @@ func (r *Resolver) handleJSONResponse(ctx context.Context, issuerURL string, bod
 // JWKS and returns the JWT payload claims as the authoritative metadata.
 // The signed_metadata string is preserved in the returned map.
 //
-// Key selection: if the JWT header contains a kid, keys matching that kid are
-// tried first. If none match the kid or no kid is present, all JWKS keys are
-// tried in order.
+// Key resolution order:
+//  1. Inline jwks or jwks_uri from the metadata body
+//  2. x5c certificate chain from the JWT header (only when metadata has
+//     no jwks or jwks_uri at all; transient fetch errors are not bypassed)
+//
+// When using JWKS, if the JWT header contains a kid, keys matching that kid
+// are tried first. If none match the kid or no kid is present, all JWKS keys
+// are tried in order.
 func (r *Resolver) validateSignedMetadata(ctx context.Context, issuerURL string, raw map[string]interface{}, signedMetadata string) (map[string]interface{}, error) {
 	jws, err := jose.ParseSigned(signedMetadata, supportedSignatureAlgorithms)
 	if err != nil {
 		return nil, fmt.Errorf("parsing signed_metadata JWT: %w", err)
 	}
 
-	jwks, err := r.resolveJWKS(ctx, raw)
-	if err != nil {
-		return nil, fmt.Errorf("resolving JWKS for signed_metadata verification: %w", err)
+	jwks, jwksErr := r.resolveJWKS(ctx, raw)
+	if jwksErr != nil {
+		// Only fall back to header key when metadata truly has no JWKS.
+		// Transient fetch/parse errors from jwks_uri must not be silently bypassed.
+		if !errors.Is(jwksErr, errNoJWKS) {
+			return nil, fmt.Errorf("resolving JWKS for signed_metadata verification: %w", jwksErr)
+		}
+		// No JWKS in metadata body — fall back to x5c from JWT header.
+		claims, headerErr := r.verifyJWSFromHeader(ctx, issuerURL, jws)
+		if headerErr != nil {
+			return nil, fmt.Errorf("signed_metadata verification failed: no JWKS in metadata and header key extraction failed: %w", headerErr)
+		}
+		claims["signed_metadata"] = signedMetadata
+		return claims, nil
 	}
 
 	// Determine the candidate keys to try for verification.
@@ -420,10 +437,10 @@ func (r *Resolver) verifyJWSFromHeader(ctx context.Context, issuerURL string, jw
 
 	// Try kid — look up from issuer's JWKS (fetch metadata as JSON to get JWKS)
 	if kid := headers.KeyID; kid != "" {
-		return nil, fmt.Errorf("JWT response with kid but no x5c header: key resolution via kid requires JWKS endpoint (not yet supported for application/jwt responses)")
+		return nil, fmt.Errorf("kid header present but no x5c: key resolution via kid requires JWKS endpoint (not yet supported)")
 	}
 
-	return nil, fmt.Errorf("JWT response has no x5c or kid in JOSE header; cannot resolve signing key")
+	return nil, fmt.Errorf("no x5c or kid in JOSE header; cannot resolve signing key")
 }
 
 // extractX5CCerts extracts x5c certificates from a JWS by looking at the
@@ -600,8 +617,12 @@ func (r *Resolver) evaluateJWKTrust(ctx context.Context, issuerURL string, jwk *
 	return nil
 }
 
+// errNoJWKS is returned by resolveJWKS when metadata contains neither jwks nor jwks_uri.
+var errNoJWKS = errors.New("no JWKS found in metadata (jwks or jwks_uri required)")
+
 // resolveJWKS returns the JWKS for validating the signed_metadata JWT.
 // Inline jwks is preferred over jwks_uri.
+// Returns errNoJWKS when neither jwks nor jwks_uri is present.
 func (r *Resolver) resolveJWKS(ctx context.Context, meta map[string]interface{}) (jose.JSONWebKeySet, error) {
 	// Prefer inline JWKS.
 	if jwksRaw, ok := meta["jwks"]; ok {
@@ -619,7 +640,7 @@ func (r *Resolver) resolveJWKS(ctx context.Context, meta map[string]interface{})
 		return r.fetchJWKSFromURI(ctx, uri)
 	}
 
-	return jose.JSONWebKeySet{}, fmt.Errorf("signed_metadata present but no JWKS found in metadata (jwks or jwks_uri required)")
+	return jose.JSONWebKeySet{}, errNoJWKS
 }
 
 // fetchJWKSFromURI fetches and parses a JWKS from the given URI.
