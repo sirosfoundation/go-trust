@@ -302,10 +302,22 @@ func main() {
 		logging.F("url", baseURL))
 
 	// Gin API server
-	if *logLevel != "debug" {
+	debugMode := *logLevel == "debug"
+	if !debugMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		Skip: func(c *gin.Context) bool {
+			// In debug mode, always log everything
+			if debugMode {
+				return false
+			}
+			// Skip successful health check requests to reduce log noise
+			return c.Request.URL.Path == "/healthz" && c.Writer.Status() == 200
+		},
+	}))
+	r.Use(gin.Recovery())
 
 	// Initialize metrics
 	metrics := api.NewMetrics()
