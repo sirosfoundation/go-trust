@@ -570,13 +570,10 @@ func TestMergeParameters(t *testing.T) {
 // =============================================================================
 
 // TestPublicMediatorResolution tests resolution of the public mediator DID.
-// This test requires network access and is skipped if the mediator is unavailable.
+// This test requires network access and is skipped unless RUN_NETWORK_TESTS=1 is set.
 func TestPublicMediatorResolution(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping network-dependent test in short mode")
-	}
-	if os.Getenv("SKIP_NETWORK_TESTS") != "" {
-		t.Skip("Skipping network test (SKIP_NETWORK_TESTS set)")
+	if os.Getenv("RUN_NETWORK_TESTS") != "1" {
+		t.Skip("skipping network-dependent test (set RUN_NETWORK_TESTS=1 to run)")
 	}
 
 	// Public mediator DID
