@@ -1,10 +1,9 @@
 // Package issuermetadata provides a cached, SSRF-safe resolver for
 // OpenID4VCI issuer metadata (/.well-known/openid-credential-issuer).
 //
-// It is designed to be imported directly by both the AuthZEN trust registry
-// (pkg/registry/issuerurl) and application-level code — for example the
-// go-wallet-backend OID4VCI engine — so that a single fetch+cache
-// implementation is shared with consistent SSRF protection and HTTPS enforcement.
+// It is designed to be imported directly by application-level code — for example
+// the go-wallet-backend OID4VCI engine — providing a single fetch+cache
+// implementation with consistent SSRF protection and HTTPS enforcement.
 //
 // The resolver supports two metadata distribution formats per OpenID4VCI §12.2.2:
 //   - Unsigned JSON (Content-Type: application/json) — returned as-is

@@ -37,8 +37,6 @@ type RegistriesConfig struct {
 	LoTE *LoTERegistryConfig `yaml:"lote,omitempty"`
 	// mDOC IACA registry
 	MDOCIACA *MDOCIACARegistryConfig `yaml:"mdociaca,omitempty"`
-	// Issuer URL resolution registry
-	IssuerURL *IssuerURLRegistryConfig `yaml:"issuer_url,omitempty"`
 	// Static test registries
 	AlwaysTrusted *StaticRegistryConfig `yaml:"always_trusted,omitempty"`
 	NeverTrusted  *StaticRegistryConfig `yaml:"never_trusted,omitempty"`
@@ -151,15 +149,6 @@ type MDOCIACARegistryConfig struct {
 	IssuerAllowlist []string `yaml:"issuer_allowlist,omitempty"`
 	CacheTTL        string   `yaml:"cache_ttl,omitempty"`
 	HTTPTimeout     string   `yaml:"http_timeout,omitempty"`
-}
-
-// IssuerURLRegistryConfig contains issuer URL resolution registry configuration.
-type IssuerURLRegistryConfig struct {
-	Enabled     bool   `yaml:"enabled"`
-	Name        string `yaml:"name,omitempty"`
-	Description string `yaml:"description,omitempty"`
-	CacheTTL    string `yaml:"cache_ttl,omitempty"`
-	HTTPTimeout string `yaml:"http_timeout,omitempty"`
 }
 
 // LoTERegistryConfig contains ETSI TS 119 602 LoTE registry configuration.
