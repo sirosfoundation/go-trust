@@ -285,7 +285,7 @@ func TestResolve_SignedMetadata_X5CFallback(t *testing.T) {
 			"PID": map[string]interface{}{"format": "dc+sd-jwt"},
 		},
 	}
-	// Sign with x5c in header, no type (standard JWT)
+	// Sign with x5c in header and typ=JWT
 	token := signClaimsWithX5C(t, priv, []*x509.Certificate{cert}, "JWT", jwtClaims)
 
 	// Outer metadata has signed_metadata but no jwks or jwks_uri
