@@ -787,10 +787,10 @@ func (l *capturingLogger) Error(msg string, fields ...logging.Field) {
 func (l *capturingLogger) Fatal(msg string, fields ...logging.Field) {
 	l.log(logging.FatalLevel, msg, fields...)
 }
-func (l *capturingLogger) WithContext(_ context.Context) logging.Logger { return l }
+func (l *capturingLogger) WithContext(_ context.Context) logging.Logger     { return l }
 func (l *capturingLogger) WithField(_ string, _ interface{}) logging.Logger { return l }
-func (l *capturingLogger) WithFields(_ ...logging.Field) logging.Logger    { return l }
-func (l *capturingLogger) GetLevel() logging.LogLevel                      { return l.level }
+func (l *capturingLogger) WithFields(_ ...logging.Field) logging.Logger     { return l }
+func (l *capturingLogger) GetLevel() logging.LogLevel                       { return l.level }
 func (l *capturingLogger) SetLevel(level logging.LogLevel)                  { l.level = level }
 
 func (l *capturingLogger) findEntry(msg string) *logEntry {

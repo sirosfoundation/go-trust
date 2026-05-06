@@ -585,18 +585,29 @@ func NormalizeSubjectID(id string) string {
 }
 
 // extractDecisionReason extracts a human-readable reason string from an
-// evaluation response. It checks for common reason keys in Context.Reason.
+// evaluation response. It checks for common reason keys in Context.Reason,
+// preferring the key that matches the decision: "error" for denials, "user"
+// for allows, falling back to the other key if the preferred one is absent.
 func extractDecisionReason(resp *authzen.EvaluationResponse) string {
 	if resp.Context == nil || resp.Context.Reason == nil {
 		return ""
 	}
-	// "user" is set by registries for allow decisions (e.g. "trusted via whitelist (pid-issuers)")
-	if v, ok := resp.Context.Reason["user"]; ok {
-		return fmt.Sprintf("%v", v)
-	}
-	// "error" is set for deny decisions (e.g. "subject not in whitelist for action 'issuer'")
-	if v, ok := resp.Context.Reason["error"]; ok {
-		return fmt.Sprintf("%v", v)
+	if resp.Decision {
+		// Allow: prefer "user" (e.g. "trusted via whitelist (pid-issuers)")
+		if v, ok := resp.Context.Reason["user"]; ok {
+			return fmt.Sprintf("%v", v)
+		}
+		if v, ok := resp.Context.Reason["error"]; ok {
+			return fmt.Sprintf("%v", v)
+		}
+	} else {
+		// Deny: prefer "error" (e.g. "subject not in whitelist for action 'issuer'")
+		if v, ok := resp.Context.Reason["error"]; ok {
+			return fmt.Sprintf("%v", v)
+		}
+		if v, ok := resp.Context.Reason["user"]; ok {
+			return fmt.Sprintf("%v", v)
+		}
 	}
 	return ""
 }
