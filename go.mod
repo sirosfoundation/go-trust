@@ -10,7 +10,6 @@ require (
 	github.com/SUNET/vc v0.5.6
 	github.com/fsnotify/fsnotify v1.10.0
 	github.com/gin-gonic/gin v1.12.0
-	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-oidfed/lib v0.10.4
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.23.2
@@ -42,6 +41,7 @@ require (
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/gin-contrib/sse v1.1.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
 	github.com/go-openapi/jsonpointer v0.22.5 // indirect
 	github.com/go-openapi/jsonreference v0.21.5 // indirect
