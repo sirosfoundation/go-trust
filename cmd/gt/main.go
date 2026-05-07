@@ -699,7 +699,6 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			logging.F("issuer_allowlist", len(mdocCfg.IssuerAllowlist)))
 	}
 
-
 }
 
 // configurePoliciesFromConfig configures trust policies from the loaded config file.
