@@ -1,6 +1,6 @@
 module github.com/sirosfoundation/go-trust
 
-go 1.26.2
+go 1.26.3
 
 replace github.com/moov-io/signedxml v1.2.3 => github.com/sirosfoundation/signedxml v1.4.0-siros1
 
