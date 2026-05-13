@@ -61,7 +61,7 @@ func TestFetcher_RetryOnTransientFailure(t *testing.T) {
 	defer server.Close()
 
 	f := NewFetcher(server.Client(), parseTestPayload, FetcherConfig{
-		MaxRetries:     3,
+		MaxAttempts:    3,
 		RetryBaseDelay: 1 * time.Millisecond,
 	})
 
@@ -89,7 +89,7 @@ func TestFetcher_NoRetryOn4xx(t *testing.T) {
 	defer server.Close()
 
 	f := NewFetcher(server.Client(), parseTestPayload, FetcherConfig{
-		MaxRetries:     3,
+		MaxAttempts:    3,
 		RetryBaseDelay: 1 * time.Millisecond,
 	})
 
@@ -116,7 +116,7 @@ func TestFetcher_StaleCacheOnFailure(t *testing.T) {
 	defer server.Close()
 
 	f := NewFetcher(server.Client(), parseTestPayload, FetcherConfig{
-		MaxRetries:     1,
+		MaxAttempts:    1,
 		RetryBaseDelay: 1 * time.Millisecond,
 	})
 
@@ -152,7 +152,7 @@ func TestFetcher_NoStaleCache_ReturnsError(t *testing.T) {
 	defer server.Close()
 
 	f := NewFetcher(server.Client(), parseTestPayload, FetcherConfig{
-		MaxRetries:     1,
+		MaxAttempts:    1,
 		RetryBaseDelay: 1 * time.Millisecond,
 	})
 
@@ -169,7 +169,7 @@ func TestFetcher_ContextCancellation(t *testing.T) {
 	defer server.Close()
 
 	f := NewFetcher(server.Client(), parseTestPayload, FetcherConfig{
-		MaxRetries:     5,
+		MaxAttempts:    5,
 		RetryBaseDelay: 100 * time.Millisecond,
 	})
 
@@ -192,7 +192,7 @@ func TestFetcher_ParseError_NoRetry(t *testing.T) {
 	defer server.Close()
 
 	f := NewFetcher(server.Client(), parseTestPayload, FetcherConfig{
-		MaxRetries:     3,
+		MaxAttempts:    3,
 		RetryBaseDelay: 1 * time.Millisecond,
 	})
 
@@ -219,7 +219,7 @@ func TestFetcher_InvalidateCache(t *testing.T) {
 	defer server.Close()
 
 	f := NewFetcher(server.Client(), parseTestPayload, FetcherConfig{
-		MaxRetries:     1,
+		MaxAttempts:    1,
 		RetryBaseDelay: 1 * time.Millisecond,
 	})
 

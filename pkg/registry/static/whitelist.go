@@ -192,7 +192,9 @@ func NewWhitelistRegistry(opts ...WhitelistOption) *WhitelistRegistry {
 	}
 
 	// Create JWKS fetcher with retry (uses the configured HTTP client).
-	r.jwksFetcher = resilience.NewFetcher(r.httpClient, parseJWKSPublicKeys, resilience.FetcherConfig{})
+	r.jwksFetcher = resilience.NewFetcher(r.httpClient, parseJWKSPublicKeys, resilience.FetcherConfig{
+		MaxBodyBytes: int64(registry.GetMaxResponseBodyBytes()),
+	})
 
 	r.resolveConfig()
 
@@ -734,20 +736,20 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 	newKeyHashes := make(map[string]map[string]bool)
 
 	// Fetch JWKS for each entity
-	var errors []string
+	var fetchErrors []string
 	for entity := range entities {
-		keys, err := r.fetchEntityKeys(ctx, entity)
+		keys, stale, err := r.fetchEntityKeys(ctx, entity)
 		if err != nil {
 			r.logger.Warn("failed to fetch keys for entity",
 				"entity", entity,
 				"error", err)
-			errors = append(errors, fmt.Sprintf("%s: %s", entity, err))
+			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %s", entity, err))
 			// Preserve stale keys for this entity if available
-			if stale, ok := r.keyHashes[entity]; ok && len(stale) > 0 {
-				newKeyHashes[entity] = stale
+			if old, ok := r.keyHashes[entity]; ok && len(old) > 0 {
+				newKeyHashes[entity] = old
 				r.logger.Info("preserving stale keys for entity",
 					"entity", entity,
-					"stale_key_count", len(stale))
+					"stale_key_count", len(old))
 			}
 			continue
 		}
@@ -766,19 +768,25 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 
 		if len(keySet) > 0 {
 			newKeyHashes[entity] = keySet
-			r.logger.Info("loaded keys for entity",
-				"entity", entity,
-				"key_count", len(keySet))
+			if stale {
+				r.logger.Info("using stale-cached keys for entity",
+					"entity", entity,
+					"key_count", len(keySet))
+			} else {
+				r.logger.Info("loaded fresh keys for entity",
+					"entity", entity,
+					"key_count", len(keySet))
+			}
 		}
 	}
 
 	r.keyHashes = newKeyHashes
 	r.lastRefresh = time.Now()
 
-	if len(errors) > 0 {
+	if len(fetchErrors) > 0 {
 		// Still consider loaded if at least some entities have keys
 		r.keysLoaded = len(newKeyHashes) > 0
-		return fmt.Errorf("failed to fetch keys for %d entities", len(errors))
+		return fmt.Errorf("failed to fetch keys for %d entities", len(fetchErrors))
 	}
 
 	r.keysLoaded = true
@@ -806,18 +814,18 @@ func (r *WhitelistRegistry) countTotalKeys() int {
 //  4. OpenID4VCI Metadata (.well-known/openid-credential-issuer)
 //
 // Falls back to {entity}/.well-known/jwks.json if discovery yields nothing.
-func (r *WhitelistRegistry) fetchEntityKeys(ctx context.Context, entity string) ([]crypto.PublicKey, error) {
+func (r *WhitelistRegistry) fetchEntityKeys(ctx context.Context, entity string) ([]crypto.PublicKey, bool, error) {
 	if r.config.JWKSEndpointPattern != "" {
 		// Explicit pattern configured — use it directly (backward compat)
 		return r.fetchJWKSFromURL(ctx, r.buildJWKSURL(entity))
 	}
 
 	// 1. Try SD-JWT VC §5.3 (.well-known/jwt-vc-issuer) — may return inline JWKS
-	keys, err := r.tryJWTVCIssuerMetadata(ctx, entity)
+	keys, stale, err := r.tryJWTVCIssuerMetadata(ctx, entity)
 	if err == nil {
 		r.logger.Info("discovered keys via jwt-vc-issuer metadata",
-			"entity", entity, "key_count", len(keys))
-		return keys, nil
+			"entity", entity, "key_count", len(keys), "stale", stale)
+		return keys, stale, nil
 	}
 	r.logger.Debug("jwt-vc-issuer discovery failed", "entity", entity, "error", err)
 
@@ -845,45 +853,46 @@ func parseJWKSPublicKeys(body []byte) ([]crypto.PublicKey, error) {
 
 // fetchJWKSFromURL fetches and parses a JWKS from the given URL, using the
 // resilience fetcher for retry and stale-cache fallback.
-func (r *WhitelistRegistry) fetchJWKSFromURL(ctx context.Context, jwksURL string) ([]crypto.PublicKey, error) {
+// Returns the parsed keys, whether the result was stale (from cache), and any error.
+func (r *WhitelistRegistry) fetchJWKSFromURL(ctx context.Context, jwksURL string) ([]crypto.PublicKey, bool, error) {
 	// Validate URL scheme
 	if !r.config.AllowHTTP && !strings.HasPrefix(jwksURL, "https://") {
-		return nil, fmt.Errorf("HTTPS required for JWKS fetch (got %s)", jwksURL)
+		return nil, false, fmt.Errorf("HTTPS required for JWKS fetch (got %s)", jwksURL)
 	}
 
-	result, _, err := r.jwksFetcher.Fetch(ctx, jwksURL)
+	result, stale, err := r.jwksFetcher.Fetch(ctx, jwksURL)
 	if err != nil {
-		return nil, fmt.Errorf("fetching JWKS from %s: %w", jwksURL, err)
+		return nil, false, fmt.Errorf("fetching JWKS from %s: %w", jwksURL, err)
 	}
-	return result, nil
+	return result, stale, nil
 }
 
 // tryJWTVCIssuerMetadata attempts SD-JWT VC §5.3 JWT VC Issuer Metadata discovery.
 // The well-known URL is constructed per RFC 8615: the well-known string is inserted
 // between the host component and the path component of the entity URL.
 // The metadata may contain inline "jwks" or a "jwks_uri" reference.
-func (r *WhitelistRegistry) tryJWTVCIssuerMetadata(ctx context.Context, entity string) ([]crypto.PublicKey, error) {
+func (r *WhitelistRegistry) tryJWTVCIssuerMetadata(ctx context.Context, entity string) ([]crypto.PublicKey, bool, error) {
 	metadataURL := buildWellKnownURL(entity, "jwt-vc-issuer")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, false, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetching jwt-vc-issuer metadata: %w", err)
+		return nil, false, fmt.Errorf("fetching jwt-vc-issuer metadata: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("jwt-vc-issuer metadata returned status %d", resp.StatusCode)
+		return nil, false, fmt.Errorf("jwt-vc-issuer metadata returned status %d", resp.StatusCode)
 	}
 
 	body, err := registry.ReadLimitedBody(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading jwt-vc-issuer metadata: %w", err)
+		return nil, false, fmt.Errorf("reading jwt-vc-issuer metadata: %w", err)
 	}
 
 	var metadata struct {
@@ -892,23 +901,24 @@ func (r *WhitelistRegistry) tryJWTVCIssuerMetadata(ctx context.Context, entity s
 		JWKS    map[string]interface{} `json:"jwks,omitempty"`
 	}
 	if err := json.Unmarshal(body, &metadata); err != nil {
-		return nil, fmt.Errorf("parsing jwt-vc-issuer metadata: %w", err)
+		return nil, false, fmt.Errorf("parsing jwt-vc-issuer metadata: %w", err)
 	}
 
 	// Prefer inline JWKS if present
 	if metadata.JWKS != nil {
-		return ExtractPublicKeysFromJWKS(metadata.JWKS)
+		keys, err := ExtractPublicKeysFromJWKS(metadata.JWKS)
+		return keys, false, err
 	}
 
 	// Fall back to jwks_uri
 	if metadata.JWKSURI != "" {
 		if !r.config.AllowHTTP && !strings.HasPrefix(metadata.JWKSURI, "https://") {
-			return nil, fmt.Errorf("jwks_uri must use HTTPS: %s", metadata.JWKSURI)
+			return nil, false, fmt.Errorf("jwks_uri must use HTTPS: %s", metadata.JWKSURI)
 		}
 		return r.fetchJWKSFromURL(ctx, metadata.JWKSURI)
 	}
 
-	return nil, fmt.Errorf("jwt-vc-issuer metadata has neither jwks nor jwks_uri")
+	return nil, false, fmt.Errorf("jwt-vc-issuer metadata has neither jwks nor jwks_uri")
 }
 
 // discoverJWKSURI attempts to discover the JWKS URI for an entity using standard

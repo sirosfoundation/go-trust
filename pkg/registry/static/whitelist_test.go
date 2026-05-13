@@ -2005,13 +2005,11 @@ func TestWhitelistRegistry_Refresh_StaleCacheOnFailure(t *testing.T) {
 	}
 
 	// Second refresh: entity2 fails. The resilience fetcher returns stale cached
-	// data from the first fetch, so refresh should still succeed. Entity2's keys
-	// continue to work transparently.
+	// data from the first fetch, so refresh succeeds with stale-cached keys for
+	// entity2. Entity2's keys continue to work transparently.
 	entity2Fail = true
 	if err := reg.Refresh(context.Background()); err != nil {
-		// An error may occur if the stale cache has been invalidated;
-		// either way entity2 keys must still work below.
-		t.Logf("refresh with entity2 failing: %v (stale cache may or may not absorb)", err)
+		t.Fatalf("expected refresh to succeed (stale cache absorbs entity2 failure), got: %v", err)
 	}
 
 	// Registry should still be healthy.

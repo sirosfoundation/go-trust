@@ -57,9 +57,9 @@ type Config struct {
 	// DisableOIDCDiscovery disables the OAuth2/OIDC discovery fallback.
 	DisableOIDCDiscovery bool
 
-	// MaxRetries is the maximum number of fetch attempts for transient failures.
+	// MaxAttempts is the maximum number of fetch attempts for transient failures.
 	// Uses exponential backoff starting at 500ms. Default: 3.
-	MaxRetries int
+	MaxAttempts int
 }
 
 // Registry implements the TrustRegistry interface for the did:jwks method.
@@ -106,7 +106,8 @@ func NewRegistry(config Config) (*Registry, error) {
 	}
 
 	reg.fetcher = resilience.NewFetcher[*JWKS](httpClient, parseJWKS, resilience.FetcherConfig{
-		MaxRetries: config.MaxRetries,
+		MaxAttempts:  config.MaxAttempts,
+		MaxBodyBytes: int64(registry.GetMaxResponseBodyBytes()),
 	})
 
 	return reg, nil

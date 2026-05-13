@@ -55,21 +55,22 @@ func IsRetryable(err error) bool {
 
 // FetcherConfig configures a [Fetcher].
 type FetcherConfig struct {
-	// MaxRetries is the maximum number of fetch attempts for transient failures.
-	// Default: 3.
-	MaxRetries int
+	// MaxAttempts is the maximum number of fetch attempts (1 = no retry).
+	// Default: 3 (1 initial + 2 retries).
+	MaxAttempts int
 
 	// RetryBaseDelay is the initial backoff duration; doubled after each attempt.
 	// Default: 500ms.
 	RetryBaseDelay time.Duration
 
-	// MaxBodyBytes limits the response body size. Default: 10MB.
+	// MaxBodyBytes limits the response body size. Returns an error if the
+	// response exceeds this limit. Default: 10MB.
 	MaxBodyBytes int64
 }
 
 func (c *FetcherConfig) defaults() {
-	if c.MaxRetries <= 0 {
-		c.MaxRetries = 3
+	if c.MaxAttempts <= 0 {
+		c.MaxAttempts = 3
 	}
 	if c.RetryBaseDelay <= 0 {
 		c.RetryBaseDelay = 500 * time.Millisecond
@@ -138,8 +139,6 @@ func (f *Fetcher[T]) Fetch(ctx context.Context, url string) (T, bool, error) {
 	f.mu.RUnlock()
 
 	if entry != nil {
-		var zero T
-		_ = zero
 		return entry.value, true, nil // stale
 	}
 
@@ -170,7 +169,7 @@ func (f *Fetcher[T]) fetchWithRetry(ctx context.Context, url string) (T, error) 
 	var lastErr error
 	backoff := f.config.RetryBaseDelay
 
-	for attempt := 0; attempt < f.config.MaxRetries; attempt++ {
+	for attempt := 0; attempt < f.config.MaxAttempts; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -191,7 +190,7 @@ func (f *Fetcher[T]) fetchWithRetry(ctx context.Context, url string) (T, error) 
 		}
 	}
 
-	return *new(T), fmt.Errorf("fetch failed after %d attempts: %w", f.config.MaxRetries, lastErr)
+	return *new(T), fmt.Errorf("fetch failed after %d attempts: %w", f.config.MaxAttempts, lastErr)
 }
 
 // doFetch performs a single HTTP GET, reads the body, and parses it.
@@ -212,9 +211,12 @@ func (f *Fetcher[T]) doFetch(ctx context.Context, url string) (T, error) {
 		return *new(T), &HTTPStatusError{StatusCode: resp.StatusCode, URL: url}
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, f.config.MaxBodyBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, f.config.MaxBodyBytes+1))
 	if err != nil {
 		return *new(T), &TransportError{Err: fmt.Errorf("reading body: %w", err)}
+	}
+	if int64(len(body)) > f.config.MaxBodyBytes {
+		return *new(T), fmt.Errorf("response body from %s exceeds maximum size of %d bytes", url, f.config.MaxBodyBytes)
 	}
 
 	result, err := f.parse(body)
