@@ -8,9 +8,9 @@ replace github.com/russellhaering/goxmldsig v1.5.0 => github.com/sirosfoundation
 
 require (
 	github.com/SUNET/vc v0.5.6
-	github.com/fsnotify/fsnotify v1.10.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gin-gonic/gin v1.12.0
-	github.com/go-oidfed/lib v0.10.4
+	github.com/go-oidfed/lib v0.10.5
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/sirosfoundation/g119612 v0.3.3-0.20260424115313-28620f4a80ab
