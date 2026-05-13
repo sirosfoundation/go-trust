@@ -291,6 +291,7 @@ func TestApplyPolicyToRequest_DIDPartialConstraints(t *testing.T) {
 	assert.Nil(t, req.Context["required_verification_methods"])
 	assert.Equal(t, true, req.Context["require_verifiable_history"])
 }
+
 // TestApplyPolicyToRequest_ActionParameters verifies that action.parameters
 // are merged into the request context.
 func TestApplyPolicyToRequest_ActionParameters(t *testing.T) {

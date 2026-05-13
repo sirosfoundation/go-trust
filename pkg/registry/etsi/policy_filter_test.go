@@ -366,6 +366,7 @@ func TestTSLRegistry_Evaluate_X5CIntermediateWithFilter(t *testing.T) {
 		t.Error("expected true decision for valid intermediate chain with filter context")
 	}
 }
+
 // TestTSLRegistry_EvaluateWithCredentialTypesContext verifies credential_types
 // are extracted from context and included in the response.
 func TestTSLRegistry_EvaluateWithCredentialTypesContext(t *testing.T) {

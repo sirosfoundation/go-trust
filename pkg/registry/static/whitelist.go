@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
+	"github.com/sirosfoundation/go-trust/pkg/resilience"
 )
 
 // DefaultRefreshInterval is the default JWKS refresh interval when none is configured.
@@ -72,6 +73,9 @@ type WhitelistRegistry struct {
 	refreshInterval time.Duration
 	refreshStopCh   chan struct{}
 	refreshOnce     sync.Once // guards Close of refreshStopCh
+
+	// jwksFetcher handles JWKS fetches with retry and stale-cache fallback.
+	jwksFetcher *resilience.Fetcher[[]crypto.PublicKey]
 }
 
 // WhitelistConfig holds the whitelist configuration.
@@ -186,6 +190,9 @@ func NewWhitelistRegistry(opts ...WhitelistOption) *WhitelistRegistry {
 	for _, opt := range opts {
 		opt(r)
 	}
+
+	// Create JWKS fetcher with retry (uses the configured HTTP client).
+	r.jwksFetcher = resilience.NewFetcher(r.httpClient, parseJWKSPublicKeys, resilience.FetcherConfig{})
 
 	r.resolveConfig()
 
@@ -704,6 +711,11 @@ func (r *WhitelistRegistry) Healthy() bool {
 }
 
 // Refresh fetches JWKS for all whitelisted entities and caches their key fingerprints.
+//
+// On partial failure, previously cached keys for entities that failed to refresh
+// are preserved (stale-cache fallback). The registry remains healthy as long as
+// at least some keys were loaded, allowing continued operation during transient
+// outages of individual issuers.
 func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -718,8 +730,8 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 		}
 	}
 
-	// Clear existing key hashes
-	r.keyHashes = make(map[string]map[string]bool)
+	// Build new key hashes map, preserving stale entries for failed fetches
+	newKeyHashes := make(map[string]map[string]bool)
 
 	// Fetch JWKS for each entity
 	var errors []string
@@ -730,6 +742,13 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 				"entity", entity,
 				"error", err)
 			errors = append(errors, fmt.Sprintf("%s: %s", entity, err))
+			// Preserve stale keys for this entity if available
+			if stale, ok := r.keyHashes[entity]; ok && len(stale) > 0 {
+				newKeyHashes[entity] = stale
+				r.logger.Info("preserving stale keys for entity",
+					"entity", entity,
+					"stale_key_count", len(stale))
+			}
 			continue
 		}
 
@@ -746,17 +765,19 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 		}
 
 		if len(keySet) > 0 {
-			r.keyHashes[entity] = keySet
+			newKeyHashes[entity] = keySet
 			r.logger.Info("loaded keys for entity",
 				"entity", entity,
 				"key_count", len(keySet))
 		}
 	}
 
+	r.keyHashes = newKeyHashes
 	r.lastRefresh = time.Now()
 
 	if len(errors) > 0 {
-		r.keysLoaded = false
+		// Still consider loaded if at least some entities have keys
+		r.keysLoaded = len(newKeyHashes) > 0
 		return fmt.Errorf("failed to fetch keys for %d entities", len(errors))
 	}
 
@@ -813,40 +834,28 @@ func (r *WhitelistRegistry) fetchEntityKeys(ctx context.Context, entity string) 
 	return r.fetchJWKSFromURL(ctx, fallbackURL)
 }
 
-// fetchJWKSFromURL fetches and parses a JWKS from the given URL.
+// parseJWKSPublicKeys parses a JWKS JSON body into public keys.
+func parseJWKSPublicKeys(body []byte) ([]crypto.PublicKey, error) {
+	var jwks map[string]interface{}
+	if err := json.Unmarshal(body, &jwks); err != nil {
+		return nil, fmt.Errorf("parsing JWKS: %w", err)
+	}
+	return ExtractPublicKeysFromJWKS(jwks)
+}
+
+// fetchJWKSFromURL fetches and parses a JWKS from the given URL, using the
+// resilience fetcher for retry and stale-cache fallback.
 func (r *WhitelistRegistry) fetchJWKSFromURL(ctx context.Context, jwksURL string) ([]crypto.PublicKey, error) {
 	// Validate URL scheme
 	if !r.config.AllowHTTP && !strings.HasPrefix(jwksURL, "https://") {
 		return nil, fmt.Errorf("HTTPS required for JWKS fetch (got %s)", jwksURL)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
+	result, _, err := r.jwksFetcher.Fetch(ctx, jwksURL)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("fetching JWKS from %s: %w", jwksURL, err)
 	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := r.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetching JWKS: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("JWKS fetch returned status %d from %s", resp.StatusCode, jwksURL)
-	}
-
-	body, err := registry.ReadLimitedBody(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
-
-	var jwks map[string]interface{}
-	if err := json.Unmarshal(body, &jwks); err != nil {
-		return nil, fmt.Errorf("parsing JWKS: %w", err)
-	}
-
-	return ExtractPublicKeysFromJWKS(jwks)
+	return result, nil
 }
 
 // tryJWTVCIssuerMetadata attempts SD-JWT VC §5.3 JWT VC Issuer Metadata discovery.

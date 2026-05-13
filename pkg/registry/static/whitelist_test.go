@@ -1924,3 +1924,130 @@ func TestWhitelist_CredentialTypesInResponse(t *testing.T) {
 		}
 	})
 }
+
+// TestWhitelistRegistry_Refresh_StaleCacheOnFailure verifies that when a refresh
+// fails to fetch keys for some entities, previously cached keys are preserved
+// (stale-cache fallback) and the registry remains healthy.
+func TestWhitelistRegistry_Refresh_StaleCacheOnFailure(t *testing.T) {
+	key1, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key2, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+
+	jwks1 := map[string]interface{}{
+		"keys": []interface{}{ecdsaPubKeyToJWK(&key1.PublicKey, "key1")},
+	}
+	jwks2 := map[string]interface{}{
+		"keys": []interface{}{ecdsaPubKeyToJWK(&key2.PublicKey, "key2")},
+	}
+
+	// entity2Fail controls whether entity2's JWKS endpoint returns an error.
+	entity2Fail := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/entity1/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(jwks1)
+	})
+	mux.HandleFunc("/entity2/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
+		if entity2Fail {
+			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(jwks2)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	entity1URL := server.URL + "/entity1"
+	entity2URL := server.URL + "/entity2"
+
+	reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+		Lists: map[string][]string{
+			"all": {entity1URL, entity2URL},
+		},
+		Actions: map[string]string{
+			"issuer": "all",
+		},
+		AllowHTTP: true,
+	}))
+
+	// First refresh: both succeed.
+	if err := reg.Refresh(context.Background()); err != nil {
+		t.Fatalf("initial refresh failed: %v", err)
+	}
+	if !reg.Healthy() {
+		t.Fatal("registry should be healthy after successful refresh")
+	}
+
+	// Verify both entities' keys work.
+	for _, tc := range []struct {
+		name   string
+		entity string
+		key    *ecdsa.PublicKey
+	}{
+		{"entity1", entity1URL, &key1.PublicKey},
+		{"entity2", entity2URL, &key2.PublicKey},
+	} {
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: tc.entity},
+			Action:  &authzen.Action{Name: "issuer"},
+			Resource: authzen.Resource{
+				Type: "jwk",
+				Key:  []interface{}{ecdsaPubKeyToJWK(tc.key, "k")},
+			},
+		})
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
+		}
+		if !resp.Decision {
+			t.Fatalf("%s: expected allow, got deny", tc.name)
+		}
+	}
+
+	// Second refresh: entity2 fails. The resilience fetcher returns stale cached
+	// data from the first fetch, so refresh should still succeed. Entity2's keys
+	// continue to work transparently.
+	entity2Fail = true
+	if err := reg.Refresh(context.Background()); err != nil {
+		// An error may occur if the stale cache has been invalidated;
+		// either way entity2 keys must still work below.
+		t.Logf("refresh with entity2 failing: %v (stale cache may or may not absorb)", err)
+	}
+
+	// Registry should still be healthy.
+	if !reg.Healthy() {
+		t.Fatal("registry should remain healthy with stale keys")
+	}
+
+	// entity2's key should still work (stale cache).
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{ID: entity2URL},
+		Action:  &authzen.Action{Name: "issuer"},
+		Resource: authzen.Resource{
+			Type: "jwk",
+			Key:  []interface{}{ecdsaPubKeyToJWK(&key2.PublicKey, "k")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("entity2 stale cache: unexpected error: %v", err)
+	}
+	if !resp.Decision {
+		t.Fatal("entity2 stale cache: expected allow (stale keys preserved), got deny")
+	}
+
+	// entity1 should still work (fresh keys).
+	resp, err = reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{ID: entity1URL},
+		Action:  &authzen.Action{Name: "issuer"},
+		Resource: authzen.Resource{
+			Type: "jwk",
+			Key:  []interface{}{ecdsaPubKeyToJWK(&key1.PublicKey, "k")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("entity1 fresh: unexpected error: %v", err)
+	}
+	if !resp.Decision {
+		t.Fatal("entity1 fresh: expected allow, got deny")
+	}
+}
