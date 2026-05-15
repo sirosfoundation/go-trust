@@ -326,6 +326,7 @@ func TestTrustMetadataOmitEmpty(t *testing.T) {
 		t.Error("trust_metadata should be omitted when nil")
 	}
 }
+
 // TestActionParametersSerialization tests that action.parameters serializes correctly
 func TestActionParametersSerialization(t *testing.T) {
 	request := EvaluationRequest{

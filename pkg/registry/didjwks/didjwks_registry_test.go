@@ -377,7 +377,7 @@ func TestEvaluateResolutionOnly(t *testing.T) {
 	domain := testDomain(server)
 
 	req := &authzen.EvaluationRequest{
-		Subject: authzen.Subject{Type: "key", ID: fmt.Sprintf("did:jwks:%s", domain)},
+		Subject:  authzen.Subject{Type: "key", ID: fmt.Sprintf("did:jwks:%s", domain)},
 		Resource: authzen.Resource{
 			// No type or key = resolution-only
 		},

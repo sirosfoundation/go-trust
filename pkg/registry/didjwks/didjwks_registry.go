@@ -33,6 +33,7 @@ import (
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
+	"github.com/sirosfoundation/go-trust/pkg/resilience"
 )
 
 // Config holds configuration for the did:jwks registry.
@@ -55,6 +56,10 @@ type Config struct {
 
 	// DisableOIDCDiscovery disables the OAuth2/OIDC discovery fallback.
 	DisableOIDCDiscovery bool
+
+	// MaxAttempts is the maximum number of fetch attempts for transient failures.
+	// Uses exponential backoff starting at 500ms. Default: 3.
+	MaxAttempts int
 }
 
 // Registry implements the TrustRegistry interface for the did:jwks method.
@@ -64,6 +69,7 @@ type Registry struct {
 	description          string
 	allowHTTP            bool
 	disableOIDCDiscovery bool
+	fetcher              *resilience.Fetcher[*JWKS]
 }
 
 // NewRegistry creates a new did:jwks trust registry.
@@ -91,13 +97,20 @@ func NewRegistry(config Config) (*Registry, error) {
 		InsecureSkipVerify: config.InsecureSkipVerify,
 	})
 
-	return &Registry{
+	reg := &Registry{
 		httpClient:           httpClient,
 		timeout:              timeout,
 		description:          description,
 		allowHTTP:            config.AllowHTTP,
 		disableOIDCDiscovery: config.DisableOIDCDiscovery,
-	}, nil
+	}
+
+	reg.fetcher = resilience.NewFetcher[*JWKS](httpClient, parseJWKS, resilience.FetcherConfig{
+		MaxAttempts:  config.MaxAttempts,
+		MaxBodyBytes: int64(registry.GetMaxResponseBodyBytes()),
+	})
+
+	return reg, nil
 }
 
 // Evaluate implements TrustRegistry.Evaluate by resolving did:jwks DIDs and validating key bindings.
@@ -222,6 +235,7 @@ func (r *Registry) Refresh(_ context.Context) error {
 // SetHTTPClient allows overriding the HTTP client (for testing).
 func (r *Registry) SetHTTPClient(client *http.Client) {
 	r.httpClient = client
+	r.fetcher = resilience.NewFetcher[*JWKS](client, parseJWKS, r.fetcher.Config())
 }
 
 // --- DID Parsing ---
@@ -321,7 +335,20 @@ func buildDiscoveryURL(scheme, domain, path string) string {
 	return fmt.Sprintf("%s://%s/.well-known/openid-configuration/%s", scheme, domain, path)
 }
 
-// fetchJWKS fetches and parses a JWKS from the given URL.
+// parseJWKS parses a JWKS JSON document.
+func parseJWKS(body []byte) (*JWKS, error) {
+	var jwks JWKS
+	if err := json.Unmarshal(body, &jwks); err != nil {
+		return nil, fmt.Errorf("parsing JWKS: %w", err)
+	}
+	if len(jwks.Keys) == 0 {
+		return nil, fmt.Errorf("JWKS contains no keys")
+	}
+	return &jwks, nil
+}
+
+// fetchJWKS fetches and parses a JWKS from the given URL using the resilience
+// fetcher (with retry and stale-cache fallback).
 func (r *Registry) fetchJWKS(ctx context.Context, jwksURL string) (*JWKS, error) {
 	// Validate URL
 	parsed, err := url.Parse(jwksURL)
@@ -332,37 +359,11 @@ func (r *Registry) fetchJWKS(ctx context.Context, jwksURL string) (*JWKS, error)
 		return nil, fmt.Errorf("JWKS URL must use HTTPS: %s", jwksURL)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURL, nil)
+	result, _, err := r.fetcher.Fetch(ctx, jwksURL)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("fetching JWKS from %s: %w", jwksURL, err)
 	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := r.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, jwksURL)
-	}
-
-	body, err := registry.ReadLimitedBody(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
-
-	var jwks JWKS
-	if err := json.Unmarshal(body, &jwks); err != nil {
-		return nil, fmt.Errorf("parsing JWKS: %w", err)
-	}
-
-	if len(jwks.Keys) == 0 {
-		return nil, fmt.Errorf("JWKS contains no keys")
-	}
-
-	return &jwks, nil
+	return result, nil
 }
 
 // fetchDiscoveryJWKSURI fetches an OIDC discovery document and extracts jwks_uri.
