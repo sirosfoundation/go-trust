@@ -204,8 +204,8 @@ github.com/scylladb/go-set v1.0.3-0.20200225121959-cc7b2070d91e h1:7q6NSFZDeGfvv
 github.com/scylladb/go-set v1.0.3-0.20200225121959-cc7b2070d91e/go.mod h1:DkpGd78rljTxKAnTDPFqXSGxvETQnJyuSOQwsHycqfs=
 github.com/segmentio/asm v1.2.1 h1:DTNbBqs57ioxAD4PrArqftgypG4/qNpXoJx8TVXxPR0=
 github.com/segmentio/asm v1.2.1/go.mod h1:BqMnlJP91P8d+4ibuonYZw9mfnzI9HfxselHZr5aAcs=
-github.com/sirosfoundation/g119612 v0.3.3-0.20260424115313-28620f4a80ab h1:fLaABRLlVbGgQ+pGkl7jBfp7BDDG0Smht179jgNaDoE=
-github.com/sirosfoundation/g119612 v0.3.3-0.20260424115313-28620f4a80ab/go.mod h1:ZRj0/9/OI/RnahL+TVMlN282rM96EnFW1qq6qX+hmcQ=
+github.com/sirosfoundation/g119612 v0.4.0 h1:x1CXg+5b0uMmQWouqQofBYMWeMElW7ESZlhakaVvetU=
+github.com/sirosfoundation/g119612 v0.4.0/go.mod h1:ZRj0/9/OI/RnahL+TVMlN282rM96EnFW1qq6qX+hmcQ=
 github.com/sirosfoundation/go-cryptoutil v0.5.0 h1:ByKuNjHSdlvkOzGeElh0QAku36iuymqLVvBLMY4x5as=
 github.com/sirosfoundation/go-cryptoutil v0.5.0/go.mod h1:OZi673Xmf5o2LzF/QMceptIpiB2GKYAYBfEa75ocBss=
 github.com/sirosfoundation/signedxml v1.4.0-siros1 h1:+d+j6AQxu9CNylGkmPbUAUdEYny6gvXZxFnuvrPViHk=
