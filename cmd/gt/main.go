@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	oidfedjwx "github.com/go-oidfed/lib/jwx"
 	"github.com/sirosfoundation/g119612/pkg/logging"
 	_ "github.com/sirosfoundation/go-trust/docs/swagger" // Import generated docs
 	"github.com/sirosfoundation/go-trust/pkg/api"
@@ -470,10 +472,20 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		// Build trust anchor configs
 		trustAnchors := make([]oidfed.TrustAnchorConfig, len(oidfedCfg.TrustAnchors))
 		for i, ta := range oidfedCfg.TrustAnchors {
-			trustAnchors[i] = oidfed.TrustAnchorConfig{
+			taCfg := oidfed.TrustAnchorConfig{
 				EntityID: ta.EntityID,
-				// JWKS parsing would need additional handling if provided as string
 			}
+			if ta.JWKS != "" {
+				var jwks oidfedjwx.JWKS
+				if err := json.Unmarshal([]byte(ta.JWKS), &jwks); err != nil {
+					logger.Warn("Failed to parse JWKS for trust anchor, will fetch from entity configuration",
+						logging.F("entity_id", ta.EntityID),
+						logging.F("error", err.Error()))
+				} else {
+					taCfg.JWKS = &jwks
+				}
+			}
+			trustAnchors[i] = taCfg
 		}
 
 		oidfedConfig := oidfed.Config{
