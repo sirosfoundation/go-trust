@@ -11,6 +11,8 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-oidfed/lib v0.10.9
+	github.com/jarcoal/httpmock v1.4.1
+	github.com/lestrrat-go/jwx/v3 v3.1.1
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/sirosfoundation/g119612 v0.4.0
@@ -62,7 +64,6 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.13 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/jarcoal/httpmock v1.4.1 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
@@ -73,7 +74,6 @@ require (
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/httprc/v3 v3.0.5 // indirect
-	github.com/lestrrat-go/jwx/v3 v3.1.1 // indirect
 	github.com/lestrrat-go/option/v2 v2.0.0 // indirect
 	github.com/lithammer/fuzzysearch v1.1.8 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect

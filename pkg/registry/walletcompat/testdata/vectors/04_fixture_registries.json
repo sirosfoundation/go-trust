@@ -80,5 +80,73 @@
       "static/always_trusted": {"decision": true},
       "static/never_trusted": {"decision": false}
     }
+  },
+  {
+    "name": "oidfed_known_subordinate_op",
+    "description": "Resolution-only lookup for realop — a known OpenID Provider subordinate of realta trust anchor",
+    "flow": "issuance",
+    "source": "authzenclient.Resolve() against OIDFed fixture for realop",
+    "request": {
+      "subject": {"type": "key", "id": "https://realop.labb.sunet.se"},
+      "resource": {"id": "https://realop.labb.sunet.se"}
+    },
+    "expectations": {
+      "fixture/oidfed": {"decision": true},
+      "fixture/lote": {"decision": false},
+      "fixture/etsi_lote_xml": {"decision": false},
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "oidfed_known_subordinate_rp",
+    "description": "Resolution-only lookup for realrp — a known Relying Party subordinate of realta trust anchor",
+    "flow": "presentation",
+    "source": "authzenclient.Resolve() against OIDFed fixture for realrp",
+    "request": {
+      "subject": {"type": "key", "id": "https://realrp.labb.sunet.se"},
+      "resource": {"id": "https://realrp.labb.sunet.se"}
+    },
+    "expectations": {
+      "fixture/oidfed": {"decision": true},
+      "fixture/lote": {"decision": false},
+      "fixture/etsi_lote_xml": {"decision": false},
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "oidfed_known_subordinate_satosa",
+    "description": "Resolution-only lookup for satosa — a known subordinate of realta trust anchor",
+    "flow": "both",
+    "source": "authzenclient.Resolve() against OIDFed fixture for satosa",
+    "request": {
+      "subject": {"type": "key", "id": "https://satosa.labb.sunet.se"},
+      "resource": {"id": "https://satosa.labb.sunet.se"}
+    },
+    "expectations": {
+      "fixture/oidfed": {"decision": true},
+      "fixture/lote": {"decision": false},
+      "fixture/etsi_lote_xml": {"decision": false},
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "oidfed_unknown_entity",
+    "description": "Resolution-only lookup for entity NOT present in the OIDFed federation",
+    "flow": "issuance",
+    "source": "authzenclient.Resolve() against OIDFed fixture with unknown entity",
+    "request": {
+      "subject": {"type": "key", "id": "https://unknown.example.com"},
+      "resource": {"id": "https://unknown.example.com"}
+    },
+    "expectations": {
+      "fixture/oidfed": {"decision": false},
+      "fixture/lote": {"decision": false},
+      "fixture/etsi_lote_xml": {"decision": false},
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
   }
 ]

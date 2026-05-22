@@ -40,7 +40,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+	_ "unsafe" // for go:linkname
 
+	"github.com/go-resty/resty/v2"
+	"github.com/jarcoal/httpmock"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
 	"github.com/sirosfoundation/go-trust/pkg/registry/did"
@@ -55,6 +58,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// Access go-oidfed's internal resty client for httpmock patching.
+//
+//go:linkname oidfedHTTPClient github.com/go-oidfed/lib/internal/http.client
+var oidfedHTTPClient *resty.Client
 
 // ---------------------------------------------------------------------------
 // JSON vector schema
@@ -255,12 +263,13 @@ func buildRegistryCatalogue(t *testing.T) []registryEntry {
 
 	if reg, err := oidfed.NewOIDFedRegistry(oidfed.Config{
 		TrustAnchors: []oidfed.TrustAnchorConfig{
-			{EntityID: "https://trust-anchor.example.com"},
+			{EntityID: "https://realta.labb.sunet.se"},
 		},
+		CacheTTL: 5 * time.Minute,
 	}); err == nil {
-		entries = append(entries, registryEntry{Name: "oidfed", Registry: reg})
+		entries = append(entries, registryEntry{Name: "oidfed_realta", Registry: reg})
 	} else {
-		t.Logf("SKIP oidfed: %v", err)
+		t.Logf("SKIP oidfed_realta: %v", err)
 	}
 
 	if reg, err := didweb.NewDIDWebRegistry(didweb.Config{}); err == nil {
@@ -367,7 +376,165 @@ func buildFixtureRegistries(t *testing.T) []registryEntry {
 		t.Logf("SKIP fixture/lote: %v", err)
 	}
 
+	// OpenID Federation from httpmock-backed fixtures
+	if mockReg := buildOIDFedFixtureRegistry(t, fixtureDir); mockReg != nil {
+		entries = append(entries, registryEntry{Name: "fixture/oidfed", Registry: mockReg})
+	}
+
 	return entries
+}
+
+// oidfedManifest is the JSON structure of testdata/fixtures/oidfed/manifest.json.
+type oidfedManifest struct {
+	TrustAnchor string `json:"trust_anchor"`
+	ListFile    string `json:"list_file"`
+	ListURL     string `json:"list_url"`
+	Entities    []struct {
+		EntityID               string `json:"entity_id"`
+		EntityConfigFile       string `json:"entity_config_file"`
+		EntityConfigURL        string `json:"entity_config_url"`
+		EntityStatementFile    string `json:"entity_statement_file,omitempty"`
+		EntityStatementURL     string `json:"entity_statement_url,omitempty"`
+		EntityStatementFetchBy string `json:"entity_statement_fetch_by,omitempty"`
+	} `json:"entities"`
+}
+
+// oidfedMockRegistry wraps an OIDFedRegistry and activates httpmock around
+// each Evaluate call so the go-oidfed library's global HTTP client fetches
+// from cached fixture JWTs instead of the network.
+type oidfedMockRegistry struct {
+	inner    registry.TrustRegistry
+	setup    func()    // activates httpmock + registers responders
+	teardown func()    // deactivates httpmock
+}
+
+func (m *oidfedMockRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	m.setup()
+	defer m.teardown()
+	return m.inner.Evaluate(ctx, req)
+}
+
+func (m *oidfedMockRegistry) Healthy() bool                      { return m.inner.Healthy() }
+func (m *oidfedMockRegistry) Info() registry.RegistryInfo         { return m.inner.Info() }
+func (m *oidfedMockRegistry) SupportedResourceTypes() []string   { return m.inner.SupportedResourceTypes() }
+func (m *oidfedMockRegistry) SupportsResolutionOnly() bool        { return m.inner.SupportsResolutionOnly() }
+func (m *oidfedMockRegistry) Refresh(ctx context.Context) error   { return m.inner.Refresh(ctx) }
+
+// buildOIDFedFixtureRegistry creates an OIDFed registry backed by httpmock
+// responders serving cached JWT fixtures. Returns nil if fixtures are missing.
+func buildOIDFedFixtureRegistry(t *testing.T, fixtureDir string) *oidfedMockRegistry {
+	t.Helper()
+
+	manifestPath := filepath.Join(fixtureDir, "oidfed", "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Logf("SKIP fixture/oidfed: %v", err)
+		return nil
+	}
+
+	var manifest oidfedManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Logf("SKIP fixture/oidfed: parse manifest: %v", err)
+		return nil
+	}
+
+	oidfedFixtureDir := filepath.Join(fixtureDir, "oidfed")
+
+	// Pre-load all fixture files into memory.
+	// We separate responders into simple (exact URL) and query-param-based
+	// (for /fetch?sub=... endpoints where go-oidfed passes sub as a query param).
+	type simpleResponder struct {
+		url         string
+		body        string
+		contentType string
+	}
+	type queryResponder struct {
+		baseURL     string
+		query       map[string]string
+		body        string
+		contentType string
+	}
+	var simple []simpleResponder
+	var queryBased []queryResponder
+
+	for _, ent := range manifest.Entities {
+		// Entity configuration — simple URL match
+		ecData, err := os.ReadFile(filepath.Join(oidfedFixtureDir, ent.EntityConfigFile))
+		if err != nil {
+			t.Logf("SKIP fixture/oidfed: read %s: %v", ent.EntityConfigFile, err)
+			return nil
+		}
+		simple = append(simple, simpleResponder{
+			url:         ent.EntityConfigURL,
+			body:        string(ecData),
+			contentType: "application/entity-statement+jwt",
+		})
+
+		// Entity statement — fetch endpoint uses query params
+		if ent.EntityStatementFile != "" {
+			esData, err := os.ReadFile(filepath.Join(oidfedFixtureDir, ent.EntityStatementFile))
+			if err != nil {
+				t.Logf("SKIP fixture/oidfed: read %s: %v", ent.EntityStatementFile, err)
+				return nil
+			}
+			// go-oidfed calls fetchEndpoint with url.Values{"sub": {entityID}}
+			// via resty's SetQueryParamsFromValues, so we register with query match.
+			queryBased = append(queryBased, queryResponder{
+				baseURL:     ent.EntityStatementFetchBy + "/fetch",
+				query:       map[string]string{"sub": ent.EntityID},
+				body:        string(esData),
+				contentType: "application/entity-statement+jwt",
+			})
+		}
+	}
+
+	// List endpoint — simple URL match
+	listData, err := os.ReadFile(filepath.Join(oidfedFixtureDir, manifest.ListFile))
+	if err != nil {
+		t.Logf("SKIP fixture/oidfed: read %s: %v", manifest.ListFile, err)
+		return nil
+	}
+	simple = append(simple, simpleResponder{
+		url:         manifest.ListURL,
+		body:        string(listData),
+		contentType: "application/json",
+	})
+
+	// Create the underlying OIDFed registry
+	reg, err := oidfed.NewOIDFedRegistry(oidfed.Config{
+		TrustAnchors: []oidfed.TrustAnchorConfig{
+			{EntityID: manifest.TrustAnchor},
+		},
+		CacheTTL: 10 * time.Minute,
+	})
+	if err != nil {
+		t.Logf("SKIP fixture/oidfed: create registry: %v", err)
+		return nil
+	}
+
+	return &oidfedMockRegistry{
+		inner: reg,
+		setup: func() {
+			httpmock.ActivateNonDefault(oidfedHTTPClient.GetClient())
+			for _, r := range simple {
+				httpmock.RegisterResponder("GET", r.url,
+					httpmock.NewStringResponder(200, r.body).HeaderSet(http.Header{
+						"Content-Type": {r.contentType},
+					}),
+				)
+			}
+			for _, r := range queryBased {
+				httpmock.RegisterResponderWithQuery("GET", r.baseURL, r.query,
+					httpmock.NewStringResponder(200, r.body).HeaderSet(http.Header{
+						"Content-Type": {r.contentType},
+					}),
+				)
+			}
+		},
+		teardown: func() {
+			httpmock.DeactivateAndReset()
+		},
+	}
 }
 
 // ---------------------------------------------------------------------------
