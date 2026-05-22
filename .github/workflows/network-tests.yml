@@ -1,6 +1,10 @@
 name: Network Integration Tests
 
 on:
+  # Nightly run to catch upstream trust infrastructure changes
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 06:00 UTC
+
   # Manual trigger from Actions tab (or gh CLI)
   workflow_dispatch:
     inputs:
@@ -17,9 +21,10 @@ jobs:
   network-tests:
     name: Network Integration Tests
     runs-on: ubuntu-latest
-    # Run if manually dispatched OR if the 'run-network-tests' label is present
+    # Run if manually dispatched, scheduled, OR if the 'run-network-tests' label is present
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       github.event.label.name == 'run-network-tests'
     timeout-minutes: 15
 

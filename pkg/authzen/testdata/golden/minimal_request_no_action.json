@@ -1,0 +1,13 @@
+{
+  "subject": {
+    "type": "key",
+    "id": "did:example:123"
+  },
+  "resource": {
+    "type": "x5c",
+    "id": "did:example:123",
+    "key": [
+      "cert"
+    ]
+  }
+}

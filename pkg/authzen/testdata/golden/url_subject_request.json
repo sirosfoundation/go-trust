@@ -1,0 +1,11 @@
+{
+  "subject": {
+    "type": "url",
+    "id": "https://verifier.example.com"
+  },
+  "resource": {
+    "type": "",
+    "id": "https://verifier.example.com",
+    "key": null
+  }
+}

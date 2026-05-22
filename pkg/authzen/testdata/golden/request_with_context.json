@@ -1,0 +1,16 @@
+{
+  "subject": {
+    "type": "key",
+    "id": "https://issuer.example.com"
+  },
+  "resource": {
+    "type": "x5c",
+    "id": "https://issuer.example.com",
+    "key": [
+      "MIIBxxx"
+    ]
+  },
+  "context": {
+    "tenant": "acme-corp"
+  }
+}
