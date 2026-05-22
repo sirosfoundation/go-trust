@@ -3,7 +3,7 @@
 // request patterns that go-wallet-backend constructs during issuance and
 // presentation flows.
 //
-// Test vectors are loaded from testdata/vectors.json. Each vector specifies:
+// Test vectors are loaded from testdata/vectors/*.json. Each vector specifies:
 //   - An AuthZEN EvaluationRequest (the wallet-backend call shape)
 //   - The flow it belongs to (issuance, presentation, or both)
 //   - Per-registry expected outcomes (where known)
@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -70,25 +72,35 @@ type expectedOutcome struct {
 // Vector loading and key-material interpolation
 // ---------------------------------------------------------------------------
 
-// loadVectors reads testdata/vectors.json and interpolates key material
-// placeholders ($TEST_CERT_B64, $TEST_JWK) with real generated material.
+// loadVectors reads all JSON files from testdata/vectors/ (sorted by filename)
+// and interpolates key material placeholders ($TEST_CERT_B64, $TEST_JWK) with
+// real generated material.
 func loadVectors(t *testing.T) []testVector {
 	t.Helper()
 
-	data, err := os.ReadFile("testdata/vectors.json")
-	require.NoError(t, err, "failed to read testdata/vectors.json")
+	files, err := filepath.Glob("testdata/vectors/*.json")
+	require.NoError(t, err, "failed to glob testdata/vectors/*.json")
+	require.NotEmpty(t, files, "no vector files found in testdata/vectors/")
+	sort.Strings(files)
 
 	// Generate key material for interpolation.
 	_, certB64 := generateTestCert(t)
 	jwkJSON := generateTestJWKJSON(t)
 
-	// Interpolate placeholders.
-	s := string(data)
-	s = strings.ReplaceAll(s, `"$TEST_CERT_B64"`, fmt.Sprintf("%q", certB64))
-	s = strings.ReplaceAll(s, `"$TEST_JWK"`, jwkJSON)
-
 	var vectors []testVector
-	require.NoError(t, json.Unmarshal([]byte(s), &vectors), "failed to parse test vectors")
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		require.NoErrorf(t, err, "failed to read %s", f)
+
+		// Interpolate placeholders.
+		s := string(data)
+		s = strings.ReplaceAll(s, `"$TEST_CERT_B64"`, fmt.Sprintf("%q", certB64))
+		s = strings.ReplaceAll(s, `"$TEST_JWK"`, jwkJSON)
+
+		var batch []testVector
+		require.NoErrorf(t, json.Unmarshal([]byte(s), &batch), "failed to parse %s", f)
+		vectors = append(vectors, batch...)
+	}
 	require.NotEmpty(t, vectors, "no test vectors loaded")
 	return vectors
 }
@@ -121,6 +133,23 @@ func buildRegistryCatalogue(t *testing.T) []registryEntry {
 		{Name: "static/always_trusted", Registry: static.NewAlwaysTrustedRegistry("compat-always")},
 		{Name: "static/never_trusted", Registry: static.NewNeverTrustedRegistry("compat-never")},
 		{Name: "static/whitelist_empty", Registry: static.NewWhitelistRegistry()},
+		{Name: "static/whitelist_issuers", Registry: static.NewWhitelistRegistry(
+			static.WithWhitelistConfig(static.WhitelistConfig{
+				Issuers: []string{
+					"https://issuer.example.com",
+					"https://pid-provider.example.eu",
+					"https://mdl-issuer.example.com",
+					"https://university.example.edu",
+				},
+			}),
+		)},
+		{Name: "static/whitelist_verifiers", Registry: static.NewWhitelistRegistry(
+			static.WithWhitelistConfig(static.WhitelistConfig{
+				Verifiers: []string{
+					"https://verifier.example.com",
+				},
+			}),
+		)},
 	}
 
 	if scp, err := static.NewSystemCertPoolRegistry(static.SystemCertPoolConfig{

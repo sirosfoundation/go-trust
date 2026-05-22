@@ -1,0 +1,55 @@
+[
+  {
+    "name": "spocp_key_resolution_gate",
+    "description": "Key subject proxied to PDP with resource.type=resolution for DID/key subjects",
+    "flow": "both",
+    "source": "go-wallet-backend authzen_proxy.go Resolve() — key subjects proxied via proxyToPDP()",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"type": "resolution", "id": "https://issuer.example.com"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false},
+      "static/whitelist_issuers": {"decision": false},
+      "static/whitelist_empty": {"decision": false}
+    }
+  },
+  {
+    "_comment": "SPOCP gate only — this shape is evaluated by the wallet-backend SPOCP gate, never forwarded to PDP",
+    "name": "spocp_url_subject_gate",
+    "description": "SPOCP gate authorization for URL subjects — evaluated locally, not sent to PDP",
+    "flow": "issuance",
+    "source": "go-wallet-backend authzen_proxy.go Resolve() SPOCP gate for url subject type",
+    "request": {
+      "subject": {"type": "url", "id": "https://issuer.example.com"},
+      "resource": {"type": "credential_issuer", "id": "https://issuer.example.com"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false},
+      "static/whitelist_empty": {"decision": false}
+    }
+  },
+  {
+    "_comment": "ASPIRATIONAL: action.parameters is defined in the spec but not yet used in production code",
+    "name": "aspirational_action_params_verifier",
+    "description": "ASPIRATIONAL: Verifier with action.parameters credential_types constraint (draft-johansson-authzen-trust §4.2)",
+    "flow": "presentation",
+    "source": "Not yet implemented — authzenclient has NewActionWithCredentialTypes() but no caller uses it",
+    "request": {
+      "subject": {"type": "key", "id": "https://verifier.example.com"},
+      "resource": {"type": "jwk", "id": "https://verifier.example.com", "key": ["$TEST_JWK"]},
+      "action": {
+        "name": "credential-verifier",
+        "parameters": {"credential_types": ["urn:eu.europa.ec.eudi:pid:1"]}
+      }
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false},
+      "static/whitelist_verifiers": {"decision": false, "reason_contains": "no keys cached"},
+      "static/whitelist_empty": {"decision": false}
+    }
+  }
+]

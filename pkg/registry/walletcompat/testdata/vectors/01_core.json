@@ -1,0 +1,121 @@
+[
+  {
+    "name": "resolution_only",
+    "description": "Metadata discovery — no key material, resource.type absent",
+    "flow": "issuance",
+    "source": "authzenclient.Resolve() / vc keyresolver resolveAndExtractMetadata()",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"id": "https://issuer.example.com"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false},
+      "static/whitelist_issuers": {"decision": false},
+      "static/whitelist_empty": {"decision": false}
+    }
+  },
+  {
+    "name": "x5c_credential_issuer",
+    "description": "Issuer trust evaluation with x5c certificate chain from signed_metadata JWT",
+    "flow": "issuance",
+    "source": "go-wallet-backend issuermetadata/resolver.go evaluateX5CTrust()",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"type": "x5c", "id": "https://issuer.example.com", "key": ["$TEST_CERT_B64"]},
+      "action": {"name": "credential-issuer"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false},
+      "static/whitelist_issuers": {"decision": false, "reason_contains": "no keys cached"},
+      "static/whitelist_empty": {"decision": false}
+    }
+  },
+  {
+    "name": "jwk_credential_issuer",
+    "description": "Issuer trust evaluation with bare JWK from signed_metadata JWT",
+    "flow": "issuance",
+    "source": "go-wallet-backend issuermetadata/resolver.go evaluateJWKTrust()",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"type": "jwk", "id": "https://issuer.example.com", "key": ["$TEST_JWK"]},
+      "action": {"name": "credential-issuer"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false},
+      "static/whitelist_issuers": {"decision": false, "reason_contains": "no keys cached"},
+      "static/whitelist_empty": {"decision": false}
+    }
+  },
+  {
+    "name": "x5c_credential_verifier",
+    "description": "Verifier trust evaluation with x5c certificate chain during presentation",
+    "flow": "presentation",
+    "source": "go-wallet-backend trust/authzen/evaluator.go toAuthZENRequest() with Role=credential-verifier",
+    "request": {
+      "subject": {"type": "key", "id": "https://verifier.example.com"},
+      "resource": {"type": "x5c", "id": "https://verifier.example.com", "key": ["$TEST_CERT_B64"]},
+      "action": {"name": "credential-verifier"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false},
+      "static/whitelist_verifiers": {"decision": false, "reason_contains": "no keys cached"},
+      "static/whitelist_empty": {"decision": false}
+    }
+  },
+  {
+    "name": "jwk_credential_verifier",
+    "description": "Verifier trust evaluation with JWK during presentation",
+    "flow": "presentation",
+    "source": "go-wallet-backend trust/authzen/evaluator.go toAuthZENRequest() with Role=credential-verifier",
+    "request": {
+      "subject": {"type": "key", "id": "https://verifier.example.com"},
+      "resource": {"type": "jwk", "id": "https://verifier.example.com", "key": ["$TEST_JWK"]},
+      "action": {"name": "credential-verifier"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false},
+      "static/whitelist_verifiers": {"decision": false, "reason_contains": "no keys cached"},
+      "static/whitelist_empty": {"decision": false}
+    }
+  },
+  {
+    "name": "jwk_issuer_with_credential_type",
+    "description": "Issuer trust with credential_type context — engine sets CredentialType on internal request",
+    "flow": "issuance",
+    "source": "go-wallet-backend trust/authzen/evaluator.go toAuthZENRequest() when CredentialType is set",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"type": "jwk", "id": "https://issuer.example.com", "key": ["$TEST_JWK"]},
+      "action": {"name": "credential-issuer"},
+      "context": {"credential_type": "urn:eu.europa.ec.eudi:pid:1"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false},
+      "static/whitelist_issuers": {"decision": false, "reason_contains": "no keys cached"},
+      "static/whitelist_empty": {"decision": false}
+    }
+  },
+  {
+    "name": "resolution_with_action_credential_issuer",
+    "description": "Resolution-only request with credential-issuer action — URL subject resolved without key material",
+    "flow": "issuance",
+    "source": "go-wallet-backend authzen_proxy.go resolveURLSubject() when no key material extracted",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"type": "resolution", "id": "https://issuer.example.com"},
+      "action": {"name": "credential-issuer"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false},
+      "static/whitelist_issuers": {"decision": true},
+      "static/whitelist_empty": {"decision": false}
+    }
+  }
+]
