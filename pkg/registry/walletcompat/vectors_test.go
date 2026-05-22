@@ -112,8 +112,8 @@ type registryEntry struct {
 }
 
 // buildRegistryCatalogue returns all registry implementations that can be
-// constructed. Registries that require network at evaluation time are included
-// but will return decision=false for unknown subjects — the test handles that.
+// constructed. Registries that require network I/O are gated behind the
+// SKIP_NETWORK_TESTS environment variable to keep CI fast and deterministic.
 func buildRegistryCatalogue(t *testing.T) []registryEntry {
 	t.Helper()
 
@@ -129,6 +129,12 @@ func buildRegistryCatalogue(t *testing.T) []registryEntry {
 		entries = append(entries, registryEntry{Name: "static/system_cert_pool", Registry: scp})
 	} else {
 		t.Logf("SKIP static/system_cert_pool: %v", err)
+	}
+
+	skipNetwork := os.Getenv("SKIP_NETWORK_TESTS") == "1"
+	if skipNetwork {
+		t.Log("SKIP_NETWORK_TESTS=1 — skipping network-backed registries")
+		return entries
 	}
 
 	if reg, err := oidfed.NewOIDFedRegistry(oidfed.Config{
@@ -253,7 +259,9 @@ func TestVectors(t *testing.T) {
 								logPrefix, *exp.Decision, resp.Decision, vec.Description)
 						}
 
-						if exp.ReasonContains != "" && resp.Context != nil && resp.Context.Reason != nil {
+					if exp.ReasonContains != "" {
+						require.NotNilf(t, resp.Context, "%s expected non-nil context for reason assertion", logPrefix)
+						require.NotNilf(t, resp.Context.Reason, "%s expected non-nil reason containing %q", logPrefix, exp.ReasonContains)
 							reasonJSON, _ := json.Marshal(resp.Context.Reason)
 							assert.Containsf(t, string(reasonJSON), exp.ReasonContains,
 								"%s expected reason to contain %q", logPrefix, exp.ReasonContains)
@@ -277,8 +285,9 @@ func TestVectors(t *testing.T) {
 // Flow-specific tests: verify expected call sequences
 // ---------------------------------------------------------------------------
 
-// TestIssuanceFlow_AlwaysTrusted verifies the issuance call sequence:
-// resolution → x5c/jwk trust evaluation.
+// TestIssuanceFlow_AlwaysTrusted verifies that always_trusted returns
+// decision=true for every issuance vector, confirming that the request
+// shapes are accepted without error.
 func TestIssuanceFlow_AlwaysTrusted(t *testing.T) {
 	vectors := loadVectors(t)
 	always := static.NewAlwaysTrustedRegistry("issuance-flow")
@@ -300,7 +309,8 @@ func TestIssuanceFlow_AlwaysTrusted(t *testing.T) {
 	}
 }
 
-// TestPresentationFlow_AlwaysTrusted verifies the presentation call sequence.
+// TestPresentationFlow_AlwaysTrusted verifies that always_trusted returns
+// decision=true for every presentation vector.
 func TestPresentationFlow_AlwaysTrusted(t *testing.T) {
 	vectors := loadVectors(t)
 	always := static.NewAlwaysTrustedRegistry("presentation-flow")
@@ -455,10 +465,7 @@ func TestVectors_CompositeRegistryManager(t *testing.T) {
 		t.Run("vector="+vec.Name+"/flow="+vec.Flow, func(t *testing.T) {
 			req := buildRequest(t, vec.Request)
 			resp, err := mgr.Evaluate(ctx, req)
-			if err != nil {
-				t.Logf("manager returned error for %s: %v", vec.Name, err)
-				return
-			}
+			require.NoErrorf(t, err, "RegistryManager should not error for vector=%s", vec.Name)
 			require.NotNil(t, resp)
 			assert.Truef(t, resp.Decision,
 				"FirstMatch with never→always should find always_trusted for vector=%s",
@@ -593,11 +600,26 @@ func generateTestJWKJSON(t *testing.T) string {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 
+	// Left-pad coordinates to fixed 32-byte length per RFC 7518.
+	byteLen := (key.PublicKey.Curve.Params().BitSize + 7) / 8
+	xBytes := key.PublicKey.X.Bytes()
+	yBytes := key.PublicKey.Y.Bytes()
+	if len(xBytes) < byteLen {
+		padded := make([]byte, byteLen)
+		copy(padded[byteLen-len(xBytes):], xBytes)
+		xBytes = padded
+	}
+	if len(yBytes) < byteLen {
+		padded := make([]byte, byteLen)
+		copy(padded[byteLen-len(yBytes):], yBytes)
+		yBytes = padded
+	}
+
 	jwk := map[string]interface{}{
 		"kty": "EC",
 		"crv": "P-256",
-		"x":   base64.RawURLEncoding.EncodeToString(key.PublicKey.X.Bytes()),
-		"y":   base64.RawURLEncoding.EncodeToString(key.PublicKey.Y.Bytes()),
+		"x":   base64.RawURLEncoding.EncodeToString(xBytes),
+		"y":   base64.RawURLEncoding.EncodeToString(yBytes),
 	}
 
 	b, err := json.Marshal(jwk)
