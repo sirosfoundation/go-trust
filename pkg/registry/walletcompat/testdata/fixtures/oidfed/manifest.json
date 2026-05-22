@@ -1,0 +1,59 @@
+{
+  "trust_anchor": "https://realta.labb.sunet.se",
+  "list_file": "list_realta.json",
+  "list_url": "https://realta.labb.sunet.se/list",
+  "entities": [
+    {
+      "entity_id": "https://realta.labb.sunet.se",
+      "entity_config_file": "entity_config_realta.jwt",
+      "entity_config_url": "https://realta.labb.sunet.se/.well-known/openid-federation"
+    },
+    {
+      "entity_id": "https://realop.labb.sunet.se",
+      "entity_config_file": "entity_config_realop.labb.sunet.se.jwt",
+      "entity_config_url": "https://realop.labb.sunet.se/.well-known/openid-federation",
+      "entity_statement_file": "entity_statement_realop.labb.sunet.se.jwt",
+      "entity_statement_url": "https://realta.labb.sunet.se/fetch?sub=https://realop.labb.sunet.se",
+      "entity_statement_fetch_by": "https://realta.labb.sunet.se"
+    },
+    {
+      "entity_id": "https://satosarp.labb.sunet.se",
+      "entity_config_file": "entity_config_satosarp.labb.sunet.se.jwt",
+      "entity_config_url": "https://satosarp.labb.sunet.se/.well-known/openid-federation",
+      "entity_statement_file": "entity_statement_satosarp.labb.sunet.se.jwt",
+      "entity_statement_url": "https://realta.labb.sunet.se/fetch?sub=https://satosarp.labb.sunet.se",
+      "entity_statement_fetch_by": "https://realta.labb.sunet.se"
+    },
+    {
+      "entity_id": "https://oidf-dco-poc-ta-2.swamid.se",
+      "entity_config_file": "entity_config_oidf-dco-poc-ta-2.swamid.se.jwt",
+      "entity_config_url": "https://oidf-dco-poc-ta-2.swamid.se/.well-known/openid-federation",
+      "entity_statement_file": "entity_statement_oidf-dco-poc-ta-2.swamid.se.jwt",
+      "entity_statement_url": "https://realta.labb.sunet.se/fetch?sub=https://oidf-dco-poc-ta-2.swamid.se",
+      "entity_statement_fetch_by": "https://realta.labb.sunet.se"
+    },
+    {
+      "entity_id": "https://satosa.labb.sunet.se",
+      "entity_config_file": "entity_config_satosa.labb.sunet.se.jwt",
+      "entity_config_url": "https://satosa.labb.sunet.se/.well-known/openid-federation",
+      "entity_statement_file": "entity_statement_satosa.labb.sunet.se.jwt",
+      "entity_statement_url": "https://realta.labb.sunet.se/fetch?sub=https://satosa.labb.sunet.se",
+      "entity_statement_fetch_by": "https://realta.labb.sunet.se"
+    },
+    {
+      "entity_id": "https://realrp.labb.sunet.se",
+      "entity_config_file": "entity_config_realrp.labb.sunet.se.jwt",
+      "entity_config_url": "https://realrp.labb.sunet.se/.well-known/openid-federation",
+      "entity_statement_file": "entity_statement_realrp.labb.sunet.se.jwt",
+      "entity_statement_url": "https://realta.labb.sunet.se/fetch?sub=https://realrp.labb.sunet.se",
+      "entity_statement_fetch_by": "https://realta.labb.sunet.se"
+    }
+  ],
+  "subordinate_of": {
+    "https://oidf-dco-poc-ta-2.swamid.se": "https://realta.labb.sunet.se",
+    "https://realop.labb.sunet.se": "https://realta.labb.sunet.se",
+    "https://realrp.labb.sunet.se": "https://realta.labb.sunet.se",
+    "https://satosa.labb.sunet.se": "https://realta.labb.sunet.se",
+    "https://satosarp.labb.sunet.se": "https://realta.labb.sunet.se"
+  }
+}

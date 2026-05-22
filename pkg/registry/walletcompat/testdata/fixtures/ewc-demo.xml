@@ -1,0 +1,587 @@
+<ListOfTrustedEntities xmlns="http://uri.etsi.org/019602/v1#" LOTETag="http://uri.etsi.org/019602/LOTETag">
+  <ListAndSchemeInformation>
+    <LoTEVersionIdentifier>1</LoTEVersionIdentifier>
+    <LoTESequenceNumber>0</LoTESequenceNumber>
+    <LoTEType>http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUgeneric</LoTEType>
+    <SchemeOperatorName>
+      <Name lang="en">EWC Consortium</Name>
+    </SchemeOperatorName>
+    <StatusDeterminationApproach/>
+    <ListIssueDateTime>2026-05-22T14:42:07Z</ListIssueDateTime>
+    <NextUpdate>
+      <dateTime>2026-11-18T14:42:07Z</dateTime>
+    </NextUpdate>
+    <DistributionPoints>
+      <URI>https://trust.siros.org/ewc-demo.xml</URI>
+    </DistributionPoints>
+  </ListAndSchemeInformation>
+  <TrustedEntitiesList>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Payment Authenticator Issuer</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/EAA#tsp0-svc0</URI>
+          <URI lang="en">https://www.bancatransilvania.ro</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Payment Authenticator Issuer</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Buda Castle Ticket DEV Issuer</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/EAA#tsp1-svc0</URI>
+          <URI lang="en">https://rde-ewc.hu/budacastleexperience_dev</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Buda Castle Ticket DEV Issuer</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Service</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/EAA#tsp2-svc0</URI>
+          <URI lang="en">https://fastferries.com.gr/en/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Service</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">CZ.NIC EAA</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/EAA#tsp3-svc0</URI>
+          <URI lang="en">https://www.nic.cz/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">CZ.NIC EAA</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">CZ PID</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/PID#tsp3-svc1</URI>
+          <URI lang="en">https://www.nic.cz/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/PID</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">CZ PID</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">DIGG Wallet</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP#tsp4-svc0</URI>
+          <URI lang="en">https://www.digg.se</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">DIGG Wallet</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Sweden PID</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/PID#tsp4-svc1</URI>
+          <URI lang="en">https://www.digg.se</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/PID</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Sweden PID</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Digidentity PID</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/PID#tsp5-svc0</URI>
+          <URI lang="en">https://www.digidentity.eu/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/PID</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Digidentity PID</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Digidentity Wallet</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP#tsp5-svc1</URI>
+          <URI lang="en">https://www.digidentity.eu/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Digidentity Wallet</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">EUDI Wallet Demo</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP#tsp6-svc0</URI>
+          <URI lang="en">https://dvv.fi/en/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">EUDI Wallet Demo</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">E-Group MyD Wallet</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP#tsp7-svc0</URI>
+          <URI lang="en">https://www.egroup.hu/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">E-Group MyD Wallet</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">EUDI Wallet</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP#tsp8-svc0</URI>
+          <URI lang="en">https://grnet.gr</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">EUDI Wallet</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">EUDIW Testing Issuer</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/PID#tsp8-svc1</URI>
+          <URI lang="en">https://grnet.gr</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/PID</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">EUDIW Testing Issuer</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">IDunion EAA Issuer</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/EAA#tsp9-svc0</URI>
+          <URI lang="en">https://idunion.eu</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">IDunion EAA Issuer</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">iGrant.io Data Wallet ID-Wallet</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/LPWP#tsp10-svc0</URI>
+          <URI lang="en">https://igrant.io</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/LPWP</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">iGrant.io Data Wallet ID-Wallet</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">iGrant.io Data Wallet ID-Wallet</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP#tsp10-svc1</URI>
+          <URI lang="en">https://igrant.io</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">iGrant.io Data Wallet ID-Wallet</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">iGrant.io EAA Issuer</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/EAA#tsp10-svc2</URI>
+          <URI lang="en">https://igrant.io</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">iGrant.io EAA Issuer</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">IG EAA</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/EAA#tsp11-svc0</URI>
+          <URI lang="en">https://www.intesigroup.com/en/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">IG EAA</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Intesi Group EU Qualified Electronic Signature</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/CA/QC#tsp11-svc1</URI>
+          <URI lang="en">https://www.intesigroup.com/en/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/CA/QC</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Intesi Group EU Qualified Electronic Signature</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Lissi ID-Wallet</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP#tsp12-svc0</URI>
+          <URI lang="en">https://lissi.id/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Lissi ID-Wallet</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Signicat EAA Issuer</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/EAA#tsp13-svc0</URI>
+          <URI lang="en">https://www.signicat.com/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Signicat EAA Issuer</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Infocert EAA</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/EAA#tsp14-svc0</URI>
+          <URI lang="en">https://www.infocert.it</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Infocert EAA</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Infocert EU Qualified Electronic Signature</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/CA/QC#tsp14-svc1</URI>
+          <URI lang="en">https://www.infocert.it</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/CA/QC</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Infocert EU Qualified Electronic Signature</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">Uaegean EAA</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/EAA#tsp15-svc0</URI>
+          <URI lang="en">https://www.aegean.edu/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">Uaegean EAA</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">ID Wallet LSP</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP#tsp16-svc0</URI>
+          <URI lang="en">https://validatedid.com</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>https://ewc-consortium.github.io/ewc-trust-list/TrstSvc/Svctype/NPWP</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">ID Wallet LSP</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">VIDcredentials Studio</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/EAA/Q#tsp16-svc1</URI>
+          <URI lang="en">https://validatedid.com</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA/Q</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">VIDcredentials Studio</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name lang="en">VIDsigner</Name>
+        </TEName>
+        <TEInformationURI>
+          <URI lang="en">http://uri.etsi.org/TrstSvc/Svctype/CA/QC#tsp16-svc2</URI>
+          <URI lang="en">https://validatedid.com</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/CA/QC</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name lang="en">VIDsigner</Name>
+            </ServiceName>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+  </TrustedEntitiesList>
+</ListOfTrustedEntities>

@@ -1,0 +1,49 @@
+name: Network Integration Tests
+
+on:
+  # Manual trigger from Actions tab (or gh CLI)
+  workflow_dispatch:
+    inputs:
+      test_filter:
+        description: 'Test filter pattern (e.g. TestVectors, TestOIDFed)'
+        required: false
+        default: ''
+
+  # Trigger when a specific label is added to a PR
+  pull_request:
+    types: [labeled]
+
+jobs:
+  network-tests:
+    name: Network Integration Tests
+    runs-on: ubuntu-latest
+    # Run if manually dispatched OR if the 'run-network-tests' label is present
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.label.name == 'run-network-tests'
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: 'go.mod'
+        cache: true
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libxslt1-dev xsltproc
+
+    - name: Run network integration tests
+      env:
+        # SKIP_NETWORK_TESTS is NOT set — network tests will run
+        TEST_FILTER: ${{ github.event.inputs.test_filter }}
+      run: |
+        if [ -n "$TEST_FILTER" ]; then
+          go test -v -race -timeout 10m -run "$TEST_FILTER" ./...
+        else
+          go test -v -race -timeout 10m ./...
+        fi
