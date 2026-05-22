@@ -1,9 +1,8 @@
-// Package registry provides the wallet-backend compatibility test suite.
+// Package walletcompat provides cross-registry tests verifying that every
+// TrustRegistry implementation correctly handles the AuthZEN evaluation request
+// patterns that go-wallet-backend constructs during issuance and presentation flows.
 //
-// These tests verify that every TrustRegistry implementation correctly handles
-// the AuthZEN evaluation request patterns that go-wallet-backend constructs
-// during issuance and presentation flows. The wallet-backend proxy builds
-// requests in these categories:
+// Wallet-backend builds requests in these categories:
 //
 //  1. Resolution-only: Subject.Type="key", no Resource.Type/Key
 //  2. x5c credential-issuer: Resource.Type="x5c", Action.Name="credential-issuer"
@@ -13,7 +12,7 @@
 //
 // Each test exercises all registries uniformly to ensure that go-wallet-backend's
 // real call patterns are handled without panics or unexpected errors.
-package registry
+package walletcompat
 
 import (
 	"context"
@@ -28,6 +27,14 @@ import (
 	"time"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
+	"github.com/sirosfoundation/go-trust/pkg/registry"
+	"github.com/sirosfoundation/go-trust/pkg/registry/did"
+	"github.com/sirosfoundation/go-trust/pkg/registry/didjwks"
+	"github.com/sirosfoundation/go-trust/pkg/registry/didweb"
+	"github.com/sirosfoundation/go-trust/pkg/registry/didwebvh"
+	"github.com/sirosfoundation/go-trust/pkg/registry/mdociaca"
+	"github.com/sirosfoundation/go-trust/pkg/registry/oidfed"
+	"github.com/sirosfoundation/go-trust/pkg/registry/static"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -214,37 +221,107 @@ func walletRequestPatterns(t *testing.T) []walletRequest {
 // registryUnderTest pairs a registry instance with metadata.
 type registryUnderTest struct {
 	Name     string
-	Registry TrustRegistry
+	Registry registry.TrustRegistry
 }
 
-// testRegistries returns a set of lightweight registry instances that can be
-// tested without network access. Registries that require external state
-// (ETSI TSLs, OpenID Federation trust anchors, DID resolution, etc.) are
-// tested with their mock/empty configurations — the goal is to verify that
-// they handle all wallet request shapes without panicking or returning
-// unexpected errors (as opposed to verifying trust decisions).
+// testRegistries returns all registry implementations that can be constructed
+// without external dependencies (no files on disk, no network at construction
+// time). Registries that require network at evaluation time will return
+// decision=false or errors for unknown subjects — that is expected. The goal
+// is to verify they handle all wallet request shapes without panicking.
 func testRegistries(t *testing.T) []registryUnderTest {
 	t.Helper()
-	return []registryUnderTest{
+
+	regs := []registryUnderTest{
+		// Static registries
 		{
-			Name: "always_trusted",
-			Registry: &MockRegistry{
-				name:                   "always_trusted",
-				decision:               true,
-				types:                  []string{"*"},
-				supportsResolutionOnly: true,
-			},
+			Name:     "static/always_trusted",
+			Registry: static.NewAlwaysTrustedRegistry("wallet-compat-always"),
 		},
 		{
-			Name: "never_trusted",
-			Registry: &MockRegistry{
-				name:                   "never_trusted",
-				decision:               false,
-				types:                  []string{"*"},
-				supportsResolutionOnly: true,
-			},
+			Name:     "static/never_trusted",
+			Registry: static.NewNeverTrustedRegistry("wallet-compat-never"),
+		},
+		{
+			Name:     "static/whitelist_empty",
+			Registry: static.NewWhitelistRegistry(),
 		},
 	}
+
+	// SystemCertPool — may fail on some platforms
+	if scp, err := static.NewSystemCertPoolRegistry(static.SystemCertPoolConfig{
+		Name: "wallet-compat-syscerts",
+	}); err == nil {
+		regs = append(regs, registryUnderTest{
+			Name:     "static/system_cert_pool",
+			Registry: scp,
+		})
+	} else {
+		t.Logf("skipping SystemCertPoolRegistry: %v", err)
+	}
+
+	// OpenID Federation (requires trust anchor entity IDs; network at eval only)
+	if oidfedReg, err := oidfed.NewOIDFedRegistry(oidfed.Config{
+		TrustAnchors: []oidfed.TrustAnchorConfig{
+			{EntityID: "https://trust-anchor.example.com"},
+		},
+	}); err == nil {
+		regs = append(regs, registryUnderTest{
+			Name:     "oidfed",
+			Registry: oidfedReg,
+		})
+	} else {
+		t.Logf("skipping OIDFedRegistry: %v", err)
+	}
+
+	// did:web (network at eval only)
+	if dwReg, err := didweb.NewDIDWebRegistry(didweb.Config{}); err == nil {
+		regs = append(regs, registryUnderTest{
+			Name:     "didweb",
+			Registry: dwReg,
+		})
+	} else {
+		t.Logf("skipping DIDWebRegistry: %v", err)
+	}
+
+	// did:webvh (network at eval only)
+	if dwvhReg, err := didwebvh.NewDIDWebVHRegistry(didwebvh.Config{}); err == nil {
+		regs = append(regs, registryUnderTest{
+			Name:     "didwebvh",
+			Registry: dwvhReg,
+		})
+	} else {
+		t.Logf("skipping DIDWebVHRegistry: %v", err)
+	}
+
+	// did:jwks (network at eval only)
+	if djReg, err := didjwks.NewRegistry(didjwks.Config{}); err == nil {
+		regs = append(regs, registryUnderTest{
+			Name:     "didjwks",
+			Registry: djReg,
+		})
+	} else {
+		t.Logf("skipping didjwks.Registry: %v", err)
+	}
+
+	// mDOC IACA (network at eval only)
+	if mdocReg, err := mdociaca.New(nil); err == nil {
+		regs = append(regs, registryUnderTest{
+			Name:     "mdociaca",
+			Registry: mdocReg,
+		})
+	} else {
+		t.Logf("skipping mdociaca.Registry: %v", err)
+	}
+
+	// Generic DID with did:key resolver (pure computation)
+	didKeyReg := did.NewGenericDIDRegistryWithKeyMethod(did.GenericDIDRegistryConfig{})
+	regs = append(regs, registryUnderTest{
+		Name:     "did_generic_key",
+		Registry: didKeyReg,
+	})
+
+	return regs
 }
 
 // TestWalletBackendRequestPatterns_NoPanic verifies that every known
@@ -279,12 +356,7 @@ func TestWalletBackendRequestPatterns_NoPanic(t *testing.T) {
 // static registry returns decision=true for every wallet pattern.
 func TestWalletBackendRequestPatterns_AlwaysTrusted(t *testing.T) {
 	ctx := context.Background()
-	always := &MockRegistry{
-		name:                   "always_trusted",
-		decision:               true,
-		types:                  []string{"*"},
-		supportsResolutionOnly: true,
-	}
+	always := static.NewAlwaysTrustedRegistry("wallet-compat-always")
 	patterns := walletRequestPatterns(t)
 
 	for _, pat := range patterns {
@@ -308,7 +380,7 @@ func TestWalletBackendRequestPatterns_Validate(t *testing.T) {
 	// These patterns use non-standard resource types that intentionally fail
 	// strict AuthZEN validation.
 	nonStandard := map[string]string{
-		"spocp_key_resolution_gate":   "resource.type 'resolution' is a wallet-backend internal convention",
+		"spocp_key_resolution_gate":     "resource.type 'resolution' is a wallet-backend internal convention",
 		"url_subject_credential_issuer": "subject.type 'url' with resource.type 'credential_issuer' is wallet-backend SPOCP gate",
 	}
 
@@ -399,12 +471,7 @@ func TestWalletBackendIssuanceFlow(t *testing.T) {
 	ctx := context.Background()
 	patterns := walletRequestPatterns(t)
 
-	always := &MockRegistry{
-		name:                   "always_trusted",
-		decision:               true,
-		types:                  []string{"*"},
-		supportsResolutionOnly: true,
-	}
+	always := static.NewAlwaysTrustedRegistry("wallet-compat-issuance")
 
 	// Phase 1: resolution-only
 	var resolveReq *authzen.EvaluationRequest
@@ -452,12 +519,7 @@ func TestWalletBackendPresentationFlow(t *testing.T) {
 	ctx := context.Background()
 	patterns := walletRequestPatterns(t)
 
-	always := &MockRegistry{
-		name:                   "always_trusted",
-		decision:               true,
-		types:                  []string{"*"},
-		supportsResolutionOnly: true,
-	}
+	always := static.NewAlwaysTrustedRegistry("wallet-compat-presentation")
 
 	// Verifier trust evaluation
 	for _, p := range patterns {
@@ -481,33 +543,13 @@ func TestWalletBackendCompositeRegistry(t *testing.T) {
 	ctx := context.Background()
 	patterns := walletRequestPatterns(t)
 
-	// Create a manager with mixed registries:
-	// - one that only supports jwk
-	// - one that only supports x5c
-	// - one fallback that supports everything
-	jwkOnly := &MockRegistry{
-		name:                   "jwk_only",
-		decision:               true,
-		types:                  []string{"jwk"},
-		supportsResolutionOnly: true,
-	}
-	x5cOnly := &MockRegistry{
-		name:                   "x5c_only",
-		decision:               true,
-		types:                  []string{"x5c"},
-		supportsResolutionOnly: false,
-	}
-	fallback := &MockRegistry{
-		name:                   "fallback",
-		decision:               false,
-		types:                  []string{"*"},
-		supportsResolutionOnly: true,
-	}
+	// Create a manager with real registries of different capabilities.
+	always := static.NewAlwaysTrustedRegistry("wallet-compat-fallback")
+	never := static.NewNeverTrustedRegistry("wallet-compat-reject")
 
-	mgr := NewRegistryManager(FirstMatch, 30*time.Second)
-	mgr.Register(jwkOnly)
-	mgr.Register(x5cOnly)
-	mgr.Register(fallback)
+	mgr := registry.NewRegistryManager(registry.FirstMatch, 30*time.Second)
+	mgr.Register(never)  // first: rejects everything
+	mgr.Register(always) // second: accepts everything
 
 	for _, pat := range patterns {
 		t.Run(pat.Name, func(t *testing.T) {
@@ -519,7 +561,8 @@ func TestWalletBackendCompositeRegistry(t *testing.T) {
 				return
 			}
 			require.NotNil(t, resp)
-			t.Logf("manager pattern %s: decision=%v", pat.Name, resp.Decision)
+			// FirstMatch with never→always: always should win since never returns false
+			assert.True(t, resp.Decision, "FirstMatch should find always_trusted")
 		})
 	}
 }
@@ -548,7 +591,7 @@ func TestWalletBackendRequestPatterns_ContextPreserved(t *testing.T) {
 // used by wallet-backend are from the expected set.
 func TestWalletBackendRequestPatterns_ActionNames(t *testing.T) {
 	validActions := map[string]bool{
-		"credential-issuer":  true,
+		"credential-issuer":   true,
 		"credential-verifier": true,
 	}
 
