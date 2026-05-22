@@ -13,6 +13,12 @@
 //	TestVectors/registry=etsi_ewc_demo/vector=eudi_pid_x5c_issuer/flow=issuance
 //
 // This makes it immediately obvious which registry + vector combination failed.
+//
+// Fixtures for ETSI TSL, LoTE, and LoTL are fetched via go generate:
+//
+//	go generate ./pkg/registry/walletcompat/
+//
+//go:generate go run fetch_fixtures.go
 package walletcompat
 
 import (
@@ -26,6 +32,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -114,6 +122,82 @@ func buildRequest(t *testing.T, raw json.RawMessage) *authzen.EvaluationRequest 
 }
 
 // ---------------------------------------------------------------------------
+// Fixture server: serves LoTE/LoTL/JWKS from testdata/fixtures/
+// ---------------------------------------------------------------------------
+
+// fixtureServer returns an httptest.Server that serves trust list fixtures
+// from testdata/fixtures/. The LoTL JSON's {{BASE_URL}} placeholders are
+// replaced with the server's URL so pointer following works.
+// Also serves a JWKS endpoint at /.well-known/jwks.json with the provided key.
+func fixtureServer(t *testing.T, pubKey *ecdsa.PublicKey) *httptest.Server {
+	t.Helper()
+
+	mux := http.NewServeMux()
+
+	// Serve LoTE JSON
+	mux.HandleFunc("/lote-demo.json", func(w http.ResponseWriter, r *http.Request) {
+		data, err := os.ReadFile("testdata/fixtures/lote-demo.json")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	})
+
+	// Serve LoTL JSON with URL substitution (deferred until we know the server URL)
+	var serverURL string
+	mux.HandleFunc("/lotl-demo.json", func(w http.ResponseWriter, r *http.Request) {
+		data, err := os.ReadFile("testdata/fixtures/lotl-demo.json")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s := strings.ReplaceAll(string(data), "{{BASE_URL}}", serverURL)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(s))
+	})
+
+	// Serve JWKS endpoint for whitelist registry
+	if pubKey != nil {
+		byteLen := (pubKey.Curve.Params().BitSize + 7) / 8
+		xBytes := pubKey.X.Bytes()
+		yBytes := pubKey.Y.Bytes()
+		if len(xBytes) < byteLen {
+			padded := make([]byte, byteLen)
+			copy(padded[byteLen-len(xBytes):], xBytes)
+			xBytes = padded
+		}
+		if len(yBytes) < byteLen {
+			padded := make([]byte, byteLen)
+			copy(padded[byteLen-len(yBytes):], yBytes)
+			yBytes = padded
+		}
+		jwks := map[string]interface{}{
+			"keys": []map[string]interface{}{
+				{
+					"kty": "EC",
+					"crv": "P-256",
+					"use": "sig",
+					"x":   base64.RawURLEncoding.EncodeToString(xBytes),
+					"y":   base64.RawURLEncoding.EncodeToString(yBytes),
+				},
+			},
+		}
+		jwksJSON, _ := json.Marshal(jwks)
+		mux.HandleFunc("/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(jwksJSON)
+		})
+	}
+
+	ts := httptest.NewServer(mux)
+	serverURL = ts.URL
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// ---------------------------------------------------------------------------
 // Registry catalogue
 // ---------------------------------------------------------------------------
 
@@ -159,6 +243,9 @@ func buildRegistryCatalogue(t *testing.T) []registryEntry {
 	} else {
 		t.Logf("SKIP static/system_cert_pool: %v", err)
 	}
+
+	// Fixture-backed registries (offline, deterministic)
+	entries = append(entries, buildFixtureRegistries(t)...)
 
 	skipNetwork := os.Getenv("SKIP_NETWORK_TESTS") == "1"
 	if skipNetwork {
@@ -234,6 +321,50 @@ func buildRegistryCatalogue(t *testing.T) []registryEntry {
 		entries = append(entries, registryEntry{Name: "lote_via_lotl", Registry: reg})
 	} else {
 		t.Logf("SKIP lote_via_lotl: %v", err)
+	}
+
+	return entries
+}
+
+// buildFixtureRegistries creates deterministic, offline registries backed by
+// fixtures fetched via go generate. These run even with SKIP_NETWORK_TESTS=1.
+func buildFixtureRegistries(t *testing.T) []registryEntry {
+	t.Helper()
+
+	fixtureDir, err := filepath.Abs("testdata/fixtures")
+	if err != nil {
+		t.Logf("SKIP fixture registries: %v", err)
+		return nil
+	}
+
+	// Check fixtures exist (go generate must have been run)
+	if _, err := os.Stat(filepath.Join(fixtureDir, "lote-demo.json")); os.IsNotExist(err) {
+		t.Log("SKIP fixture registries: run 'go generate ./pkg/registry/walletcompat/' first")
+		return nil
+	}
+
+	var entries []registryEntry
+
+	// ETSI LoTE from local fixture XML (ewc-demo.xml is LoTE format, not TSL)
+	loteXmlFile := filepath.Join(fixtureDir, "ewc-demo.xml")
+	if reg, err := lote.New(lote.Config{
+		Name:    "EWC-Demo-Fixture",
+		Sources: []string{loteXmlFile},
+	}); err == nil {
+		entries = append(entries, registryEntry{Name: "fixture/etsi_lote_xml", Registry: reg})
+	} else {
+		t.Logf("SKIP fixture/etsi_lote_xml: %v", err)
+	}
+
+	// LoTE from local fixture JSON
+	loteFile := filepath.Join(fixtureDir, "lote-demo.json")
+	if reg, err := lote.New(lote.Config{
+		Name:    "SIROS-LoTE-Fixture",
+		Sources: []string{loteFile},
+	}); err == nil {
+		entries = append(entries, registryEntry{Name: "fixture/lote", Registry: reg})
+	} else {
+		t.Logf("SKIP fixture/lote: %v", err)
 	}
 
 	return entries

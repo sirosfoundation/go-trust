@@ -1,0 +1,72 @@
+{
+  "LoTE": {
+    "ListAndSchemeInformation": {
+      "LoTEVersionIdentifier": 1,
+      "LoTESequenceNumber": 2,
+      "LoTEType": "http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUgeneric",
+      "SchemeOperatorName": [
+        {
+          "lang": "en",
+          "value": "SIROS Foundation"
+        }
+      ],
+      "SchemeName": [
+        {
+          "lang": "en",
+          "value": "SIROS Demo Trust List"
+        }
+      ],
+      "SchemeTerritory": "demo",
+      "ListIssueDateTime": "2026-05-22T14:42:08Z",
+      "NextUpdate": "2026-05-22T14:42:08Z"
+    },
+    "TrustedEntitiesList": [
+      {
+        "TrustedEntityInformation": {
+          "TEName": [
+            {
+              "lang": "en",
+              "value": "SIROS Identity Credential Issuer"
+            }
+          ],
+          "TEAddress": {
+            "TEPostalAddress": [
+              {
+                "lang": "",
+                "StreetAddress": "c/o SIROS Foundation",
+                "Locality": "Stockholm",
+                "Country": "SE"
+              }
+            ],
+            "TEElectronicAddress": [
+              {
+                "lang": "",
+                "uriValue": "mailto:info@siros.org"
+              }
+            ]
+          },
+          "TEInformationURI": [
+            {
+              "lang": "en",
+              "uriValue": "https://issuer.siros.org"
+            }
+          ]
+        },
+        "TrustedEntityServices": [
+          {
+            "ServiceInformation": {
+              "ServiceName": [
+                {
+                  "lang": "en",
+                  "value": "SIROS Identity Credential Issuance"
+                }
+              ],
+              "ServiceDigitalIdentity": {},
+              "ServiceTypeIdentifier": "http://uri.etsi.org/TrstSvc/Svctype/CA/QC"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

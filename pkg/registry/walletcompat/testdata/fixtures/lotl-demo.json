@@ -1,0 +1,43 @@
+{
+  "LoTE": {
+    "ListAndSchemeInformation": {
+      "LoTEVersionIdentifier": 1,
+      "LoTESequenceNumber": 1,
+      "LoTEType": "http://uri.etsi.org/19602/LoTLType/EUListOfTrustedLists",
+      "SchemeOperatorName": [
+        {
+          "lang": "en",
+          "value": "SIROS Foundation"
+        }
+      ],
+      "SchemeName": [
+        {
+          "lang": "en",
+          "value": "SIROS Demo List of Trusted Lists"
+        }
+      ],
+      "SchemeTerritory": "demo",
+      "PointersToOtherLoTE": [
+        {
+          "LoTELocation": "{{BASE_URL}}/lote-demo.json",
+          "ServiceDigitalIdentities": null,
+          "LoTEQualifiers": [
+            {
+              "LoTEType": "http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUgeneric",
+              "SchemeOperatorName": [
+                {
+                  "lang": "en",
+                  "value": "SIROS Foundation"
+                }
+              ],
+              "SchemeTerritory": "demo",
+              "MimeType": "application/json"
+            }
+          ]
+        }
+      ],
+      "ListIssueDateTime": "2026-05-22T14:42:07Z",
+      "NextUpdate": "2026-05-22T14:42:07Z"
+    }
+  }
+}
