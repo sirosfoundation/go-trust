@@ -1,0 +1,234 @@
+[
+  {
+    "name": "resolution_only",
+    "description": "Metadata discovery — no key material, resource.type absent",
+    "flow": "issuance",
+    "source": "authzen_proxy.go resolveURLSubject — when no key material is available",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"id": "https://issuer.example.com"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "x5c_credential_issuer",
+    "description": "Issuer trust evaluation with x5c certificate chain from signed_metadata JWT",
+    "flow": "issuance",
+    "source": "authzen_proxy.go resolveURLSubject / resolver.go verifySignedMetadataX5C",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"type": "x5c", "id": "https://issuer.example.com", "key": ["$TEST_CERT_B64"]},
+      "action": {"name": "credential-issuer"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "jwk_credential_issuer",
+    "description": "Issuer trust evaluation with bare JWK from signed_metadata JWT",
+    "flow": "issuance",
+    "source": "authzen_proxy.go resolveURLSubject / resolver.go verifySignedMetadataJWK",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"type": "jwk", "id": "https://issuer.example.com", "key": ["$TEST_JWK"]},
+      "action": {"name": "credential-issuer"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "x5c_credential_verifier",
+    "description": "Verifier trust evaluation with x5c certificate chain during presentation",
+    "flow": "presentation",
+    "source": "evaluator.go toAuthZENRequest — verifier x5c trust during presentation flow",
+    "request": {
+      "subject": {"type": "key", "id": "https://verifier.example.com"},
+      "resource": {"type": "x5c", "id": "https://verifier.example.com", "key": ["$TEST_CERT_B64"]},
+      "action": {"name": "credential-verifier"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "jwk_credential_verifier",
+    "description": "Verifier trust evaluation with JWK during presentation",
+    "flow": "presentation",
+    "source": "evaluator.go toAuthZENRequest — verifier jwk trust during presentation flow",
+    "request": {
+      "subject": {"type": "key", "id": "https://verifier.example.com"},
+      "resource": {"type": "jwk", "id": "https://verifier.example.com", "key": ["$TEST_JWK"]},
+      "action": {"name": "credential-verifier"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "jwk_issuer_with_credential_type",
+    "description": "Issuer trust with credential_type context for policy filtering",
+    "flow": "issuance",
+    "source": "evaluator.go toAuthZENRequest — when credential_type is set on the internal request",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"type": "jwk", "id": "https://issuer.example.com", "key": ["$TEST_JWK"]},
+      "action": {"name": "credential-issuer"},
+      "context": {"credential_type": "urn:eu.europa.ec.eudi:pid:1"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "spocp_key_resolution_gate",
+    "description": "SPOCP gate — subject type 'key', resource type 'resolution' for key subjects",
+    "flow": "both",
+    "source": "authzen_proxy.go /v1/evaluate SPOCP gate",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"type": "resolution", "id": "https://issuer.example.com"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "url_subject_credential_issuer",
+    "description": "URL subject type with credential_issuer resource for issuer metadata resolution",
+    "flow": "issuance",
+    "source": "authzen_proxy.go /v1/resolve — url subject type",
+    "request": {
+      "subject": {"type": "url", "id": "https://issuer.example.com"},
+      "resource": {"type": "credential_issuer", "id": "https://issuer.example.com"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "eudi_pid_x5c_issuer",
+    "description": "EUDI PID issuer with x5c chain — EU Digital Identity Wallet PID issuance",
+    "flow": "issuance",
+    "source": "OID4VCI credential offer for eu.europa.ec.eudi:pid:1",
+    "request": {
+      "subject": {"type": "key", "id": "https://pid-provider.example.eu"},
+      "resource": {"type": "x5c", "id": "https://pid-provider.example.eu", "key": ["$TEST_CERT_B64"]},
+      "action": {"name": "credential-issuer"},
+      "context": {"credential_type": "urn:eu.europa.ec.eudi:pid:1"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "mdl_x5c_issuer",
+    "description": "mDL issuer with x5c chain — ISO 18013-5 mobile driving licence issuance",
+    "flow": "issuance",
+    "source": "OID4VCI credential offer for org.iso.18013.5.1.mDL",
+    "request": {
+      "subject": {"type": "key", "id": "https://mdl-issuer.example.com"},
+      "resource": {"type": "x5c", "id": "https://mdl-issuer.example.com", "key": ["$TEST_CERT_B64"]},
+      "action": {"name": "credential-issuer"},
+      "context": {"credential_type": "org.iso.18013.5.1.mDL"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "sd_jwt_vc_jwk_issuer",
+    "description": "SD-JWT VC issuer with JWK — selective disclosure credential issuance",
+    "flow": "issuance",
+    "source": "OID4VCI credential offer for SD-JWT VC type",
+    "request": {
+      "subject": {"type": "key", "id": "https://issuer.example.com"},
+      "resource": {"type": "jwk", "id": "https://issuer.example.com", "key": ["$TEST_JWK"]},
+      "action": {"name": "credential-issuer"},
+      "context": {"credential_type": "urn:eu.europa.ec.eudi:pid:1", "format": "vc+sd-jwt"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "mdl_x5c_verifier",
+    "description": "mDL verifier with x5c chain — presentation of mobile driving licence",
+    "flow": "presentation",
+    "source": "OID4VP presentation request for org.iso.18013.5.1.mDL",
+    "request": {
+      "subject": {"type": "key", "id": "https://verifier.example.com"},
+      "resource": {"type": "x5c", "id": "https://verifier.example.com", "key": ["$TEST_CERT_B64"]},
+      "action": {"name": "credential-verifier"},
+      "context": {"credential_type": "org.iso.18013.5.1.mDL"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "sd_jwt_vc_jwk_verifier",
+    "description": "SD-JWT VC verifier with JWK — selective disclosure credential presentation",
+    "flow": "presentation",
+    "source": "OID4VP presentation request for SD-JWT VC",
+    "request": {
+      "subject": {"type": "key", "id": "https://verifier.example.com"},
+      "resource": {"type": "jwk", "id": "https://verifier.example.com", "key": ["$TEST_JWK"]},
+      "action": {"name": "credential-verifier"},
+      "context": {"credential_type": "urn:eu.europa.ec.eudi:pid:1", "format": "vc+sd-jwt"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "eudi_pid_jwk_verifier_with_action_params",
+    "description": "Verifier with action parameters — credential_types constraint in action.parameters",
+    "flow": "presentation",
+    "source": "OID4VP with action parameters (draft-johansson-authzen-trust §4.2)",
+    "request": {
+      "subject": {"type": "key", "id": "https://verifier.example.com"},
+      "resource": {"type": "jwk", "id": "https://verifier.example.com", "key": ["$TEST_JWK"]},
+      "action": {
+        "name": "credential-verifier",
+        "parameters": {"credential_types": ["urn:eu.europa.ec.eudi:pid:1"]}
+      }
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  },
+  {
+    "name": "w3c_vc_jwk_issuer",
+    "description": "W3C Verifiable Credential issuer with JWK",
+    "flow": "issuance",
+    "source": "OID4VCI for W3C VC Data Model credential",
+    "request": {
+      "subject": {"type": "key", "id": "https://university.example.edu"},
+      "resource": {"type": "jwk", "id": "https://university.example.edu", "key": ["$TEST_JWK"]},
+      "action": {"name": "credential-issuer"},
+      "context": {"credential_type": "UniversityDegreeCredential", "format": "jwt_vc_json"}
+    },
+    "expectations": {
+      "static/always_trusted": {"decision": true},
+      "static/never_trusted": {"decision": false}
+    }
+  }
+]
