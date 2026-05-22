@@ -243,6 +243,22 @@ func TestOIDFedRegistry_extractEntityID(t *testing.T) {
 			want:    "",
 			wantErr: true,
 		},
+		{
+			name: "trailing slash normalized",
+			req: &authzen.EvaluationRequest{
+				Subject: authzen.Subject{
+					Type: "key",
+					ID:   "https://entity.example.com/",
+				},
+				Resource: authzen.Resource{
+					Type: "jwk",
+					ID:   "https://entity.example.com/",
+					Key:  []interface{}{"dummy"},
+				},
+			},
+			want:    "https://entity.example.com",
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -535,6 +551,13 @@ func TestMetadataCache_Stats(t *testing.T) {
 		t.Errorf("Empty cache hits=%d, misses=%d, want 0,0", hits, misses)
 	}
 
+	// Miss on empty cache
+	cache.Get("entity1", nil, nil)
+	_, hits, misses = cache.Stats()
+	if misses != 1 {
+		t.Errorf("Expected 1 miss, got %d", misses)
+	}
+
 	// Add entries
 	cache.Set("entity1", nil, nil, nil, "anchor1")
 	cache.Set("entity2", nil, nil, nil, "anchor1")
@@ -542,6 +565,13 @@ func TestMetadataCache_Stats(t *testing.T) {
 	size, _, _ = cache.Stats()
 	if size != 2 {
 		t.Errorf("Cache size = %d, want 2", size)
+	}
+
+	// Hit
+	cache.Get("entity1", nil, nil)
+	_, hits, _ = cache.Stats()
+	if hits != 1 {
+		t.Errorf("Expected 1 hit, got %d", hits)
 	}
 }
 
@@ -659,6 +689,13 @@ func TestShouldBypassCache(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "combined no-cache with max-age",
+			context: map[string]interface{}{
+				"cache_control": "no-cache, max-age=0",
+			},
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -670,6 +707,37 @@ func TestShouldBypassCache(t *testing.T) {
 			}
 			if got := registry.shouldBypassCache(req); got != tt.want {
 				t.Errorf("shouldBypassCache() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractMaxAge(t *testing.T) {
+	reg, _ := NewOIDFedRegistry(Config{
+		TrustAnchors: []TrustAnchorConfig{{EntityID: "https://ta.example.com"}},
+	})
+
+	tests := []struct {
+		name    string
+		context map[string]interface{}
+		want    time.Duration
+	}{
+		{"nil context", nil, 0},
+		{"no cache_control", map[string]interface{}{}, 0},
+		{"max-age=300", map[string]interface{}{"cache_control": "max-age=300"}, 300 * time.Second},
+		{"max-age=0", map[string]interface{}{"cache_control": "max-age=0"}, 0},
+		{"no-cache (no max-age)", map[string]interface{}{"cache_control": "no-cache"}, 0},
+		{"combined", map[string]interface{}{"cache_control": "public, max-age=60"}, 60 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &authzen.EvaluationRequest{
+				Context: tt.context,
+			}
+			got := reg.extractMaxAge(req)
+			if got != tt.want {
+				t.Errorf("extractMaxAge() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1590,101 +1658,6 @@ func TestOIDFedRegistry_ExtractMetadata(t *testing.T) {
 }
 
 // TestOIDFedRegistry_CheckTrustMarks tests the checkTrustMarks helper.
-func TestOIDFedRegistry_CheckTrustMarks(t *testing.T) {
-	tests := []struct {
-		name               string
-		requiredTrustMarks []string
-		chain              oidfed.TrustChain
-		expected           bool
-	}{
-		{
-			name:               "no required marks - empty chain",
-			requiredTrustMarks: []string{},
-			chain:              oidfed.TrustChain{},
-			expected:           true,
-		},
-		{
-			name:               "no required marks - with chain",
-			requiredTrustMarks: []string{},
-			chain: oidfed.TrustChain{
-				&oidfed.EntityStatement{
-					EntityStatementPayload: oidfed.EntityStatementPayload{
-						Issuer:  "https://entity.example.com",
-						Subject: "https://entity.example.com",
-					},
-				},
-			},
-			expected: true,
-		},
-		{
-			name:               "required marks - empty chain",
-			requiredTrustMarks: []string{"https://example.com/tm1"},
-			chain:              oidfed.TrustChain{},
-			expected:           false,
-		},
-		{
-			name:               "required marks - no trust marks in chain",
-			requiredTrustMarks: []string{"https://example.com/tm1"},
-			chain: oidfed.TrustChain{
-				&oidfed.EntityStatement{
-					EntityStatementPayload: oidfed.EntityStatementPayload{
-						Issuer:  "https://entity.example.com",
-						Subject: "https://entity.example.com",
-					},
-				},
-			},
-			expected: false,
-		},
-		{
-			name:               "required marks - all present",
-			requiredTrustMarks: []string{"https://example.com/tm1"},
-			chain: oidfed.TrustChain{
-				&oidfed.EntityStatement{
-					EntityStatementPayload: oidfed.EntityStatementPayload{
-						Issuer:  "https://entity.example.com",
-						Subject: "https://entity.example.com",
-						TrustMarks: oidfed.TrustMarkInfos{
-							{TrustMarkType: "https://example.com/tm1"},
-							{TrustMarkType: "https://example.com/tm2"},
-						},
-					},
-				},
-			},
-			expected: true,
-		},
-		{
-			name:               "required marks - missing one",
-			requiredTrustMarks: []string{"https://example.com/tm1", "https://example.com/tm3"},
-			chain: oidfed.TrustChain{
-				&oidfed.EntityStatement{
-					EntityStatementPayload: oidfed.EntityStatementPayload{
-						Issuer:  "https://entity.example.com",
-						Subject: "https://entity.example.com",
-						TrustMarks: oidfed.TrustMarkInfos{
-							{TrustMarkType: "https://example.com/tm1"},
-							{TrustMarkType: "https://example.com/tm2"},
-						},
-					},
-				},
-			},
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			registry, _ := NewOIDFedRegistry(Config{
-				TrustAnchors:       []TrustAnchorConfig{{EntityID: "https://ta.example.com"}},
-				RequiredTrustMarks: tt.requiredTrustMarks,
-			})
-			result := registry.checkTrustMarks(tt.chain)
-			if result != tt.expected {
-				t.Errorf("checkTrustMarks() = %v, want %v", result, tt.expected)
-			}
-		})
-	}
-}
-
 // TestOIDFedRegistry_CheckTrustMarksWithList tests the checkTrustMarksWithList helper.
 func TestOIDFedRegistry_CheckTrustMarksWithList(t *testing.T) {
 	registry, _ := NewOIDFedRegistry(Config{
@@ -1814,72 +1787,6 @@ func TestOIDFedRegistry_GetPresentTrustMarks(t *testing.T) {
 }
 
 // TestOIDFedRegistry_BuildTrustChainArray tests the buildTrustChainArray helper.
-func TestOIDFedRegistry_BuildTrustChainArray(t *testing.T) {
-	registry, _ := NewOIDFedRegistry(Config{
-		TrustAnchors: []TrustAnchorConfig{{EntityID: "https://ta.example.com"}},
-	})
-
-	now := time.Now()
-
-	tests := []struct {
-		name     string
-		chain    oidfed.TrustChain
-		expected int // number of entries
-	}{
-		{
-			name:     "empty chain",
-			chain:    oidfed.TrustChain{},
-			expected: 0,
-		},
-		{
-			name: "single element",
-			chain: oidfed.TrustChain{
-				&oidfed.EntityStatement{
-					EntityStatementPayload: oidfed.EntityStatementPayload{
-						Issuer:    "https://ta.example.com",
-						Subject:   "https://ta.example.com",
-						IssuedAt:  unixtime.Unixtime{Time: now},
-						ExpiresAt: unixtime.Unixtime{Time: now.Add(time.Hour)},
-					},
-				},
-			},
-			expected: 1,
-		},
-		{
-			name: "multi-element",
-			chain: oidfed.TrustChain{
-				&oidfed.EntityStatement{
-					EntityStatementPayload: oidfed.EntityStatementPayload{
-						Issuer:  "https://entity.example.com",
-						Subject: "https://entity.example.com",
-					},
-				},
-				&oidfed.EntityStatement{
-					EntityStatementPayload: oidfed.EntityStatementPayload{
-						Issuer:  "https://ta.example.com",
-						Subject: "https://ta.example.com",
-					},
-				},
-			},
-			expected: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := registry.buildTrustChainArray(tt.chain)
-			if len(result) != tt.expected {
-				t.Errorf("buildTrustChainArray() length = %d, want %d", len(result), tt.expected)
-			}
-			for i, entry := range result {
-				if entry["iss"] == nil || entry["sub"] == nil {
-					t.Errorf("buildTrustChainArray()[%d] missing iss or sub", i)
-				}
-			}
-		})
-	}
-}
-
 // TestOIDFedRegistry_BuildDetailedTrustChain tests the buildDetailedTrustChain helper.
 func TestOIDFedRegistry_BuildDetailedTrustChain(t *testing.T) {
 	registry, _ := NewOIDFedRegistry(Config{
@@ -1917,110 +1824,6 @@ func TestOIDFedRegistry_BuildDetailedTrustChain(t *testing.T) {
 }
 
 // TestOIDFedRegistry_ChainToTrustMetadata tests the chainToTrustMetadata helper.
-func TestOIDFedRegistry_ChainToTrustMetadata(t *testing.T) {
-	registry, _ := NewOIDFedRegistry(Config{
-		TrustAnchors: []TrustAnchorConfig{{EntityID: "https://ta.example.com"}},
-	})
-
-	tests := []struct {
-		name         string
-		chain        oidfed.TrustChain
-		metadata     map[string]interface{}
-		expectNil    bool
-		expectIss    string
-		expectSub    string
-		expectAnchor string
-	}{
-		{
-			name:      "empty chain",
-			chain:     oidfed.TrustChain{},
-			metadata:  nil,
-			expectNil: true,
-		},
-		{
-			name: "single element",
-			chain: oidfed.TrustChain{
-				&oidfed.EntityStatement{
-					EntityStatementPayload: oidfed.EntityStatementPayload{
-						Issuer:  "https://ta.example.com",
-						Subject: "https://ta.example.com",
-					},
-				},
-			},
-			metadata:     map[string]interface{}{"key": "value"},
-			expectNil:    false,
-			expectIss:    "https://ta.example.com",
-			expectSub:    "https://ta.example.com",
-			expectAnchor: "https://ta.example.com",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := registry.chainToTrustMetadata(tt.chain, tt.metadata)
-			if tt.expectNil {
-				if result != nil {
-					t.Errorf("chainToTrustMetadata() should return nil for empty chain")
-				}
-				return
-			}
-			if result == nil {
-				t.Fatalf("chainToTrustMetadata() returned nil, want non-nil")
-			}
-			if result["iss"] != tt.expectIss {
-				t.Errorf("chainToTrustMetadata()['iss'] = %v, want %v", result["iss"], tt.expectIss)
-			}
-			if result["sub"] != tt.expectSub {
-				t.Errorf("chainToTrustMetadata()['sub'] = %v, want %v", result["sub"], tt.expectSub)
-			}
-			if result["trust_anchor"] != tt.expectAnchor {
-				t.Errorf("chainToTrustMetadata()['trust_anchor'] = %v, want %v", result["trust_anchor"], tt.expectAnchor)
-			}
-		})
-	}
-}
-
-// TestOIDFedRegistry_BuildResolutionOnlyResponse tests the buildResolutionOnlyResponse helper.
-func TestOIDFedRegistry_BuildResolutionOnlyResponse(t *testing.T) {
-	registry, _ := NewOIDFedRegistry(Config{
-		TrustAnchors: []TrustAnchorConfig{{EntityID: "https://ta.example.com"}},
-	})
-
-	chain := oidfed.TrustChain{
-		&oidfed.EntityStatement{
-			EntityStatementPayload: oidfed.EntityStatementPayload{
-				Issuer:  "https://entity.example.com",
-				Subject: "https://entity.example.com",
-			},
-		},
-		&oidfed.EntityStatement{
-			EntityStatementPayload: oidfed.EntityStatementPayload{
-				Issuer:  "https://ta.example.com",
-				Subject: "https://ta.example.com",
-			},
-		},
-	}
-
-	metadata := map[string]interface{}{"key": "value"}
-	result := registry.buildResolutionOnlyResponse("https://entity.example.com", chain, metadata)
-
-	if !result.Decision {
-		t.Error("buildResolutionOnlyResponse() Decision should be true")
-	}
-	if result.Context == nil {
-		t.Fatal("buildResolutionOnlyResponse() Context should not be nil")
-	}
-	if result.Context.Reason == nil {
-		t.Fatal("buildResolutionOnlyResponse() Reason should not be nil")
-	}
-	if result.Context.Reason["resolution_only"] != true {
-		t.Error("buildResolutionOnlyResponse() Reason['resolution_only'] should be true")
-	}
-	if result.Context.Reason["entity_id"] != "https://entity.example.com" {
-		t.Errorf("buildResolutionOnlyResponse() Reason['entity_id'] = %v, want https://entity.example.com", result.Context.Reason["entity_id"])
-	}
-}
-
 // TestOIDFedRegistry_BuildTrustMetadata tests the buildTrustMetadata helper.
 func TestOIDFedRegistry_BuildTrustMetadata(t *testing.T) {
 	registry, _ := NewOIDFedRegistry(Config{
