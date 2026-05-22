@@ -52,17 +52,17 @@ import (
 
 // testVector is a single test case loaded from testdata/vectors.json.
 type testVector struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Flow        string            `json:"flow"` // issuance | presentation | both
-	Source      string            `json:"source"`
-	Request     json.RawMessage   `json:"request"`
+	Name         string                     `json:"name"`
+	Description  string                     `json:"description"`
+	Flow         string                     `json:"flow"` // issuance | presentation | both
+	Source       string                     `json:"source"`
+	Request      json.RawMessage            `json:"request"`
 	Expectations map[string]expectedOutcome `json:"expectations"`
 }
 
 // expectedOutcome is the expected result for a specific registry.
 type expectedOutcome struct {
-	Decision      *bool  `json:"decision"`       // nil = don't assert decision (just no-panic)
+	Decision       *bool  `json:"decision"`        // nil = don't assert decision (just no-panic)
 	ReasonContains string `json:"reason_contains"` // substring expected in reason, if any
 }
 
@@ -334,8 +334,9 @@ func TestVectors_RequestValidation(t *testing.T) {
 
 	// Patterns that use non-standard resource/subject types.
 	nonStandard := map[string]string{
-		"spocp_key_resolution_gate":     "resource.type 'resolution' is a wallet-backend internal convention",
-		"url_subject_credential_issuer": "subject.type 'url' with resource.type 'credential_issuer' is wallet-backend SPOCP gate",
+		"spocp_key_resolution_gate":                "resource.type 'resolution' is a wallet-backend internal convention",
+		"spocp_url_subject_gate":                   "subject.type 'url' with resource.type 'credential_issuer' is wallet-backend SPOCP gate",
+		"resolution_with_action_credential_issuer": "resource.type 'resolution' with action is a wallet-backend proxy pattern",
 	}
 
 	for _, vec := range vectors {
@@ -359,6 +360,9 @@ func TestVectors_ActionNames(t *testing.T) {
 	validActions := map[string]bool{
 		"credential-issuer":   true,
 		"credential-verifier": true,
+		"mdl-issuer":          true,
+		"issuer":              true,
+		"verifier":            true,
 	}
 
 	vectors := loadVectors(t)
