@@ -17,10 +17,9 @@ import (
 )
 
 // These tests use live OpenID Federation endpoints.
-// They are marked with the 'network' tag and can be skipped with:
-//   go test -tags=!network
-// or run explicitly with:
-//   go test -tags=network
+// They are skipped when the SKIP_NETWORK_TESTS environment variable is set:
+//   SKIP_NETWORK_TESTS=1 go test ./...
+// To run them explicitly, ensure SKIP_NETWORK_TESTS is unset.
 
 // realtaTrustAnchor is the SUNET test trust anchor
 // Note: no trailing slash — must match the entity's own iss/sub exactly
@@ -474,9 +473,10 @@ func TestOIDFedRegistry_EntityTypeFilter(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	// The OP should not match when filtering for RP only
-	// (depends on whether the go-oidfed resolver enforces this)
-	t.Logf("OP with RP filter: decision=%v", resp.Decision)
+	// Note: go-oidfed does not enforce entity type filtering during resolution,
+	// so the OP still resolves even when filtering for RP only. This is expected
+	// current behavior; entity type filtering would need post-resolution enforcement.
+	t.Logf("OP with RP filter: decision=%v (go-oidfed does not enforce type filtering)", resp.Decision)
 }
 
 // TestOIDFedRegistry_CacheBypass tests that cache_control=no-cache forces
@@ -577,6 +577,12 @@ func TestOIDFedRegistry_CrossFederationReject(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, resp.Decision,
 		"entity outside the federation should not resolve")
+	// Verify the rejection reason distinguishes the failure mode
+	if resp.Context != nil && resp.Context.Reason != nil {
+		msg, _ := resp.Context.Reason["message"].(string)
+		assert.Contains(t, []string{"entity not reachable", "no valid trust chain found"}, msg,
+			"rejection reason should indicate either unreachable or no valid chain")
+	}
 }
 
 // TestOIDFedRegistry_TrustMetadataFields tests that resolution responses

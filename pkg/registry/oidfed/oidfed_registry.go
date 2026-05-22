@@ -547,14 +547,30 @@ func extractCredentialTypeTrustMarks(ctx map[string]interface{}) map[string][]st
 	return nil
 }
 
+// parseCacheControl parses comma-separated Cache-Control directives from the request context.
+func parseCacheControlDirectives(req *authzen.EvaluationRequest) []string {
+	if req.Context == nil {
+		return nil
+	}
+	cc, ok := req.Context[ContextKeyCacheControl].(string)
+	if !ok {
+		return nil
+	}
+	var directives []string
+	for _, part := range strings.Split(cc, ",") {
+		if d := strings.TrimSpace(part); d != "" {
+			directives = append(directives, d)
+		}
+	}
+	return directives
+}
+
 // shouldBypassCache checks if the request wants to bypass cache.
 func (r *OIDFedRegistry) shouldBypassCache(req *authzen.EvaluationRequest) bool {
-	if req.Context == nil {
-		return false
-	}
-
-	if cc, ok := req.Context[ContextKeyCacheControl].(string); ok {
-		return cc == "no-cache" || cc == "no-store"
+	for _, d := range parseCacheControlDirectives(req) {
+		if d == "no-cache" || d == "no-store" {
+			return true
+		}
 	}
 	return false
 }
@@ -562,17 +578,9 @@ func (r *OIDFedRegistry) shouldBypassCache(req *authzen.EvaluationRequest) bool 
 // extractMaxAge parses max-age=N from the cache_control context field, returning the
 // duration (0 means no max-age constraint).
 func (r *OIDFedRegistry) extractMaxAge(req *authzen.EvaluationRequest) time.Duration {
-	if req.Context == nil {
-		return 0
-	}
-	cc, ok := req.Context[ContextKeyCacheControl].(string)
-	if !ok {
-		return 0
-	}
-	for _, part := range strings.Split(cc, ",") {
-		part = strings.TrimSpace(part)
-		if strings.HasPrefix(part, "max-age=") {
-			if secs, err := strconv.Atoi(strings.TrimPrefix(part, "max-age=")); err == nil && secs >= 0 {
+	for _, d := range parseCacheControlDirectives(req) {
+		if strings.HasPrefix(d, "max-age=") {
+			if secs, err := strconv.Atoi(strings.TrimPrefix(d, "max-age=")); err == nil && secs >= 0 {
 				return time.Duration(secs) * time.Second
 			}
 		}
@@ -637,7 +645,11 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 			Types:          entityTypes,
 		}
 
-		// Wrap resolution with context timeout
+		// Wrap resolution with context timeout.
+		// NOTE: go-oidfed's TrustResolver does not accept context.Context,
+		// so on timeout the goroutine will continue until the underlying HTTP
+		// requests complete. This is acceptable for now; a future go-oidfed
+		// release should add context support.
 		type resolveResult struct {
 			chains []oidfed.TrustChain
 		}
@@ -688,17 +700,30 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 	}
 
 	if len(chains) == 0 {
-		// Pre-flight check: distinguish "entity not reachable" from "no valid trust chain"
-		_, ecErr := oidfed.GetEntityConfiguration(entityID)
+		// Best-effort reachability probe to distinguish "entity not reachable"
+		// from "no valid trust chain". Bounded by the same context timeout.
 		reason := map[string]interface{}{
 			"entity_id":    entityID,
 			"entity_types": entityTypes,
 		}
-		if ecErr != nil {
+		probeCtx, probeCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer probeCancel()
+		probeCh := make(chan error, 1)
+		go func() {
+			_, err := oidfed.GetEntityConfiguration(entityID)
+			probeCh <- err
+		}()
+		select {
+		case ecErr := <-probeCh:
+			if ecErr != nil {
+				reason["message"] = "entity not reachable"
+				reason["error"] = ecErr.Error()
+			} else {
+				reason["message"] = "no valid trust chain found"
+			}
+		case <-probeCtx.Done():
 			reason["message"] = "entity not reachable"
-			reason["error"] = ecErr.Error()
-		} else {
-			reason["message"] = "no valid trust chain found"
+			reason["error"] = "reachability probe timed out"
 		}
 		return &authzen.EvaluationResponse{
 			Decision: false,

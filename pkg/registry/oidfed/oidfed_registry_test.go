@@ -689,6 +689,13 @@ func TestShouldBypassCache(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "combined no-cache with max-age",
+			context: map[string]interface{}{
+				"cache_control": "no-cache, max-age=0",
+			},
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
