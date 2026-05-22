@@ -404,8 +404,8 @@ type oidfedManifest struct {
 // from cached fixture JWTs instead of the network.
 type oidfedMockRegistry struct {
 	inner    registry.TrustRegistry
-	setup    func()    // activates httpmock + registers responders
-	teardown func()    // deactivates httpmock
+	setup    func() // activates httpmock + registers responders
+	teardown func() // deactivates httpmock
 }
 
 func (m *oidfedMockRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
@@ -414,11 +414,13 @@ func (m *oidfedMockRegistry) Evaluate(ctx context.Context, req *authzen.Evaluati
 	return m.inner.Evaluate(ctx, req)
 }
 
-func (m *oidfedMockRegistry) Healthy() bool                      { return m.inner.Healthy() }
-func (m *oidfedMockRegistry) Info() registry.RegistryInfo         { return m.inner.Info() }
-func (m *oidfedMockRegistry) SupportedResourceTypes() []string   { return m.inner.SupportedResourceTypes() }
-func (m *oidfedMockRegistry) SupportsResolutionOnly() bool        { return m.inner.SupportsResolutionOnly() }
-func (m *oidfedMockRegistry) Refresh(ctx context.Context) error   { return m.inner.Refresh(ctx) }
+func (m *oidfedMockRegistry) Healthy() bool               { return m.inner.Healthy() }
+func (m *oidfedMockRegistry) Info() registry.RegistryInfo { return m.inner.Info() }
+func (m *oidfedMockRegistry) SupportedResourceTypes() []string {
+	return m.inner.SupportedResourceTypes()
+}
+func (m *oidfedMockRegistry) SupportsResolutionOnly() bool      { return m.inner.SupportsResolutionOnly() }
+func (m *oidfedMockRegistry) Refresh(ctx context.Context) error { return m.inner.Refresh(ctx) }
 
 // buildOIDFedFixtureRegistry creates an OIDFed registry backed by httpmock
 // responders serving cached JWT fixtures. Returns nil if fixtures are missing.
@@ -532,7 +534,8 @@ func buildOIDFedFixtureRegistry(t *testing.T, fixtureDir string) *oidfedMockRegi
 			}
 		},
 		teardown: func() {
-			httpmock.DeactivateAndReset()
+			httpmock.DeactivateNonDefault(oidfedHTTPClient.GetClient())
+			httpmock.Reset()
 		},
 	}
 }
@@ -586,9 +589,9 @@ func TestVectors(t *testing.T) {
 								logPrefix, *exp.Decision, resp.Decision, vec.Description)
 						}
 
-					if exp.ReasonContains != "" {
-						require.NotNilf(t, resp.Context, "%s expected non-nil context for reason assertion", logPrefix)
-						require.NotNilf(t, resp.Context.Reason, "%s expected non-nil reason containing %q", logPrefix, exp.ReasonContains)
+						if exp.ReasonContains != "" {
+							require.NotNilf(t, resp.Context, "%s expected non-nil context for reason assertion", logPrefix)
+							require.NotNilf(t, resp.Context.Reason, "%s expected non-nil reason containing %q", logPrefix, exp.ReasonContains)
 							reasonJSON, _ := json.Marshal(resp.Context.Reason)
 							assert.Containsf(t, string(reasonJSON), exp.ReasonContains,
 								"%s expected reason to contain %q", logPrefix, exp.ReasonContains)
@@ -801,8 +804,8 @@ func TestVectors_CompositeRegistryManager(t *testing.T) {
 	}
 }
 
-// TestVectors_ResourceTypeSupport ensures each registry supports the resource
-// types that wallet-backend uses.
+// TestVectors_ResourceTypeSupport reports which registries advertise support
+// for the resource types that wallet-backend uses (informational only).
 func TestVectors_ResourceTypeSupport(t *testing.T) {
 	registries := buildRegistryCatalogue(t)
 	walletResourceTypes := []string{"jwk", "x5c"}
@@ -869,12 +872,6 @@ func TestVectors_Summary(t *testing.T) {
 	t.Log("║           WALLET-BACKEND COMPATIBILITY MATRIX                  ║")
 	t.Log("╚══════════════════════════════════════════════════════════════════╝")
 	t.Log("")
-
-	// Header: vector names.
-	vecNames := make([]string, len(vectors))
-	for i, v := range vectors {
-		vecNames[i] = v.Name
-	}
 
 	for _, reg := range registries {
 		t.Logf("  Registry: %s", reg.Name)
