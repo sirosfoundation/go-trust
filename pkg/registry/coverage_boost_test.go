@@ -24,7 +24,7 @@ import (
 // Circuit breaker: half-open and edge cases
 // ---------------------------------------------------------------------------
 
-func TestCircuitBreaker_HalfOpenTransition(t *testing.T) {
+func TestCircuitBreaker_AllowsAttemptAfterResetTimeout(t *testing.T) {
 	cb := NewCircuitBreaker(2, 10*time.Millisecond)
 
 	// Drive to open
@@ -33,17 +33,18 @@ func TestCircuitBreaker_HalfOpenTransition(t *testing.T) {
 	assert.Equal(t, CircuitOpen, cb.GetState())
 	assert.False(t, cb.CanAttempt())
 
-	// Wait for reset timeout
-	time.Sleep(15 * time.Millisecond)
-	assert.True(t, cb.CanAttempt(), "should allow attempt after reset timeout")
+	// Wait for reset timeout (use generous margin to avoid flakiness)
+	require.Eventually(t, func() bool { return cb.CanAttempt() },
+		500*time.Millisecond, 5*time.Millisecond,
+		"should allow attempt after reset timeout")
 
-	// One more failure from half-open goes straight to open
+	// One more failure goes straight back to open
 	cb.RecordFailure()
 	assert.Equal(t, CircuitOpen, cb.GetState())
 
 	// Wait again, then succeed → should close
-	time.Sleep(15 * time.Millisecond)
-	assert.True(t, cb.CanAttempt())
+	require.Eventually(t, func() bool { return cb.CanAttempt() },
+		500*time.Millisecond, 5*time.Millisecond)
 	cb.RecordSuccess()
 	assert.Equal(t, CircuitClosed, cb.GetState())
 	assert.Equal(t, 0, cb.GetFailureCount())

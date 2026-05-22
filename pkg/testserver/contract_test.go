@@ -77,8 +77,10 @@ func TestContract_DecisionFuncCapturesRequest(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Decision)
 
-	got := captured.Load().(*authzen.EvaluationRequest)
-	require.NotNil(t, got)
+	loaded := captured.Load()
+	require.NotNil(t, loaded, "decision callback should have been invoked")
+	got, ok := loaded.(*authzen.EvaluationRequest)
+	require.True(t, ok, "captured value should be *EvaluationRequest")
 	assert.Equal(t, sent.Subject.Type, got.Subject.Type)
 	assert.Equal(t, sent.Subject.ID, got.Subject.ID)
 	assert.Equal(t, sent.Resource.Type, got.Resource.Type)

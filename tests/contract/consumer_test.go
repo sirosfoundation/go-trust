@@ -173,19 +173,22 @@ func TestConsumer_WireFormat_RequestJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &raw))
 
 	// These are the keys consumers depend on
-	assert.Contains(t, raw, "subject")
-	assert.Contains(t, raw, "resource")
-	assert.Contains(t, raw, "action")
+	require.Contains(t, raw, "subject")
+	require.Contains(t, raw, "resource")
+	require.Contains(t, raw, "action")
 
-	subject := raw["subject"].(map[string]interface{})
+	subject, ok := raw["subject"].(map[string]interface{})
+	require.True(t, ok, "subject should be a map")
 	assert.Equal(t, "key", subject["type"])
 	assert.Equal(t, "https://issuer.example.com", subject["id"])
 
-	resource := raw["resource"].(map[string]interface{})
+	resource, ok := raw["resource"].(map[string]interface{})
+	require.True(t, ok, "resource should be a map")
 	assert.Equal(t, "x5c", resource["type"])
 	assert.NotNil(t, resource["key"])
 
-	action := raw["action"].(map[string]interface{})
+	action, ok := raw["action"].(map[string]interface{})
+	require.True(t, ok, "action should be a map")
 	assert.Equal(t, "credential-issuer", action["name"])
 }
 
@@ -205,7 +208,9 @@ func TestConsumer_WireFormat_ResponseJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &raw))
 
 	assert.Equal(t, true, raw["decision"])
-	ctx := raw["context"].(map[string]interface{})
+	require.Contains(t, raw, "context")
+	ctx, ok := raw["context"].(map[string]interface{})
+	require.True(t, ok, "context should be a map")
 	assert.NotNil(t, ctx["reason"])
 	assert.NotNil(t, ctx["trust_metadata"])
 }

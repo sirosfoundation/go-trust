@@ -10,13 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// goldenVector defines a canonical wire-format fixture.
-type goldenVector struct {
-	Name     string          `json:"name"`
-	Request  json.RawMessage `json:"request,omitempty"`
-	Response json.RawMessage `json:"response,omitempty"`
-}
-
 // TestGoldenWireFormat ensures AuthZEN request/response JSON shapes are stable.
 // If the golden file does not exist it is created (first run).  On subsequent
 // runs the test fails when the serialised form drifts.
@@ -153,11 +146,7 @@ func TestGoldenWireFormat(t *testing.T) {
 
 			want, err := os.ReadFile(goldenPath)
 			if os.IsNotExist(err) {
-				// First run: create the golden file
-				require.NoError(t, os.MkdirAll(goldenDir, 0o755))
-				require.NoError(t, os.WriteFile(goldenPath, got, 0o644))
-				t.Logf("created golden file: %s", goldenPath)
-				return
+				t.Fatalf("golden file missing: %s — run with UPDATE_GOLDEN=1 to create", goldenPath)
 			}
 			require.NoError(t, err, "failed to read golden file %s", goldenPath)
 
