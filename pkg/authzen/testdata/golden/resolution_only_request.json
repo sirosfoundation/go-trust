@@ -1,0 +1,11 @@
+{
+  "subject": {
+    "type": "key",
+    "id": "did:web:example.com"
+  },
+  "resource": {
+    "type": "",
+    "id": "did:web:example.com",
+    "key": null
+  }
+}

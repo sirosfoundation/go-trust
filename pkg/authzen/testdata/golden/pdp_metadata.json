@@ -1,0 +1,4 @@
+{
+  "policy_decision_point": "https://pdp.example.com",
+  "access_evaluation_endpoint": "https://pdp.example.com/evaluation"
+}

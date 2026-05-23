@@ -1,0 +1,21 @@
+{
+  "subject": {
+    "type": "key",
+    "id": "did:web:example.com"
+  },
+  "resource": {
+    "type": "jwk",
+    "id": "did:web:example.com",
+    "key": [
+      {
+        "crv": "P-256",
+        "kty": "EC",
+        "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+        "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+      }
+    ]
+  },
+  "action": {
+    "name": "credential-verifier"
+  }
+}

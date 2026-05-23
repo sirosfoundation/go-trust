@@ -1,0 +1,8 @@
+{
+  "decision": false,
+  "context": {
+    "reason": {
+      "error": "no matching trust anchor"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "subject": {
+    "type": "key",
+    "id": "https://issuer.example.com"
+  },
+  "resource": {
+    "type": "x5c",
+    "id": "https://issuer.example.com",
+    "key": [
+      "MIIBxxx"
+    ]
+  },
+  "action": {
+    "name": "credential-issuer",
+    "parameters": {
+      "credential_types": [
+        "urn:eu.europa.ec.eudi:pid:1"
+      ]
+    }
+  }
+}
