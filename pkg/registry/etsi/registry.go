@@ -1084,8 +1084,10 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 
 	// Validate certificate policy OIDs if required (per ETSI TS 119 411-8)
 	requiredPolicyOIDs := extractRequiredCertPolicyOIDs(req)
+	var matchedOIDs []string
 	if len(requiredPolicyOIDs) > 0 {
-		matched, matchedOIDs := validateCertPolicyOIDs(certs[0], requiredPolicyOIDs)
+		var matched bool
+		matched, matchedOIDs = validateCertPolicyOIDs(certs[0], requiredPolicyOIDs)
 		if !matched {
 			leafOIDs := make([]string, 0, len(certs[0].PolicyIdentifiers))
 			for _, oid := range certs[0].PolicyIdentifiers {
@@ -1111,6 +1113,14 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 		trustMetadata = map[string]interface{}{
 			"rp_identity": rpIdentity,
 		}
+	}
+
+	// Include matched policy OIDs in trust metadata alongside rp_identity
+	if len(matchedOIDs) > 0 {
+		if trustMetadata == nil {
+			trustMetadata = make(map[string]interface{})
+		}
+		trustMetadata["matched_policy_oids"] = matchedOIDs
 	}
 
 	// Success - certificate is trusted

@@ -22,23 +22,47 @@ func NewX509RegistrationCertValidator(roots *x509.CertPool) *X509RegistrationCer
 	return &X509RegistrationCertValidator{roots: roots}
 }
 
-// Validate parses a PEM-encoded X.509 registration certificate, validates its
-// chain against the trusted roots, and extracts entitlement information.
+// Validate parses PEM-encoded X.509 certificate data (single cert or bundle),
+// validates the leaf certificate's chain against the trusted roots, and extracts
+// entitlement information. When a PEM bundle is provided, the first CERTIFICATE
+// block is treated as the leaf and subsequent ones are added as intermediates.
 func (v *X509RegistrationCertValidator) Validate(_ context.Context, certData []byte) (*RPEntitlements, error) {
-	block, _ := pem.Decode(certData)
-	if block == nil {
-		return nil, fmt.Errorf("failed to decode PEM data")
+	var cert *x509.Certificate
+	intermediates := x509.NewCertPool()
+	remaining := certData
+
+	for {
+		block, rest := pem.Decode(remaining)
+		if block == nil {
+			break
+		}
+		remaining = rest
+
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+
+		parsed, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse X.509 certificate: %w", err)
+		}
+
+		if cert == nil {
+			cert = parsed // first CERTIFICATE block is the leaf
+		} else {
+			intermediates.AddCert(parsed)
+		}
 	}
 
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse X.509 certificate: %w", err)
+	if cert == nil {
+		return nil, fmt.Errorf("no CERTIFICATE PEM block found in input")
 	}
 
 	// Validate certificate chain
 	if v.roots != nil {
 		opts := x509.VerifyOptions{
-			Roots: v.roots,
+			Roots:         v.roots,
+			Intermediates: intermediates,
 		}
 		if _, err := cert.Verify(opts); err != nil {
 			return nil, fmt.Errorf("registration certificate chain validation failed: %w", err)

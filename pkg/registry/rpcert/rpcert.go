@@ -198,11 +198,15 @@ func (r *ValidatorRegistry) Register(format string, v RegistrationCertValidator)
 	r.validators[format] = v
 }
 
-// Get returns the validator for the given format, or an error if not registered.
+// Get returns the validator for the given format, or an error if not registered
+// or if a nil validator was registered.
 func (r *ValidatorRegistry) Get(format string) (RegistrationCertValidator, error) {
 	v, ok := r.validators[format]
 	if !ok {
 		return nil, fmt.Errorf("no registration certificate validator registered for format %q", format)
+	}
+	if v == nil {
+		return nil, fmt.Errorf("registration certificate validator for format %q is nil", format)
 	}
 	return v, nil
 }

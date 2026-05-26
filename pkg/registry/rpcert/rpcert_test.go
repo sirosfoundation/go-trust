@@ -252,7 +252,7 @@ func TestX509Validator_ValidateInvalidPEM(t *testing.T) {
 
 	_, err := v.Validate(context.Background(), []byte("not pem data"))
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to decode PEM")
+	assert.Contains(t, err.Error(), "no CERTIFICATE PEM block")
 }
 
 func TestX509Validator_ValidateInvalidCert(t *testing.T) {
@@ -278,4 +278,59 @@ func TestStubRegisterClient(t *testing.T) {
 
 	empty := NewStubRegisterClient("")
 	assert.False(t, empty.Healthy())
+}
+
+// ---------------------------------------------------------------------------
+// PEM bundle and non-CERTIFICATE block handling
+// ---------------------------------------------------------------------------
+
+func TestX509Validator_ValidatePEMBundle(t *testing.T) {
+	cert, pemData := generateTestCert(t)
+
+	// Create a bundle with the cert repeated (simulating leaf + intermediate)
+	bundle := append([]byte{}, pemData...)
+	bundle = append(bundle, pemData...)
+
+	pool := x509.NewCertPool()
+	pool.AddCert(cert)
+
+	v := NewX509RegistrationCertValidator(pool)
+	ent, err := v.Validate(context.Background(), bundle)
+	require.NoError(t, err)
+	assert.Equal(t, "RP-12345", ent.RPIdentifier)
+}
+
+func TestX509Validator_SkipsNonCertificateBlocks(t *testing.T) {
+	_, certPEM := generateTestCert(t)
+
+	// Prepend a non-CERTIFICATE PEM block
+	privKeyBlock := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("fake")})
+	bundle := append([]byte{}, privKeyBlock...)
+	bundle = append(bundle, certPEM...)
+
+	v := NewX509RegistrationCertValidator(nil)
+	ent, err := v.Validate(context.Background(), bundle)
+	require.NoError(t, err)
+	assert.Equal(t, "RP-12345", ent.RPIdentifier)
+}
+
+func TestX509Validator_OnlyNonCertBlocks(t *testing.T) {
+	privKeyBlock := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("fake")})
+	v := NewX509RegistrationCertValidator(nil)
+	_, err := v.Validate(context.Background(), privKeyBlock)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no CERTIFICATE PEM block")
+}
+
+// ---------------------------------------------------------------------------
+// ValidatorRegistry nil guard
+// ---------------------------------------------------------------------------
+
+func TestValidatorRegistry_NilValidator(t *testing.T) {
+	reg := NewValidatorRegistry()
+	reg.Register("broken", nil)
+
+	_, err := reg.Get("broken")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "is nil")
 }
