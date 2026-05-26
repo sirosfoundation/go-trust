@@ -390,3 +390,48 @@ func TestApplyPolicyToRequest_NilActionParameters(t *testing.T) {
 
 	// Context may be nil or empty since no constraints were applied
 }
+
+// TestApplyPolicyToRequest_ETSICertPolicyOIDs verifies that RequiredCertPolicyOIDs
+// and ExtractRPIdentity are injected into request context.
+func TestApplyPolicyToRequest_ETSICertPolicyOIDs(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	policy := &Policy{
+		Name: "verifier-with-oids",
+		ETSI: &ETSIPolicyConstraints{
+			RequiredCertPolicyOIDs: []string{"1.2.3.4.5", "2.16.840.1.101"},
+			ExtractRPIdentity:      true,
+		},
+	}
+
+	req := &authzen.EvaluationRequest{}
+	pctx := &PolicyContext{Policy: policy}
+
+	mgr.applyPolicyToRequest(req, pctx)
+
+	require.NotNil(t, req.Context)
+	assert.Equal(t, []string{"1.2.3.4.5", "2.16.840.1.101"}, req.Context["required_cert_policy_oids"])
+	assert.Equal(t, true, req.Context["extract_rp_identity"])
+}
+
+// TestApplyPolicyToRequest_ETSINoOIDs verifies that empty OID list is not injected.
+func TestApplyPolicyToRequest_ETSINoOIDs(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	policy := &Policy{
+		Name: "verifier-no-oids",
+		ETSI: &ETSIPolicyConstraints{
+			ServiceTypes:      []string{"http://uri.etsi.org/TrstSvc/Svctype/CA/QC"},
+			ExtractRPIdentity: false,
+		},
+	}
+
+	req := &authzen.EvaluationRequest{}
+	pctx := &PolicyContext{Policy: policy}
+
+	mgr.applyPolicyToRequest(req, pctx)
+
+	require.NotNil(t, req.Context)
+	assert.Nil(t, req.Context["required_cert_policy_oids"])
+	assert.Nil(t, req.Context["extract_rp_identity"])
+}

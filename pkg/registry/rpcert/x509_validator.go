@@ -1,0 +1,76 @@
+package rpcert
+
+import (
+	"context"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
+)
+
+// X509RegistrationCertValidator validates X.509-format registration certificates.
+// This is the initial implementation; other formats (SD-JWT, CBOR) can be added
+// by implementing the RegistrationCertValidator interface.
+type X509RegistrationCertValidator struct {
+	// roots is the certificate pool for Registration Certificate Provider CAs.
+	roots *x509.CertPool
+}
+
+// NewX509RegistrationCertValidator creates a new X.509 registration cert validator.
+// The roots pool should contain trusted Registration Certificate Provider CA certificates
+// (from the Trusted List).
+func NewX509RegistrationCertValidator(roots *x509.CertPool) *X509RegistrationCertValidator {
+	return &X509RegistrationCertValidator{roots: roots}
+}
+
+// Validate parses a PEM-encoded X.509 registration certificate, validates its
+// chain against the trusted roots, and extracts entitlement information.
+func (v *X509RegistrationCertValidator) Validate(_ context.Context, certData []byte) (*RPEntitlements, error) {
+	block, _ := pem.Decode(certData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM data")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse X.509 certificate: %w", err)
+	}
+
+	// Validate certificate chain
+	if v.roots != nil {
+		opts := x509.VerifyOptions{
+			Roots: v.roots,
+		}
+		if _, err := cert.Verify(opts); err != nil {
+			return nil, fmt.Errorf("registration certificate chain validation failed: %w", err)
+		}
+	}
+
+	// Extract entitlements from the certificate
+	entitlements := &RPEntitlements{
+		RegistrationStatus: StatusRegistered,
+		ValidFrom:          &cert.NotBefore,
+		ValidUntil:         &cert.NotAfter,
+	}
+
+	// Extract RP identifier from Subject
+	if cert.Subject.SerialNumber != "" {
+		entitlements.RPIdentifier = cert.Subject.SerialNumber
+	} else if len(cert.Subject.Organization) > 0 {
+		entitlements.RPIdentifier = cert.Subject.Organization[0]
+	} else {
+		entitlements.RPIdentifier = cert.Subject.CommonName
+	}
+
+	// TODO: Extract allowed attributes and purpose from certificate extensions
+	// when the WRPRC extension OIDs are finalized by the ETSI specifications.
+	// For now, allowed attributes would need to be looked up from the National Register.
+
+	entitlements.Raw = cert
+
+	return entitlements, nil
+}
+
+// Format returns "x509".
+func (v *X509RegistrationCertValidator) Format() string {
+	return "x509"
+}

@@ -735,6 +735,114 @@ func addCredentialTypesToReason(reason map[string]interface{}, credTypes []strin
 	}
 }
 
+// extractRequiredCertPolicyOIDs extracts required certificate policy OIDs from
+// the request context. These can be set via policy config or passed dynamically.
+func extractRequiredCertPolicyOIDs(req *authzen.EvaluationRequest) []string {
+	if req.Context == nil {
+		return nil
+	}
+	v, ok := req.Context["required_cert_policy_oids"]
+	if !ok {
+		return nil
+	}
+	switch oids := v.(type) {
+	case []string:
+		return oids
+	case []interface{}:
+		result := make([]string, 0, len(oids))
+		for _, s := range oids {
+			if str, ok := s.(string); ok {
+				result = append(result, str)
+			}
+		}
+		return result
+	}
+	return nil
+}
+
+// validateCertPolicyOIDs checks whether the certificate contains at least one
+// of the required policy OIDs. Returns true and the matched OIDs if found.
+func validateCertPolicyOIDs(cert *x509.Certificate, requiredOIDs []string) (bool, []string) {
+	required := make(map[string]bool, len(requiredOIDs))
+	for _, oid := range requiredOIDs {
+		required[oid] = true
+	}
+
+	var matched []string
+	for _, policyOID := range cert.PolicyIdentifiers {
+		oidStr := policyOID.String()
+		if required[oidStr] {
+			matched = append(matched, oidStr)
+		}
+	}
+	return len(matched) > 0, matched
+}
+
+// shouldExtractRPIdentity checks whether RP identity extraction is requested
+// via the request context field "extract_rp_identity".
+func shouldExtractRPIdentity(req *authzen.EvaluationRequest) bool {
+	if req.Context == nil {
+		return false
+	}
+	v, ok := req.Context["extract_rp_identity"]
+	if !ok {
+		return false
+	}
+	b, ok := v.(bool)
+	return ok && b
+}
+
+// extractRPIdentity extracts RP identity information from a leaf certificate.
+// Returns a map with organization, common name, country, serial number, and SANs.
+func extractRPIdentity(cert *x509.Certificate) map[string]interface{} {
+	identity := map[string]interface{}{}
+
+	if len(cert.Subject.Organization) > 0 {
+		identity["organization"] = cert.Subject.Organization
+	}
+	if cert.Subject.CommonName != "" {
+		identity["common_name"] = cert.Subject.CommonName
+	}
+	if len(cert.Subject.Country) > 0 {
+		identity["country"] = cert.Subject.Country
+	}
+	if cert.Subject.SerialNumber != "" {
+		identity["serial_number"] = cert.Subject.SerialNumber
+	}
+	if len(cert.DNSNames) > 0 {
+		identity["dns_sans"] = cert.DNSNames
+	}
+	if len(cert.URIs) > 0 {
+		uriSANs := make([]string, 0, len(cert.URIs))
+		for _, uri := range cert.URIs {
+			if uri != nil {
+				uriSANs = append(uriSANs, uri.String())
+			}
+		}
+		if len(uriSANs) > 0 {
+			identity["uri_sans"] = uriSANs
+		}
+	}
+	if len(cert.EmailAddresses) > 0 {
+		identity["email_sans"] = cert.EmailAddresses
+	}
+
+	// Include certificate policy OIDs for downstream consumers
+	if len(cert.PolicyIdentifiers) > 0 {
+		policyOIDs := make([]string, len(cert.PolicyIdentifiers))
+		for i, oid := range cert.PolicyIdentifiers {
+			policyOIDs[i] = oid.String()
+		}
+		identity["policy_oids"] = policyOIDs
+	}
+
+	// Include validity period
+	identity["not_before"] = cert.NotBefore.Format(time.RFC3339)
+	identity["not_after"] = cert.NotAfter.Format(time.RFC3339)
+
+	return identity
+}
+
 // Evaluate implements TrustRegistry.Evaluate by validating X.509 certificates
 // against a certificate pool derived from the loaded TSLs.
 // When policy constraints (service_types, service_statuses) are present in req.Context,
@@ -974,13 +1082,48 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	// Include credential_types in response if specified
 	addCredentialTypesToReason(reason, credentialTypes)
 
+	// Validate certificate policy OIDs if required (per ETSI TS 119 411-8)
+	requiredPolicyOIDs := extractRequiredCertPolicyOIDs(req)
+	if len(requiredPolicyOIDs) > 0 {
+		matched, matchedOIDs := validateCertPolicyOIDs(certs[0], requiredPolicyOIDs)
+		if !matched {
+			leafOIDs := make([]string, 0, len(certs[0].PolicyIdentifiers))
+			for _, oid := range certs[0].PolicyIdentifiers {
+				leafOIDs = append(leafOIDs, oid.String())
+			}
+			reason["error"] = "certificate does not contain required policy OIDs"
+			reason["required_policy_oids"] = requiredPolicyOIDs
+			reason["certificate_policy_oids"] = leafOIDs
+			return &authzen.EvaluationResponse{
+				Decision: false,
+				Context: &authzen.EvaluationResponseContext{
+					Reason: reason,
+				},
+			}, nil
+		}
+		reason["matched_policy_oids"] = matchedOIDs
+	}
+
+	// Extract RP identity from leaf certificate if requested
+	var trustMetadata map[string]interface{}
+	if shouldExtractRPIdentity(req) {
+		rpIdentity := extractRPIdentity(certs[0])
+		trustMetadata = map[string]interface{}{
+			"rp_identity": rpIdentity,
+		}
+	}
+
 	// Success - certificate is trusted
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason: reason,
 		},
-	}, nil
+	}
+	if trustMetadata != nil {
+		resp.Context.TrustMetadata = trustMetadata
+	}
+	return resp, nil
 }
 
 // SupportedResourceTypes returns the resource types this registry can handle.

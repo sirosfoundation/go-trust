@@ -73,6 +73,19 @@ type ETSIPolicyConstraints struct {
 	// purposes and may be used for filtering when supported by the registry
 	// implementation (e.g., validated against TSL extensions or service metadata).
 	CredentialTypes []string `json:"credential_types,omitempty" yaml:"credential_types,omitempty"`
+
+	// RequiredCertPolicyOIDs specifies certificate policy OIDs that MUST appear
+	// in the leaf certificate's Certificate Policies extension. Used to distinguish
+	// access certificates (per ETSI TS 119 411-8) from generic TLS certificates.
+	// If non-empty, the leaf certificate must contain at least one of these OIDs.
+	// Also passable via request.Context["required_cert_policy_oids"].
+	RequiredCertPolicyOIDs []string `json:"required_cert_policy_oids,omitempty" yaml:"required_cert_policy_oids,omitempty"`
+
+	// ExtractRPIdentity controls whether RP identity information (Subject DN,
+	// SANs, serial number) is extracted from the leaf certificate and returned
+	// in response.Context.TrustMetadata["rp_identity"]. Defaults to false.
+	// Also passable via request.Context["extract_rp_identity"].
+	ExtractRPIdentity bool `json:"extract_rp_identity,omitempty" yaml:"extract_rp_identity,omitempty"`
 }
 
 // DIDPolicyConstraints contains DID method-specific constraints.

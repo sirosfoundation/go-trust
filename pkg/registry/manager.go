@@ -290,6 +290,12 @@ func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, p
 		if len(etsi.CredentialTypes) > 0 {
 			req.Context["credential_types"] = etsi.CredentialTypes
 		}
+		if len(etsi.RequiredCertPolicyOIDs) > 0 {
+			req.Context["required_cert_policy_oids"] = etsi.RequiredCertPolicyOIDs
+		}
+		if etsi.ExtractRPIdentity {
+			req.Context["extract_rp_identity"] = true
+		}
 	}
 
 	// Apply DID constraints
