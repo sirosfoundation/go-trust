@@ -11,11 +11,12 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-oidfed/lib v0.10.9
+	github.com/go-resty/resty/v2 v2.17.2
 	github.com/jarcoal/httpmock v1.4.1
 	github.com/lestrrat-go/jwx/v3 v3.1.1
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.23.2
-	github.com/sirosfoundation/g119612 v0.4.0
+	github.com/sirosfoundation/g119612 v0.5.0
 	github.com/sirosfoundation/go-cryptoutil v0.5.0
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/files v1.0.1
@@ -58,7 +59,6 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.30.2 // indirect
-	github.com/go-resty/resty/v2 v2.17.2 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/gofiber/fiber/v2 v2.52.13 // indirect
