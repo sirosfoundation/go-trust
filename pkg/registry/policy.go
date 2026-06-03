@@ -100,8 +100,11 @@ type ETSIPolicyConstraints struct {
 	StrictEntitlementCheck bool `json:"strict_entitlement_check,omitempty" yaml:"strict_entitlement_check,omitempty"`
 
 	// AllowIntermediaries controls whether intermediary/broker presentation
-	// requests are accepted. When true, the enrichment pipeline will validate
-	// the intermediary certificate chain from request.Context["intermediary_x5c"].
+	// requests are accepted. When true, the enrichment pipeline will check
+	// for an intermediary certificate chain in request.Context["intermediary_x5c"]
+	// and surface intermediary metadata in the response. Note: full intermediary
+	// chain validation is not yet implemented — this currently controls whether
+	// intermediary requests are allowed and metadata is surfaced.
 	// Defaults to false (intermediary presentations rejected).
 	// Also passable via request.Context["allow_intermediaries"].
 	AllowIntermediaries bool `json:"allow_intermediaries,omitempty" yaml:"allow_intermediaries,omitempty"`

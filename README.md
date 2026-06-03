@@ -503,7 +503,6 @@ policies:
 | `oidfed` | Entity types, trust marks, credential type mapping | OpenID Federation |
 | `did` | Allowed domains, verifiable history | DID Web, DID Web VH |
 | `mdociaca` | Issuer allowlist, IACA endpoint | mDOC IACA |
-| `rpcert` | RP certificate requirements | RP Certificate |
 
 ### Credential Types in ETSI TSL
 
@@ -647,12 +646,17 @@ When enabled, the response includes the relying party's identity extracted from 
   "decision": true,
   "context": {
     "reason": {
+      "matched_policy_oids": ["2.16.840.1.101.2.1.11.36"]
+    },
+    "trust_metadata": {
       "rp_identity": {
-        "subject_dn": "CN=Example RP,O=Example Corp,C=SE",
-        "sans": ["rp.example.com"],
-        "serial_number": "1234567890"
+        "organization": ["Example Corp"],
+        "common_name": "Example RP",
+        "country": ["SE"],
+        "serial_number": "1234567890",
+        "dns_sans": ["rp.example.com"]
       },
-      "cert_policy_oids": ["2.16.840.1.101.2.1.11.36"]
+      "matched_policy_oids": ["2.16.840.1.101.2.1.11.36"]
     }
   }
 }

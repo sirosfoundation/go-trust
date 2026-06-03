@@ -536,8 +536,8 @@ func TestApplyEnrichmentToResponse_IntermediaryMetadata(t *testing.T) {
 		Decision:              true,
 		IsIntermediaryRequest: true,
 		IntermediaryIdentity: map[string]interface{}{
-			"intermediary_subject": "Broker Corp",
-			"rp_subject":          "Target RP",
+			"intermediary_x5c_leaf": "Broker Corp",
+			"rp_subject":           "Target RP",
 		},
 	}
 
@@ -548,5 +548,5 @@ func TestApplyEnrichmentToResponse_IntermediaryMetadata(t *testing.T) {
 	assert.Equal(t, true, tm["is_intermediary_request"])
 	intermediary, ok := tm["intermediary"].(map[string]interface{})
 	require.True(t, ok)
-	assert.Equal(t, "Broker Corp", intermediary["intermediary_subject"])
+	assert.Equal(t, "Broker Corp", intermediary["intermediary_x5c_leaf"])
 }

@@ -58,7 +58,11 @@ func (v *X509RegistrationCertValidator) Validate(_ context.Context, certData []b
 		return nil, fmt.Errorf("no CERTIFICATE PEM block found in input")
 	}
 
-	// Validate certificate chain
+	// Validate certificate chain — nil roots is an error (avoids
+	// implicit fallback to the host system root store)
+	if v.roots == nil {
+		return nil, fmt.Errorf("no trust anchors configured for registration certificate validation")
+	}
 	opts := x509.VerifyOptions{
 		Roots:         v.roots,
 		Intermediates: intermediates,

@@ -227,12 +227,11 @@ func TestX509Validator_ValidateSuccess(t *testing.T) {
 func TestX509Validator_ValidateNoRoots(t *testing.T) {
 	_, pemData := generateTestCert(t)
 
-	// nil roots = skip chain validation
+	// nil roots = error (no trust anchors configured)
 	v := NewX509RegistrationCertValidator(nil)
-	ent, err := v.Validate(context.Background(), pemData)
-	require.NoError(t, err)
-	require.NotNil(t, ent)
-	assert.Equal(t, "RP-12345", ent.RPIdentifier)
+	_, err := v.Validate(context.Background(), pemData)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no trust anchors configured")
 }
 
 func TestX509Validator_ValidateUntrustedChain(t *testing.T) {
@@ -248,7 +247,7 @@ func TestX509Validator_ValidateUntrustedChain(t *testing.T) {
 }
 
 func TestX509Validator_ValidateInvalidPEM(t *testing.T) {
-	v := NewX509RegistrationCertValidator(nil)
+	v := NewX509RegistrationCertValidator(x509.NewCertPool())
 
 	_, err := v.Validate(context.Background(), []byte("not pem data"))
 	assert.Error(t, err)
@@ -256,7 +255,7 @@ func TestX509Validator_ValidateInvalidPEM(t *testing.T) {
 }
 
 func TestX509Validator_ValidateInvalidCert(t *testing.T) {
-	v := NewX509RegistrationCertValidator(nil)
+	v := NewX509RegistrationCertValidator(x509.NewCertPool())
 
 	badPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not a cert")})
 	_, err := v.Validate(context.Background(), badPEM)
@@ -301,14 +300,16 @@ func TestX509Validator_ValidatePEMBundle(t *testing.T) {
 }
 
 func TestX509Validator_SkipsNonCertificateBlocks(t *testing.T) {
-	_, certPEM := generateTestCert(t)
+	cert, certPEM := generateTestCert(t)
 
 	// Prepend a non-CERTIFICATE PEM block
 	privKeyBlock := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("fake")})
 	bundle := append([]byte{}, privKeyBlock...)
 	bundle = append(bundle, certPEM...)
 
-	v := NewX509RegistrationCertValidator(nil)
+	pool := x509.NewCertPool()
+	pool.AddCert(cert)
+	v := NewX509RegistrationCertValidator(pool)
 	ent, err := v.Validate(context.Background(), bundle)
 	require.NoError(t, err)
 	assert.Equal(t, "RP-12345", ent.RPIdentifier)
@@ -316,7 +317,7 @@ func TestX509Validator_SkipsNonCertificateBlocks(t *testing.T) {
 
 func TestX509Validator_OnlyNonCertBlocks(t *testing.T) {
 	privKeyBlock := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("fake")})
-	v := NewX509RegistrationCertValidator(nil)
+	v := NewX509RegistrationCertValidator(x509.NewCertPool())
 	_, err := v.Validate(context.Background(), privKeyBlock)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no CERTIFICATE PEM block")

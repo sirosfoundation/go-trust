@@ -104,8 +104,8 @@ func EnrichX5CResponse(req *authzen.EvaluationRequest, leaf *x509.Certificate) *
 		}
 		// Extract intermediary identity from the first cert in the chain
 		result.IntermediaryIdentity = map[string]interface{}{
-			"intermediary_subject": intermediaryX5C[0],
-			"rp_subject":           leaf.Subject.CommonName,
+			"intermediary_x5c_leaf": intermediaryX5C[0],
+			"rp_subject":            leaf.Subject.CommonName,
 		}
 	}
 
