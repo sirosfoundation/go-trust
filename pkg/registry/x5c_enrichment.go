@@ -180,6 +180,9 @@ func ExtractRPIdentity(cert *x509.Certificate) map[string]interface{} {
 	if cert.Subject.SerialNumber != "" {
 		identity["serial_number"] = cert.Subject.SerialNumber
 	}
+	if cert.SerialNumber != nil {
+		identity["certificate_serial_number"] = cert.SerialNumber.String()
+	}
 	if len(cert.DNSNames) > 0 {
 		identity["dns_sans"] = cert.DNSNames
 	}
