@@ -344,7 +344,26 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 	}
 
 	if _, err := certs[0].Verify(opts); err == nil {
-		return r.buildSuccessResponse(ent.entityID, ent.territory, "x5c chain validates against trust anchor for entity", credentialTypes)
+		// Post-chain-validation enrichment: cert policy OID check + RP identity extraction
+		enrichment := registry.EnrichX5CResponse(req, certs[0])
+		if !enrichment.Decision {
+			reason := map[string]interface{}{
+				"admin": fmt.Sprintf("x5c chain valid for entity %q but enrichment check failed", ent.entityID),
+			}
+			for k, v := range enrichment.FailureReason {
+				reason[k] = v
+			}
+			addCredentialTypesToReason(reason, credentialTypes)
+			return &authzen.EvaluationResponse{
+				Decision: false,
+				Context: &authzen.EvaluationResponseContext{
+					Reason: reason,
+				},
+			}
+		}
+		resp := r.buildSuccessResponse(ent.entityID, ent.territory, "x5c chain validates against trust anchor for entity", credentialTypes)
+		registry.ApplyEnrichmentToResponse(resp, enrichment)
+		return resp
 	}
 	return nil
 }
