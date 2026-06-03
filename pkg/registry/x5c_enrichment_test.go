@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
+	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -347,4 +348,205 @@ func TestApplyEnrichmentToResponse_NoOIDsNoIdentity(t *testing.T) {
 
 	assert.Nil(t, resp.Context.Reason["matched_policy_oids"])
 	assert.Nil(t, resp.Context.TrustMetadata)
+}
+
+// ---------------------------------------------------------------------------
+// Over-request detection via EnrichX5CResponse
+// ---------------------------------------------------------------------------
+
+func TestEnrichX5CResponse_OverRequestWarnOnly(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject: pkix.Name{CommonName: "Test RP"},
+	}
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"requested_attributes": []string{"family_name", "age_over_18", "birthdate"},
+			"allowed_attributes":   []string{"family_name", "birthdate"},
+		},
+	}
+
+	result := EnrichX5CResponse(req, cert)
+
+	assert.True(t, result.Decision, "warn-only mode should not deny")
+	require.NotNil(t, result.OverRequest)
+	assert.True(t, result.OverRequest.IsOverRequest)
+	assert.Equal(t, []string{"age_over_18"}, result.OverRequest.OverRequested)
+}
+
+func TestEnrichX5CResponse_OverRequestStrict(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject: pkix.Name{CommonName: "Test RP"},
+	}
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"requested_attributes":     []string{"family_name", "age_over_18"},
+			"allowed_attributes":       []string{"family_name"},
+			"strict_entitlement_check": true,
+		},
+	}
+
+	result := EnrichX5CResponse(req, cert)
+
+	assert.False(t, result.Decision, "strict mode should deny over-request")
+	assert.Contains(t, result.FailureReason["error"], "beyond their entitlements")
+	assert.Equal(t, []string{"age_over_18"}, result.FailureReason["over_requested"])
+}
+
+func TestEnrichX5CResponse_NoOverRequest(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject: pkix.Name{CommonName: "Test RP"},
+	}
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"requested_attributes": []string{"family_name"},
+			"allowed_attributes":   []string{"family_name", "birthdate"},
+		},
+	}
+
+	result := EnrichX5CResponse(req, cert)
+
+	assert.True(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	assert.False(t, result.OverRequest.IsOverRequest)
+	assert.Empty(t, result.OverRequest.OverRequested)
+}
+
+func TestEnrichX5CResponse_OverRequestFromDCQL(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject: pkix.Name{CommonName: "Test RP"},
+	}
+	req := &authzen.EvaluationRequest{
+		Action: &authzen.Action{
+			Name: "authenticate",
+			Parameters: map[string]interface{}{
+				"query": map[string]interface{}{
+					"credentials": []interface{}{
+						map[string]interface{}{
+							"id":     "pid",
+							"format": "vc+sd-jwt",
+							"claims": []interface{}{
+								map[string]interface{}{"path": []interface{}{"family_name"}},
+								map[string]interface{}{"path": []interface{}{"age_over_18"}},
+							},
+						},
+					},
+				},
+			},
+		},
+		Context: map[string]interface{}{
+			"allowed_attributes": []string{"family_name"},
+		},
+	}
+
+	result := EnrichX5CResponse(req, cert)
+
+	assert.True(t, result.Decision, "warn-only mode")
+	require.NotNil(t, result.OverRequest)
+	assert.True(t, result.OverRequest.IsOverRequest)
+	assert.Equal(t, []string{"age_over_18"}, result.OverRequest.OverRequested)
+}
+
+func TestApplyEnrichmentToResponse_OverRequestWarnings(t *testing.T) {
+	resp := &authzen.EvaluationResponse{
+		Decision: true,
+		Context: &authzen.EvaluationResponseContext{
+			Reason: map[string]interface{}{"status": "ok"},
+		},
+	}
+	enrichment := &X5CEnrichmentResult{
+		Decision: true,
+		OverRequest: &rpcert.OverRequestResult{
+			Allowed:       []string{"family_name"},
+			Requested:     []string{"family_name", "age_over_18"},
+			OverRequested: []string{"age_over_18"},
+			IsOverRequest: true,
+		},
+	}
+
+	ApplyEnrichmentToResponse(resp, enrichment)
+
+	warnings, ok := resp.Context.Reason["over_request_warnings"].(map[string]interface{})
+	require.True(t, ok, "over_request_warnings should be present")
+	assert.Equal(t, []string{"age_over_18"}, warnings["over_requested"])
+}
+
+// ---------------------------------------------------------------------------
+// Intermediary verification via EnrichX5CResponse
+// ---------------------------------------------------------------------------
+
+func TestEnrichX5CResponse_IntermediaryAllowed(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject: pkix.Name{CommonName: "Target RP"},
+	}
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"intermediary_x5c":     []string{"base64-cert-data"},
+			"allow_intermediaries": true,
+		},
+	}
+
+	result := EnrichX5CResponse(req, cert)
+
+	assert.True(t, result.Decision)
+	assert.True(t, result.IsIntermediaryRequest)
+	require.NotNil(t, result.IntermediaryIdentity)
+	assert.Equal(t, "Target RP", result.IntermediaryIdentity["rp_subject"])
+}
+
+func TestEnrichX5CResponse_IntermediaryDenied(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject: pkix.Name{CommonName: "Target RP"},
+	}
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"intermediary_x5c": []string{"base64-cert-data"},
+		},
+	}
+
+	result := EnrichX5CResponse(req, cert)
+
+	assert.False(t, result.Decision)
+	assert.True(t, result.IsIntermediaryRequest)
+	assert.Contains(t, result.FailureReason["error"], "not allowed by policy")
+}
+
+func TestEnrichX5CResponse_NoIntermediary(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject: pkix.Name{CommonName: "Direct RP"},
+	}
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{},
+	}
+
+	result := EnrichX5CResponse(req, cert)
+
+	assert.True(t, result.Decision)
+	assert.False(t, result.IsIntermediaryRequest)
+	assert.Nil(t, result.IntermediaryIdentity)
+}
+
+func TestApplyEnrichmentToResponse_IntermediaryMetadata(t *testing.T) {
+	resp := &authzen.EvaluationResponse{
+		Decision: true,
+		Context: &authzen.EvaluationResponseContext{
+			Reason: map[string]interface{}{"status": "ok"},
+		},
+	}
+	enrichment := &X5CEnrichmentResult{
+		Decision:              true,
+		IsIntermediaryRequest: true,
+		IntermediaryIdentity: map[string]interface{}{
+			"intermediary_subject": "Broker Corp",
+			"rp_subject":          "Target RP",
+		},
+	}
+
+	ApplyEnrichmentToResponse(resp, enrichment)
+
+	tm, ok := resp.Context.TrustMetadata.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, true, tm["is_intermediary_request"])
+	intermediary, ok := tm["intermediary"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "Broker Corp", intermediary["intermediary_subject"])
 }

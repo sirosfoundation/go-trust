@@ -296,6 +296,15 @@ func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, p
 		if etsi.ExtractRPIdentity {
 			req.Context["extract_rp_identity"] = true
 		}
+		if len(etsi.AllowedAttributes) > 0 {
+			req.Context["allowed_attributes"] = etsi.AllowedAttributes
+		}
+		if etsi.StrictEntitlementCheck {
+			req.Context["strict_entitlement_check"] = true
+		}
+		if etsi.AllowIntermediaries {
+			req.Context["allow_intermediaries"] = true
+		}
 	}
 
 	// Apply DID constraints

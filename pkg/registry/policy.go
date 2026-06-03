@@ -86,6 +86,25 @@ type ETSIPolicyConstraints struct {
 	// in response.Context.TrustMetadata["rp_identity"]. Defaults to false.
 	// Also passable via request.Context["extract_rp_identity"].
 	ExtractRPIdentity bool `json:"extract_rp_identity,omitempty" yaml:"extract_rp_identity,omitempty"`
+
+	// AllowedAttributes lists attribute names the RP is entitled to request.
+	// Used for over-request detection per TS 119 475. When both this and
+	// requested_attributes are present, the enrichment pipeline compares them
+	// and surfaces warnings (or rejects in strict mode).
+	// Also passable via request.Context["allowed_attributes"].
+	AllowedAttributes []string `json:"allowed_attributes,omitempty" yaml:"allowed_attributes,omitempty"`
+
+	// StrictEntitlementCheck controls whether over-requesting attributes results
+	// in rejection (true) or just warnings in the response (false). Defaults to false.
+	// Also passable via request.Context["strict_entitlement_check"].
+	StrictEntitlementCheck bool `json:"strict_entitlement_check,omitempty" yaml:"strict_entitlement_check,omitempty"`
+
+	// AllowIntermediaries controls whether intermediary/broker presentation
+	// requests are accepted. When true, the enrichment pipeline will validate
+	// the intermediary certificate chain from request.Context["intermediary_x5c"].
+	// Defaults to false (intermediary presentations rejected).
+	// Also passable via request.Context["allow_intermediaries"].
+	AllowIntermediaries bool `json:"allow_intermediaries,omitempty" yaml:"allow_intermediaries,omitempty"`
 }
 
 // DIDPolicyConstraints contains DID method-specific constraints.

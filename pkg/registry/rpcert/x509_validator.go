@@ -59,14 +59,13 @@ func (v *X509RegistrationCertValidator) Validate(_ context.Context, certData []b
 	}
 
 	// Validate certificate chain
-		opts := x509.VerifyOptions{
-			Roots:         v.roots,
-			Intermediates: intermediates,
-			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-		}
-		if _, err := cert.Verify(opts); err != nil {
-			return nil, fmt.Errorf("registration certificate chain validation failed: %w", err)
-		}
+	opts := x509.VerifyOptions{
+		Roots:         v.roots,
+		Intermediates: intermediates,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}
+	if _, err := cert.Verify(opts); err != nil {
+		return nil, fmt.Errorf("registration certificate chain validation failed: %w", err)
 	}
 
 	// Extract entitlements from the certificate

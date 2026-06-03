@@ -5,12 +5,14 @@ import (
 	"time"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
+	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
 )
 
 // X5CEnrichmentResult holds the results of post-chain-validation enrichment
-// (cert policy OID validation and RP identity extraction).
+// (cert policy OID validation, RP identity extraction, and over-request detection).
 type X5CEnrichmentResult struct {
-	// Decision is false if required policy OIDs were not found.
+	// Decision is false if required policy OIDs were not found or if
+	// strict entitlement check fails due to over-requesting.
 	Decision bool
 
 	// MatchedPolicyOIDs lists the policy OIDs that matched the requirements.
@@ -18,6 +20,15 @@ type X5CEnrichmentResult struct {
 
 	// RPIdentity is the extracted RP identity map (nil if not requested).
 	RPIdentity map[string]interface{}
+
+	// OverRequest contains the over-request detection result (nil if not checked).
+	OverRequest *rpcert.OverRequestResult
+
+	// IntermediaryIdentity is the extracted intermediary identity (nil if no intermediary).
+	IntermediaryIdentity map[string]interface{}
+
+	// IsIntermediaryRequest indicates whether this is a proxied/brokered request.
+	IsIntermediaryRequest bool
 
 	// FailureReason is set when Decision is false, describing why.
 	FailureReason map[string]interface{}
@@ -57,6 +68,45 @@ func EnrichX5CResponse(req *authzen.EvaluationRequest, leaf *x509.Certificate) *
 	// Extract RP identity if requested
 	if ShouldExtractRPIdentity(req) {
 		result.RPIdentity = ExtractRPIdentity(leaf)
+	}
+
+	// Over-request detection: compare requested attributes against entitlements
+	requestedAttrs := extractRequestedAttributes(req)
+	allowedAttrs := extractAllowedAttributes(req)
+	if len(requestedAttrs) > 0 && len(allowedAttrs) > 0 {
+		entitlements := &rpcert.RPEntitlements{
+			AllowedAttributes: allowedAttrs,
+		}
+		result.OverRequest = rpcert.DetectOverRequest(entitlements, requestedAttrs)
+
+		if result.OverRequest.IsOverRequest && isStrictEntitlementCheck(req) {
+			result.Decision = false
+			result.FailureReason = map[string]interface{}{
+				"error":          "RP is requesting attributes beyond their entitlements",
+				"over_requested": result.OverRequest.OverRequested,
+				"allowed":        result.OverRequest.Allowed,
+				"requested":      result.OverRequest.Requested,
+			}
+			return result
+		}
+	}
+
+	// Intermediary verification: check if this is a proxied/brokered request
+	intermediaryX5C := extractIntermediaryX5C(req)
+	if len(intermediaryX5C) > 0 {
+		result.IsIntermediaryRequest = true
+		if !isIntermediariesAllowed(req) {
+			result.Decision = false
+			result.FailureReason = map[string]interface{}{
+				"error": "intermediary/broker presentation requests are not allowed by policy",
+			}
+			return result
+		}
+		// Extract intermediary identity from the first cert in the chain
+		result.IntermediaryIdentity = map[string]interface{}{
+			"intermediary_subject": intermediaryX5C[0],
+			"rp_subject":           leaf.Subject.CommonName,
+		}
 	}
 
 	return result
@@ -102,6 +152,26 @@ func ApplyEnrichmentToResponse(resp *authzen.EvaluationResponse, enrichment *X5C
 			}
 		} else if resp.Context.TrustMetadata == nil {
 			resp.Context.TrustMetadata = trustMetadata
+		}
+	}
+
+	// Add over-request warnings to reason (warn-only mode)
+	if enrichment.OverRequest != nil && enrichment.OverRequest.IsOverRequest {
+		resp.Context.Reason["over_request_warnings"] = map[string]interface{}{
+			"over_requested": enrichment.OverRequest.OverRequested,
+			"allowed":        enrichment.OverRequest.Allowed,
+			"requested":      enrichment.OverRequest.Requested,
+		}
+	}
+
+	// Add intermediary metadata to trust metadata
+	if enrichment.IsIntermediaryRequest && enrichment.IntermediaryIdentity != nil {
+		if resp.Context.TrustMetadata == nil {
+			resp.Context.TrustMetadata = make(map[string]interface{})
+		}
+		if existing, ok := resp.Context.TrustMetadata.(map[string]interface{}); ok {
+			existing["intermediary"] = enrichment.IntermediaryIdentity
+			existing["is_intermediary_request"] = true
 		}
 	}
 }
@@ -215,4 +285,97 @@ func ExtractRPIdentity(cert *x509.Certificate) map[string]interface{} {
 	identity["not_after"] = cert.NotAfter.Format(time.RFC3339)
 
 	return identity
+}
+
+// extractRequestedAttributes extracts the list of attributes the RP is requesting.
+// It checks (in order of priority):
+//  1. request.Context["requested_attributes"] — explicit flat list
+//  2. action.Parameters["query"] — DCQL query, from which claim names are extracted
+func extractRequestedAttributes(req *authzen.EvaluationRequest) []string {
+	// Check for explicit requested_attributes first
+	if req.Context != nil {
+		if attrs := extractStringSliceFromContext(req.Context, "requested_attributes"); len(attrs) > 0 {
+			return attrs
+		}
+	}
+
+	// Fall back to extracting claim names from DCQL query in action parameters
+	if req.Action != nil && req.Action.Parameters != nil {
+		if queryRaw, ok := req.Action.Parameters["query"]; ok {
+			if dcql := rpcert.ParseDCQLQuery(queryRaw); dcql != nil {
+				return dcql.ExtractRequestedClaimNames()
+			}
+		}
+	}
+
+	return nil
+}
+
+// extractAllowedAttributes extracts the RP's entitled attributes
+// from request.Context["allowed_attributes"].
+func extractAllowedAttributes(req *authzen.EvaluationRequest) []string {
+	if req.Context == nil {
+		return nil
+	}
+	return extractStringSliceFromContext(req.Context, "allowed_attributes")
+}
+
+// isStrictEntitlementCheck checks whether strict entitlement checking is enabled
+// via request.Context["strict_entitlement_check"].
+func isStrictEntitlementCheck(req *authzen.EvaluationRequest) bool {
+	if req.Context == nil {
+		return false
+	}
+	v, ok := req.Context["strict_entitlement_check"]
+	if !ok {
+		return false
+	}
+	b, ok := v.(bool)
+	return ok && b
+}
+
+// extractStringSliceFromContext extracts a []string from a context map value,
+// handling both []string and []interface{} (from JSON deserialization).
+func extractStringSliceFromContext(ctx map[string]interface{}, key string) []string {
+	v, ok := ctx[key]
+	if !ok {
+		return nil
+	}
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []interface{}:
+		result := make([]string, 0, len(s))
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				result = append(result, str)
+			}
+		}
+		return result
+	}
+	return nil
+}
+
+// extractIntermediaryX5C extracts the intermediary certificate chain from
+// request.Context["intermediary_x5c"]. This is a list of base64-encoded
+// certificates representing the intermediary's access certificate chain.
+func extractIntermediaryX5C(req *authzen.EvaluationRequest) []string {
+	if req.Context == nil {
+		return nil
+	}
+	return extractStringSliceFromContext(req.Context, "intermediary_x5c")
+}
+
+// isIntermediariesAllowed checks whether intermediary/broker presentations are
+// allowed via request.Context["allow_intermediaries"].
+func isIntermediariesAllowed(req *authzen.EvaluationRequest) bool {
+	if req.Context == nil {
+		return false
+	}
+	v, ok := req.Context["allow_intermediaries"]
+	if !ok {
+		return false
+	}
+	b, ok := v.(bool)
+	return ok && b
 }
