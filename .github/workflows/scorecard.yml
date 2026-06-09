@@ -7,13 +7,17 @@ on:
   schedule:
     - cron: "0 4 * * 1"
 
-permissions: read-all
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
     permissions:
+      contents: read
+      actions: read
       security-events: write
       id-token: write
     steps:
