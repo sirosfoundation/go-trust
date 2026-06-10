@@ -453,3 +453,30 @@ func (d *DID) ToHTTPURL(scheme, filename string) (string, error) {
 
 	return urlStr, nil
 }
+
+// ToBaseURL converts the DID to a base HTTPS URL (the entity identifier),
+// without appending any filename or .well-known path. For example:
+//
+//	did:web:example.com           → https://example.com
+//	did:web:example.com:issuers:1 → https://example.com/issuers/1
+func (d *DID) ToBaseURL(scheme string) (string, error) {
+	domain := d.Domain()
+	if domain == "" {
+		return "", fmt.Errorf("cannot extract domain from DID")
+	}
+
+	path := d.PathFromSegments()
+
+	var urlStr string
+	if path == "" {
+		urlStr = fmt.Sprintf("%s://%s", scheme, domain)
+	} else {
+		urlStr = fmt.Sprintf("%s://%s/%s", scheme, domain, path)
+	}
+
+	if _, err := url.Parse(urlStr); err != nil {
+		return "", fmt.Errorf("constructed URL is invalid: %w", err)
+	}
+
+	return urlStr, nil
+}

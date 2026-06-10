@@ -118,6 +118,43 @@ func TestParse_WithFragment(t *testing.T) {
 	}
 }
 
+func TestParse_WithQueryAndPath(t *testing.T) {
+	t.Run("did with query", func(t *testing.T) {
+		parsed, err := Parse("did:web:example.com?service=files")
+		require.NoError(t, err)
+		assert.Equal(t, "web", parsed.Method)
+		assert.Equal(t, "service=files", parsed.Query)
+	})
+
+	t.Run("did with path", func(t *testing.T) {
+		parsed, err := Parse("did:web:example.com/path/to/resource")
+		require.NoError(t, err)
+		assert.Equal(t, "web", parsed.Method)
+		assert.Equal(t, "path/to/resource", parsed.Path)
+	})
+
+	t.Run("did with query and fragment", func(t *testing.T) {
+		parsed, err := Parse("did:web:example.com?service=files#key-1")
+		require.NoError(t, err)
+		assert.Equal(t, "service=files", parsed.Query)
+		assert.Equal(t, "key-1", parsed.Fragment)
+	})
+
+	t.Run("did with path and fragment", func(t *testing.T) {
+		parsed, err := Parse("did:web:example.com/path#key-1")
+		require.NoError(t, err)
+		assert.Equal(t, "path", parsed.Path)
+		assert.Equal(t, "key-1", parsed.Fragment)
+	})
+}
+
+func TestParse_InvalidFragment(t *testing.T) {
+	// A fragment containing a character not allowed by isFragmentChar
+	_, err := Parse("did:web:example.com#key{invalid}")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid character")
+}
+
 func TestParse_InvalidDIDs(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -221,6 +258,11 @@ func TestParseWithMethod(t *testing.T) {
 		_, err := ParseWithMethod("did:web:example.com", "webvh")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "expected method")
+	})
+
+	t.Run("invalid DID", func(t *testing.T) {
+		_, err := ParseWithMethod("not-a-did", "web")
+		require.Error(t, err)
 	})
 }
 
@@ -375,6 +417,50 @@ func TestDID_ToHTTPURL(t *testing.T) {
 	}
 }
 
+func TestDID_ToBaseURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		did         string
+		scheme      string
+		expectedURL string
+	}{
+		{
+			name:        "did:web root",
+			did:         "did:web:example.com",
+			scheme:      "https",
+			expectedURL: "https://example.com",
+		},
+		{
+			name:        "did:web with path",
+			did:         "did:web:example.com:issuers:main",
+			scheme:      "https",
+			expectedURL: "https://example.com/issuers/main",
+		},
+		{
+			name:        "did:web with port",
+			did:         "did:web:localhost%3A8080",
+			scheme:      "https",
+			expectedURL: "https://localhost:8080",
+		},
+		{
+			name:        "did:web with port and path",
+			did:         "did:web:localhost%3A8080:issuers:1",
+			scheme:      "https",
+			expectedURL: "https://localhost:8080/issuers/1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := Parse(tt.did)
+			require.NoError(t, err)
+			u, err := parsed.ToBaseURL(tt.scheme)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedURL, u)
+		})
+	}
+}
+
 func TestDID_String(t *testing.T) {
 	parsed, err := Parse("did:web:example.com#key-1")
 	require.NoError(t, err)
@@ -382,6 +468,68 @@ func TestDID_String(t *testing.T) {
 	assert.Equal(t, "did:web:example.com", parsed.String())
 	assert.Equal(t, "did:web:example.com#key-1", parsed.FullString())
 	assert.Equal(t, "did:web:example.com#custom", parsed.WithFragment("custom"))
+}
+
+func TestDID_WithFragment_Empty(t *testing.T) {
+	parsed, err := Parse("did:web:example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "did:web:example.com", parsed.WithFragment(""))
+}
+
+func TestDID_FullString_WithPathAndQuery(t *testing.T) {
+	t.Run("with path", func(t *testing.T) {
+		parsed, err := Parse("did:web:example.com/path/to/resource")
+		require.NoError(t, err)
+		assert.Equal(t, "did:web:example.com/path/to/resource", parsed.FullString())
+	})
+
+	t.Run("with query", func(t *testing.T) {
+		parsed, err := Parse("did:web:example.com?service=files")
+		require.NoError(t, err)
+		assert.Equal(t, "did:web:example.com?service=files", parsed.FullString())
+	})
+
+	t.Run("with path, query, and fragment", func(t *testing.T) {
+		parsed, err := Parse("did:web:example.com/path?service=files#key-1")
+		require.NoError(t, err)
+		assert.Equal(t, "did:web:example.com/path?service=files#key-1", parsed.FullString())
+	})
+}
+
+func TestDID_Domain_EmptySegments(t *testing.T) {
+	d := &DID{PathSegments: []string{}}
+	assert.Equal(t, "", d.Domain())
+}
+
+func TestDID_ToHTTPURL_EmptyDomain(t *testing.T) {
+	d := &DID{PathSegments: []string{}}
+	_, err := d.ToHTTPURL("https", "did.json")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot extract domain")
+}
+
+func TestDID_ToBaseURL_EmptyDomain(t *testing.T) {
+	d := &DID{PathSegments: []string{}}
+	_, err := d.ToBaseURL("https")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot extract domain")
+}
+
+func TestDID_ToBaseURL_WebVH(t *testing.T) {
+	parsed, err := Parse("did:webvh:QmSCID12345:example.com:issuers:main")
+	require.NoError(t, err)
+	u, err := parsed.ToBaseURL("https")
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com/issuers/main", u)
+}
+
+func TestDID_ToHTTPURL_WebVH(t *testing.T) {
+	// webvh root (only SCID + domain, no path)
+	parsed, err := Parse("did:webvh:QmSCID12345:example.com")
+	require.NoError(t, err)
+	u, err := parsed.ToHTTPURL("https", "did.jsonl")
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com/.well-known/did.jsonl", u)
 }
 
 func TestValidateMethodName(t *testing.T) {
@@ -397,6 +545,37 @@ func TestValidateMethodName(t *testing.T) {
 	assert.Error(t, validateMethodName("web_v2"))    // underscore
 	assert.Error(t, validateMethodName("web.v2"))    // dot
 	assert.Error(t, validateMethodName("web:extra")) // colon
+}
+
+func TestValidateFragment(t *testing.T) {
+	// Empty fragment is valid
+	assert.NoError(t, validateFragment(""))
+
+	// Valid fragment chars
+	assert.NoError(t, validateFragment("key-1"))
+	assert.NoError(t, validateFragment("keys/main"))
+	assert.NoError(t, validateFragment("a?b"))
+
+	// Invalid fragment char
+	err := validateFragment("key{bad}")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid character")
+}
+
+func TestValidatePercentEncoding(t *testing.T) {
+	// Valid
+	assert.NoError(t, validatePercentEncoding("hello"))
+	assert.NoError(t, validatePercentEncoding("hello%3Aworld"))
+
+	// Incomplete percent encoding
+	err := validatePercentEncoding("hello%3")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incomplete")
+
+	// Invalid hex digits
+	err = validatePercentEncoding("hello%GZ")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid hex")
 }
 
 func TestCheckDangerousPatterns(t *testing.T) {
@@ -418,6 +597,28 @@ func TestCheckDangerousPatterns(t *testing.T) {
 	assert.Error(t, checkDangerousPatterns("file>output"))
 	assert.Error(t, checkDangerousPatterns("file<input"))
 	assert.Error(t, checkDangerousPatterns("cmd&background"))
+}
+
+func TestValidateMethodSpecificID(t *testing.T) {
+	// Valid
+	assert.NoError(t, validateMethodSpecificID("example.com"))
+	assert.NoError(t, validateMethodSpecificID("example.com:users:alice"))
+
+	// Empty
+	err := validateMethodSpecificID("")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be empty")
+}
+
+func TestPathFromSegments_DecodeFallback(t *testing.T) {
+	// Create a DID with a path segment that has invalid percent-encoding
+	// to exercise the decode error fallback path
+	d := &DID{
+		Method:       "web",
+		PathSegments: []string{"example.com", "path%GGinvalid"},
+	}
+	// Should fall back to using the raw segment
+	assert.Equal(t, "path%GGinvalid", d.PathFromSegments())
 }
 
 func TestParseMethodSpecificSegments(t *testing.T) {
