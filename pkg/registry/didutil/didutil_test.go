@@ -375,6 +375,50 @@ func TestDID_ToHTTPURL(t *testing.T) {
 	}
 }
 
+func TestDID_ToBaseURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		did         string
+		scheme      string
+		expectedURL string
+	}{
+		{
+			name:        "did:web root",
+			did:         "did:web:example.com",
+			scheme:      "https",
+			expectedURL: "https://example.com",
+		},
+		{
+			name:        "did:web with path",
+			did:         "did:web:example.com:issuers:main",
+			scheme:      "https",
+			expectedURL: "https://example.com/issuers/main",
+		},
+		{
+			name:        "did:web with port",
+			did:         "did:web:localhost%3A8080",
+			scheme:      "https",
+			expectedURL: "https://localhost:8080",
+		},
+		{
+			name:        "did:web with port and path",
+			did:         "did:web:localhost%3A8080:issuers:1",
+			scheme:      "https",
+			expectedURL: "https://localhost:8080/issuers/1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := Parse(tt.did)
+			require.NoError(t, err)
+			u, err := parsed.ToBaseURL(tt.scheme)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedURL, u)
+		})
+	}
+}
+
 func TestDID_String(t *testing.T) {
 	parsed, err := Parse("did:web:example.com#key-1")
 	require.NoError(t, err)
