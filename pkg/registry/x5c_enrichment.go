@@ -18,6 +18,10 @@ type X5CEnrichmentResult struct {
 	// MatchedPolicyOIDs lists the policy OIDs that matched the requirements.
 	MatchedPolicyOIDs []string
 
+	// MatchedProfile is the name of the RP profile matched by the certificate
+	// (e.g., "wrpac"). Empty if no profile matched or no ProfileRegistry was used.
+	MatchedProfile string
+
 	// RPIdentity is the extracted RP identity map (nil if not requested).
 	RPIdentity map[string]interface{}
 
@@ -29,6 +33,11 @@ type X5CEnrichmentResult struct {
 
 	// IsIntermediaryRequest indicates whether this is a proxied/brokered request.
 	IsIntermediaryRequest bool
+
+	// ProfileValidationError is set when the matched profile's ValidateCredential
+	// returns an error. Non-nil does not necessarily mean Decision=false (depends
+	// on policy strictness).
+	ProfileValidationError string
 
 	// FailureReason is set when Decision is false, describing why.
 	FailureReason map[string]interface{}
@@ -43,6 +52,14 @@ type X5CEnrichmentResult struct {
 // the caller should return a deny response with result.FailureReason merged
 // into the reason map.
 func EnrichX5CResponse(req *authzen.EvaluationRequest, leaf *x509.Certificate) *X5CEnrichmentResult {
+	return EnrichX5CResponseWithProfiles(req, leaf, nil)
+}
+
+// EnrichX5CResponseWithProfiles is like EnrichX5CResponse but additionally
+// matches the leaf certificate against registered RP profiles. When a profile
+// matches, it is used for identity extraction and profile-specific validation.
+// Pass nil for profiles to get the same behaviour as EnrichX5CResponse.
+func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Certificate, profiles *rpcert.ProfileRegistry) *X5CEnrichmentResult {
 	result := &X5CEnrichmentResult{Decision: true}
 
 	// Validate certificate policy OIDs if required
@@ -50,10 +67,7 @@ func EnrichX5CResponse(req *authzen.EvaluationRequest, leaf *x509.Certificate) *
 	if len(requiredOIDs) > 0 {
 		matched, matchedOIDs := ValidateCertPolicyOIDs(leaf, requiredOIDs)
 		if !matched {
-			leafOIDs := make([]string, 0, len(leaf.PolicyIdentifiers))
-			for _, oid := range leaf.PolicyIdentifiers {
-				leafOIDs = append(leafOIDs, oid.String())
-			}
+			leafOIDs := rpcert.CertPolicyOIDStrings(leaf)
 			result.Decision = false
 			result.FailureReason = map[string]interface{}{
 				"error":                   "certificate does not contain required policy OIDs",
@@ -65,9 +79,37 @@ func EnrichX5CResponse(req *authzen.EvaluationRequest, leaf *x509.Certificate) *
 		result.MatchedPolicyOIDs = matchedOIDs
 	}
 
-	// Extract RP identity if requested
+	// Profile matching: if a ProfileRegistry is provided, try to match the
+	// certificate against a known RP profile for structured validation and
+	// identity extraction.
+	var matchedProfile rpcert.RPProfile
+	if profiles != nil {
+		matchedProfile = profiles.MatchCertificate(leaf)
+	}
+	if matchedProfile != nil {
+		result.MatchedProfile = matchedProfile.Name()
+
+		// Run profile-specific validation (key usage, required extensions, etc.)
+		if err := matchedProfile.ValidateCredential(leaf); err != nil {
+			result.ProfileValidationError = err.Error()
+			// Profile validation failures are warnings unless strict mode
+			// is enabled (in which case the caller can act on it).
+		}
+	}
+
+	// Extract RP identity if requested — prefer profile-specific extraction
 	if ShouldExtractRPIdentity(req) {
-		result.RPIdentity = ExtractRPIdentity(leaf)
+		if matchedProfile != nil {
+			identity, err := matchedProfile.ExtractIdentity(leaf)
+			if err == nil {
+				result.RPIdentity = identity
+			} else {
+				// Fall back to generic extraction
+				result.RPIdentity = ExtractRPIdentity(leaf)
+			}
+		} else {
+			result.RPIdentity = ExtractRPIdentity(leaf)
+		}
 	}
 
 	// Over-request detection: compare requested attributes against entitlements
@@ -129,6 +171,9 @@ func ApplyEnrichmentToResponse(resp *authzen.EvaluationResponse, enrichment *X5C
 	if len(enrichment.MatchedPolicyOIDs) > 0 {
 		resp.Context.Reason["matched_policy_oids"] = enrichment.MatchedPolicyOIDs
 	}
+	if enrichment.MatchedProfile != "" {
+		resp.Context.Reason["matched_profile"] = enrichment.MatchedProfile
+	}
 
 	// Build trust metadata if we have identity or matched OIDs
 	var trustMetadata map[string]interface{}
@@ -143,6 +188,12 @@ func ApplyEnrichmentToResponse(resp *authzen.EvaluationResponse, enrichment *X5C
 		}
 		trustMetadata["matched_policy_oids"] = enrichment.MatchedPolicyOIDs
 	}
+	if enrichment.MatchedProfile != "" {
+		if trustMetadata == nil {
+			trustMetadata = make(map[string]interface{})
+		}
+		trustMetadata["rp_profile"] = enrichment.MatchedProfile
+	}
 
 	if trustMetadata != nil {
 		// Merge into existing TrustMetadata if it's already a map
@@ -153,6 +204,11 @@ func ApplyEnrichmentToResponse(resp *authzen.EvaluationResponse, enrichment *X5C
 		} else if resp.Context.TrustMetadata == nil {
 			resp.Context.TrustMetadata = trustMetadata
 		}
+	}
+
+	// Add profile validation warnings if any
+	if enrichment.ProfileValidationError != "" {
+		resp.Context.Reason["profile_validation_warning"] = enrichment.ProfileValidationError
 	}
 
 	// Add over-request warnings to reason (warn-only mode)
@@ -203,16 +259,28 @@ func ExtractRequiredCertPolicyOIDs(req *authzen.EvaluationRequest) []string {
 
 // ValidateCertPolicyOIDs checks whether the certificate contains at least one
 // of the required policy OIDs. Returns true and the matched OIDs if found.
+// Checks both cert.Policies (Go 1.22+) and legacy cert.PolicyIdentifiers.
 func ValidateCertPolicyOIDs(cert *x509.Certificate, requiredOIDs []string) (bool, []string) {
 	required := make(map[string]bool, len(requiredOIDs))
 	for _, oid := range requiredOIDs {
 		required[oid] = true
 	}
 
+	seen := make(map[string]bool)
 	var matched []string
+	// Check newer Policies field
+	for _, policyOID := range cert.Policies {
+		oidStr := policyOID.String()
+		if required[oidStr] && !seen[oidStr] {
+			seen[oidStr] = true
+			matched = append(matched, oidStr)
+		}
+	}
+	// Also check legacy PolicyIdentifiers
 	for _, policyOID := range cert.PolicyIdentifiers {
 		oidStr := policyOID.String()
-		if required[oidStr] {
+		if required[oidStr] && !seen[oidStr] {
+			seen[oidStr] = true
 			matched = append(matched, oidStr)
 		}
 	}
@@ -272,11 +340,8 @@ func ExtractRPIdentity(cert *x509.Certificate) map[string]interface{} {
 	}
 
 	// Include certificate policy OIDs for downstream consumers
-	if len(cert.PolicyIdentifiers) > 0 {
-		policyOIDs := make([]string, len(cert.PolicyIdentifiers))
-		for i, oid := range cert.PolicyIdentifiers {
-			policyOIDs[i] = oid.String()
-		}
+	policyOIDs := rpcert.CertPolicyOIDStrings(cert)
+	if len(policyOIDs) > 0 {
 		identity["policy_oids"] = policyOIDs
 	}
 
