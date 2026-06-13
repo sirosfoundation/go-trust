@@ -48,7 +48,8 @@ type RPEntitlements struct {
 	IntermediaryFor []string `json:"intermediary_for,omitempty"`
 
 	// Raw contains the raw registration certificate data for downstream consumers.
-	Raw interface{} `json:"raw,omitempty"`
+	// Excluded from JSON serialization to avoid leaking certificate material in API responses.
+	Raw interface{} `json:"-"`
 }
 
 // RegistrationStatus represents the registration state of an RP.

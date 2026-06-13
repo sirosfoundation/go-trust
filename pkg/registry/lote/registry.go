@@ -21,6 +21,7 @@ import (
 	"github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
+	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
 )
 
 // Config configures a LoTE registry instance.
@@ -64,6 +65,7 @@ type Registry struct {
 	mu          sync.RWMutex
 	lotes       []*etsi119602.ListOfTrustedEntities
 	index       *entityIndex
+	profiles    *rpcert.ProfileRegistry
 	healthy     bool
 	lastUpdated time.Time
 
@@ -108,9 +110,10 @@ func New(cfg Config) (*Registry, error) {
 	}
 
 	r := &Registry{
-		config: cfg,
-		index:  &entityIndex{byID: make(map[string]*indexedEntity), byKeyHash: make(map[string]map[string]bool)},
-		stopCh: make(chan struct{}),
+		config:   cfg,
+		profiles: rpcert.DefaultProfileRegistry(),
+		index:    &entityIndex{byID: make(map[string]*indexedEntity), byKeyHash: make(map[string]map[string]bool)},
+		stopCh:   make(chan struct{}),
 	}
 
 	if err := r.refresh(); err != nil {
@@ -242,6 +245,14 @@ func (r *Registry) SupportsResolutionOnly() bool {
 	return true
 }
 
+// SetProfiles replaces the RP certificate profile registry used during
+// x5c enrichment. Pass nil to disable profile-based enrichment.
+func (r *Registry) SetProfiles(profiles *rpcert.ProfileRegistry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.profiles = profiles
+}
+
 func (r *Registry) Info() registry.RegistryInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -345,7 +356,7 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 
 	if _, err := certs[0].Verify(opts); err == nil {
 		// Post-chain-validation enrichment: cert policy OID check + RP identity extraction
-		enrichment := registry.EnrichX5CResponse(req, certs[0])
+		enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles)
 		if !enrichment.Decision {
 			reason := map[string]interface{}{
 				"admin": fmt.Sprintf("x5c chain valid for entity %q but enrichment check failed", ent.entityID),

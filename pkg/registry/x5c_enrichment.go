@@ -2,7 +2,6 @@ package registry
 
 import (
 	"crypto/x509"
-	"time"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
@@ -144,10 +143,15 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 			}
 			return result
 		}
-		// Extract intermediary identity from the first cert in the chain
+		// Extract intermediary identity from the first cert in the chain.
+		// NOTE: The intermediary certificate chain is NOT validated against any
+		// trust store. This metadata is informational only. Full intermediary
+		// chain validation will be implemented when the intermediary certificate
+		// profile is finalized.
 		result.IntermediaryIdentity = map[string]interface{}{
 			"intermediary_x5c_leaf": intermediaryX5C[0],
 			"rp_subject":            leaf.Subject.CommonName,
+			"verified":              false,
 		}
 	}
 
@@ -303,53 +307,9 @@ func ShouldExtractRPIdentity(req *authzen.EvaluationRequest) bool {
 
 // ExtractRPIdentity extracts RP identity information from a leaf certificate.
 // Returns a map with organization, common name, country, serial number, and SANs.
+// Delegates to rpcert.ExtractBaseCertIdentity for the shared extraction logic.
 func ExtractRPIdentity(cert *x509.Certificate) map[string]interface{} {
-	identity := map[string]interface{}{}
-
-	if len(cert.Subject.Organization) > 0 {
-		identity["organization"] = cert.Subject.Organization
-	}
-	if cert.Subject.CommonName != "" {
-		identity["common_name"] = cert.Subject.CommonName
-	}
-	if len(cert.Subject.Country) > 0 {
-		identity["country"] = cert.Subject.Country
-	}
-	if cert.Subject.SerialNumber != "" {
-		identity["serial_number"] = cert.Subject.SerialNumber
-	}
-	if cert.SerialNumber != nil {
-		identity["certificate_serial_number"] = cert.SerialNumber.String()
-	}
-	if len(cert.DNSNames) > 0 {
-		identity["dns_sans"] = cert.DNSNames
-	}
-	if len(cert.URIs) > 0 {
-		uriSANs := make([]string, 0, len(cert.URIs))
-		for _, uri := range cert.URIs {
-			if uri != nil {
-				uriSANs = append(uriSANs, uri.String())
-			}
-		}
-		if len(uriSANs) > 0 {
-			identity["uri_sans"] = uriSANs
-		}
-	}
-	if len(cert.EmailAddresses) > 0 {
-		identity["email_sans"] = cert.EmailAddresses
-	}
-
-	// Include certificate policy OIDs for downstream consumers
-	policyOIDs := rpcert.CertPolicyOIDStrings(cert)
-	if len(policyOIDs) > 0 {
-		identity["policy_oids"] = policyOIDs
-	}
-
-	// Include validity period
-	identity["not_before"] = cert.NotBefore.Format(time.RFC3339)
-	identity["not_after"] = cert.NotAfter.Format(time.RFC3339)
-
-	return identity
+	return rpcert.ExtractBaseCertIdentity(cert)
 }
 
 // extractRequestedAttributes extracts the list of attributes the RP is requesting.

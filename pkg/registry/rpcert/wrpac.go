@@ -22,7 +22,6 @@ package rpcert
 import (
 	"crypto/x509"
 	"fmt"
-	"time"
 )
 
 // WRPAC certificate policy OIDs per ETSI TS 119 411-8 clause GEN-6.6.1-03.
@@ -84,31 +83,22 @@ func (p *WRPACProfile) PolicyOIDs() []string {
 // ExtractIdentity extracts RP identity from a WRPAC X.509 certificate.
 // The credential must be an *x509.Certificate.
 //
-// For legal persons: organization, organizationIdentifier (from SerialNumber),
-// commonName, country.
-// For natural persons: givenName, surname (or pseudonym), commonName, country,
-// serialNumber.
-// Contact info is extracted from subjectAltName (URI, email, phone).
+// Builds on ExtractBaseCertIdentity (shared base) and overlays WRPAC-specific
+// fields: subject_type, organization_identifier, policy_level, policy_id, and
+// structured contact information from subjectAltName.
 func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]interface{}, error) {
 	cert, ok := credential.(*x509.Certificate)
 	if !ok {
 		return nil, fmt.Errorf("wrpac: expected *x509.Certificate, got %T", credential)
 	}
 
-	identity := make(map[string]interface{})
+	// Start with the shared base identity (org, CN, country, SANs, policy_oids, validity, etc.)
+	identity := ExtractBaseCertIdentity(cert)
 
-	// Subject DN
-	if len(cert.Subject.Organization) > 0 {
-		identity["organization"] = cert.Subject.Organization
-	}
-	if cert.Subject.CommonName != "" {
-		identity["common_name"] = cert.Subject.CommonName
-	}
-	if len(cert.Subject.Country) > 0 {
-		identity["country"] = cert.Subject.Country
-	}
+	// WRPAC-specific: rename serial_number to organization_identifier
 	if cert.Subject.SerialNumber != "" {
 		identity["organization_identifier"] = cert.Subject.SerialNumber
+		delete(identity, "serial_number")
 	}
 
 	// Determine subject type (natural vs legal person)
@@ -119,7 +109,8 @@ func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]inter
 	}
 
 	// Certificate policy classification
-	for _, oidStr := range CertPolicyOIDStrings(cert) {
+	policyOIDStrs := CertPolicyOIDStrings(cert)
+	for _, oidStr := range policyOIDStrs {
 		switch oidStr {
 		case OIDNCPNaturalPerson:
 			identity["policy_level"] = "normalised"
@@ -136,44 +127,18 @@ func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]inter
 		}
 	}
 
-	// Certificate policy OIDs (raw)
-	policyOIDStrs := CertPolicyOIDStrings(cert)
-	if len(policyOIDStrs) > 0 {
-		identity["policy_oids"] = policyOIDStrs
-	}
-
-	// Contact info from subjectAltName
+	// Structured contact info from subjectAltName (WRPAC groups into a contact object)
 	contacts := make(map[string]interface{})
-	if len(cert.URIs) > 0 {
-		uris := make([]string, 0, len(cert.URIs))
-		for _, uri := range cert.URIs {
-			if uri != nil {
-				uris = append(uris, uri.String())
-			}
-		}
-		if len(uris) > 0 {
-			contacts["uris"] = uris
-		}
+	if uris, ok := identity["uri_sans"]; ok {
+		contacts["uris"] = uris
+		delete(identity, "uri_sans")
 	}
-	if len(cert.EmailAddresses) > 0 {
-		contacts["emails"] = cert.EmailAddresses
+	if emails, ok := identity["email_sans"]; ok {
+		contacts["emails"] = emails
+		delete(identity, "email_sans")
 	}
 	if len(contacts) > 0 {
 		identity["contact"] = contacts
-	}
-
-	// DNS SANs (informational)
-	if len(cert.DNSNames) > 0 {
-		identity["dns_sans"] = cert.DNSNames
-	}
-
-	// Validity
-	identity["not_before"] = cert.NotBefore.Format(time.RFC3339)
-	identity["not_after"] = cert.NotAfter.Format(time.RFC3339)
-
-	// Certificate serial number (for audit/correlation)
-	if cert.SerialNumber != nil {
-		identity["certificate_serial_number"] = cert.SerialNumber.String()
 	}
 
 	return identity, nil

@@ -491,6 +491,7 @@ func TestEnrichX5CResponse_IntermediaryAllowed(t *testing.T) {
 	assert.True(t, result.IsIntermediaryRequest)
 	require.NotNil(t, result.IntermediaryIdentity)
 	assert.Equal(t, "Target RP", result.IntermediaryIdentity["rp_subject"])
+	assert.Equal(t, false, result.IntermediaryIdentity["verified"])
 }
 
 func TestEnrichX5CResponse_IntermediaryDenied(t *testing.T) {
@@ -537,7 +538,7 @@ func TestApplyEnrichmentToResponse_IntermediaryMetadata(t *testing.T) {
 		IsIntermediaryRequest: true,
 		IntermediaryIdentity: map[string]interface{}{
 			"intermediary_x5c_leaf": "Broker Corp",
-			"rp_subject":           "Target RP",
+			"rp_subject":            "Target RP",
 		},
 	}
 
@@ -549,4 +550,177 @@ func TestApplyEnrichmentToResponse_IntermediaryMetadata(t *testing.T) {
 	intermediary, ok := tm["intermediary"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, "Broker Corp", intermediary["intermediary_x5c_leaf"])
+}
+
+// ---------------------------------------------------------------------------
+// EnrichX5CResponseWithProfiles — profile matching integration tests
+// ---------------------------------------------------------------------------
+
+// wrpacPolicyOID is a WRPAC policy OID for test certs.
+var wrpacPolicyOID = asn1.ObjectIdentifier{0, 4, 0, 194118, 1, 2} // NCP-l-eudiwrp
+
+func TestEnrichWithProfiles_MatchesWRPAC(t *testing.T) {
+	profiles := rpcert.DefaultProfileRegistry()
+	uri1, _ := url.Parse("https://rp.example.com")
+	cert := &x509.Certificate{
+		Subject: pkix.Name{
+			Organization: []string{"Test Corp"},
+			CommonName:   "rp.example.com",
+			Country:      []string{"SE"},
+			SerialNumber: "VATSE-123456",
+		},
+		KeyUsage:          x509.KeyUsageContentCommitment,
+		PolicyIdentifiers: []asn1.ObjectIdentifier{wrpacPolicyOID},
+		URIs:              []*url.URL{uri1},
+		EmailAddresses:    []string{"admin@rp.example.com"},
+		NotBefore:         time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		NotAfter:          time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"extract_rp_identity": true,
+		},
+	}
+
+	result := EnrichX5CResponseWithProfiles(req, cert, profiles)
+
+	assert.True(t, result.Decision)
+	assert.Equal(t, "wrpac", result.MatchedProfile)
+	assert.Empty(t, result.ProfileValidationError)
+
+	// Profile-specific identity should have subject_type and organization_identifier
+	require.NotNil(t, result.RPIdentity)
+	assert.Equal(t, "legal_person", result.RPIdentity["subject_type"])
+	assert.Equal(t, "VATSE-123456", result.RPIdentity["organization_identifier"])
+	assert.Equal(t, "normalised", result.RPIdentity["policy_level"])
+	assert.Equal(t, "NCP-l-eudiwrp", result.RPIdentity["policy_id"])
+
+	// Contact info should be structured under "contact"
+	contacts, ok := result.RPIdentity["contact"].(map[string]interface{})
+	require.True(t, ok, "expected structured contact info from WRPAC profile")
+	assert.NotNil(t, contacts["emails"])
+	assert.NotNil(t, contacts["uris"])
+}
+
+func TestEnrichWithProfiles_NoProfileMatch(t *testing.T) {
+	profiles := rpcert.DefaultProfileRegistry()
+	cert := &x509.Certificate{
+		Subject: pkix.Name{
+			CommonName: "generic.example.com",
+		},
+		PolicyIdentifiers: []asn1.ObjectIdentifier{{2, 5, 29, 32, 0}}, // anyPolicy
+		NotBefore:         time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		NotAfter:          time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"extract_rp_identity": true,
+		},
+	}
+
+	result := EnrichX5CResponseWithProfiles(req, cert, profiles)
+
+	assert.True(t, result.Decision)
+	assert.Empty(t, result.MatchedProfile)
+
+	// Should fall back to generic identity (serial_number key, flat SANs)
+	require.NotNil(t, result.RPIdentity)
+	assert.Equal(t, "generic.example.com", result.RPIdentity["common_name"])
+	// Generic extractor uses "serial_number", not "organization_identifier"
+	assert.Nil(t, result.RPIdentity["organization_identifier"])
+	assert.Nil(t, result.RPIdentity["subject_type"])
+}
+
+func TestEnrichWithProfiles_ProfileValidationWarning(t *testing.T) {
+	profiles := rpcert.DefaultProfileRegistry()
+	// WRPAC cert missing required keyUsage — validation should warn
+	cert := &x509.Certificate{
+		Subject: pkix.Name{
+			Organization: []string{"Test Corp"},
+			CommonName:   "test.example.com",
+			SerialNumber: "VATDE-999",
+		},
+		KeyUsage:          x509.KeyUsageDigitalSignature, // missing nonRepudiation
+		PolicyIdentifiers: []asn1.ObjectIdentifier{wrpacPolicyOID},
+		EmailAddresses:    []string{"admin@test.example.com"},
+		NotBefore:         time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		NotAfter:          time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"extract_rp_identity": true,
+		},
+	}
+
+	result := EnrichX5CResponseWithProfiles(req, cert, profiles)
+
+	assert.True(t, result.Decision, "profile validation warnings should not deny")
+	assert.Equal(t, "wrpac", result.MatchedProfile)
+	assert.Contains(t, result.ProfileValidationError, "nonRepudiation")
+}
+
+func TestEnrichWithProfiles_NilRegistry(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject:           pkix.Name{CommonName: "test"},
+		PolicyIdentifiers: []asn1.ObjectIdentifier{wrpacPolicyOID},
+		NotBefore:         time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		NotAfter:          time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"extract_rp_identity": true,
+		},
+	}
+
+	result := EnrichX5CResponseWithProfiles(req, cert, nil)
+
+	assert.True(t, result.Decision)
+	assert.Empty(t, result.MatchedProfile, "nil registry should skip profile matching")
+	require.NotNil(t, result.RPIdentity)
+}
+
+func TestApplyEnrichmentToResponse_ProfileMetadata(t *testing.T) {
+	resp := &authzen.EvaluationResponse{
+		Decision: true,
+		Context: &authzen.EvaluationResponseContext{
+			Reason: map[string]interface{}{"status": "ok"},
+		},
+	}
+	enrichment := &X5CEnrichmentResult{
+		Decision:       true,
+		MatchedProfile: "wrpac",
+		RPIdentity: map[string]interface{}{
+			"subject_type": "legal_person",
+		},
+	}
+
+	ApplyEnrichmentToResponse(resp, enrichment)
+
+	assert.Equal(t, "wrpac", resp.Context.Reason["matched_profile"])
+	tm, ok := resp.Context.TrustMetadata.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "wrpac", tm["rp_profile"])
+	assert.NotNil(t, tm["rp_identity"])
+}
+
+func TestApplyEnrichmentToResponse_ProfileValidationWarning(t *testing.T) {
+	resp := &authzen.EvaluationResponse{
+		Decision: true,
+		Context: &authzen.EvaluationResponseContext{
+			Reason: map[string]interface{}{"status": "ok"},
+		},
+	}
+	enrichment := &X5CEnrichmentResult{
+		Decision:               true,
+		MatchedProfile:         "wrpac",
+		ProfileValidationError: "wrpac: certificate keyUsage does not include nonRepudiation",
+	}
+
+	ApplyEnrichmentToResponse(resp, enrichment)
+
+	assert.Equal(t, "wrpac: certificate keyUsage does not include nonRepudiation",
+		resp.Context.Reason["profile_validation_warning"])
 }

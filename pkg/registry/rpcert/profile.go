@@ -14,6 +14,7 @@ package rpcert
 
 import (
 	"crypto/x509"
+	"time"
 )
 
 // RPProfile describes an RP certificate or credential profile. Implementations
@@ -119,6 +120,15 @@ func (r *ProfileRegistry) Names() []string {
 	return names
 }
 
+// DefaultProfileRegistry returns a ProfileRegistry pre-loaded with all
+// built-in RP certificate profiles (currently WRPAC). Registries that
+// perform x5c enrichment should use this unless they have a custom set.
+func DefaultProfileRegistry() *ProfileRegistry {
+	r := NewProfileRegistry()
+	r.Register(NewWRPACProfile())
+	return r
+}
+
 // CertPolicyOIDStrings returns all certificate policy OIDs as strings,
 // reading from both cert.Policies (Go 1.22+ x509.OID) and the legacy
 // cert.PolicyIdentifiers (encoding/asn1.ObjectIdentifier), deduplicated.
@@ -140,4 +150,56 @@ func CertPolicyOIDStrings(cert *x509.Certificate) []string {
 		}
 	}
 	return oids
+}
+
+// ExtractBaseCertIdentity extracts generic RP identity information from an
+// X.509 certificate. This is the shared base for both the generic enrichment
+// pipeline and profile-specific extractors (which can overlay additional fields).
+func ExtractBaseCertIdentity(cert *x509.Certificate) map[string]interface{} {
+	identity := map[string]interface{}{}
+
+	if len(cert.Subject.Organization) > 0 {
+		identity["organization"] = cert.Subject.Organization
+	}
+	if cert.Subject.CommonName != "" {
+		identity["common_name"] = cert.Subject.CommonName
+	}
+	if len(cert.Subject.Country) > 0 {
+		identity["country"] = cert.Subject.Country
+	}
+	if cert.Subject.SerialNumber != "" {
+		identity["serial_number"] = cert.Subject.SerialNumber
+	}
+	if cert.SerialNumber != nil {
+		identity["certificate_serial_number"] = cert.SerialNumber.String()
+	}
+	if len(cert.DNSNames) > 0 {
+		identity["dns_sans"] = cert.DNSNames
+	}
+	if len(cert.URIs) > 0 {
+		uriSANs := make([]string, 0, len(cert.URIs))
+		for _, uri := range cert.URIs {
+			if uri != nil {
+				uriSANs = append(uriSANs, uri.String())
+			}
+		}
+		if len(uriSANs) > 0 {
+			identity["uri_sans"] = uriSANs
+		}
+	}
+	if len(cert.EmailAddresses) > 0 {
+		identity["email_sans"] = cert.EmailAddresses
+	}
+
+	// Include certificate policy OIDs for downstream consumers
+	policyOIDs := CertPolicyOIDStrings(cert)
+	if len(policyOIDs) > 0 {
+		identity["policy_oids"] = policyOIDs
+	}
+
+	// Include validity period
+	identity["not_before"] = cert.NotBefore.Format(time.RFC3339)
+	identity["not_after"] = cert.NotAfter.Format(time.RFC3339)
+
+	return identity
 }
