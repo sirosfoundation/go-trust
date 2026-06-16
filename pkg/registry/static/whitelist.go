@@ -516,8 +516,10 @@ func (r *WhitelistRegistry) Evaluate(ctx context.Context, req *authzen.Evaluatio
 		return r.deny(subjectID, fmt.Sprintf("failed to extract key: %s", err))
 	}
 
-	// Check if the key fingerprint matches any of the entity's registered keys
-	allowedKeys, hasKeys := r.keyHashes[subjectID]
+	// Check if the key fingerprint matches any of the entity's registered keys.
+	// Normalize the subject ID for lookup since keyHashes keys are normalized.
+	normSubjectID := normalizeEntityID(subjectID)
+	allowedKeys, hasKeys := r.keyHashes[normSubjectID]
 	if !hasKeys || len(allowedKeys) == 0 {
 		// No keys cached for this entity - need to refresh
 		return r.deny(subjectID, "no keys cached for entity; call Refresh() to load keys")
@@ -553,19 +555,40 @@ func (r *WhitelistRegistry) extractRole(req *authzen.EvaluationRequest) string {
 	return "any"
 }
 
+// normalizeEntityID strips the URL scheme (https://, http://) from an entity
+// identifier so that comparisons are scheme-agnostic. This allows matching
+// regardless of whether the scheme is present in the config or in the request.
+func normalizeEntityID(id string) string {
+	if u, err := url.Parse(id); err == nil && (u.Scheme == "https" || u.Scheme == "http") {
+		// Rebuild without scheme: host + path (+ query/fragment if any)
+		normalized := u.Host + u.Path
+		if u.RawQuery != "" {
+			normalized += "?" + u.RawQuery
+		}
+		if u.Fragment != "" {
+			normalized += "#" + u.Fragment
+		}
+		return strings.TrimRight(normalized, "/")
+	}
+	return strings.TrimRight(id, "/")
+}
+
 // matchesList checks if subject matches any entry in the list.
 // Supports exact match and prefix match (entries ending with *).
+// Comparison is scheme-agnostic: https:// is stripped before comparing.
 func (r *WhitelistRegistry) matchesList(subject string, list []string) bool {
+	normSubject := normalizeEntityID(subject)
 	for _, entry := range list {
 		if entry == "*" {
 			return true // Wildcard matches all
 		}
 		if strings.HasSuffix(entry, "*") {
 			prefix := strings.TrimSuffix(entry, "*")
-			if strings.HasPrefix(subject, prefix) {
+			normPrefix := normalizeEntityID(prefix)
+			if strings.HasPrefix(normSubject, normPrefix) {
 				return true
 			}
-		} else if entry == subject {
+		} else if normalizeEntityID(entry) == normSubject {
 			return true
 		}
 	}
@@ -738,6 +761,7 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 	// Fetch JWKS for each entity
 	var fetchErrors []string
 	for entity := range entities {
+		normEntity := normalizeEntityID(entity)
 		keys, stale, err := r.fetchEntityKeys(ctx, entity)
 		if err != nil {
 			r.logger.Warn("failed to fetch keys for entity",
@@ -745,8 +769,8 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 				"error", err)
 			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %s", entity, err))
 			// Preserve stale keys for this entity if available
-			if old, ok := r.keyHashes[entity]; ok && len(old) > 0 {
-				newKeyHashes[entity] = old
+			if old, ok := r.keyHashes[normEntity]; ok && len(old) > 0 {
+				newKeyHashes[normEntity] = old
 				r.logger.Info("preserving stale keys for entity",
 					"entity", entity,
 					"stale_key_count", len(old))
@@ -767,7 +791,7 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 		}
 
 		if len(keySet) > 0 {
-			newKeyHashes[entity] = keySet
+			newKeyHashes[normEntity] = keySet
 			if stale {
 				r.logger.Info("using stale-cached keys for entity",
 					"entity", entity,
