@@ -115,6 +115,50 @@ func TestWhitelistRegistry_Evaluate(t *testing.T) {
 			},
 			decision: true,
 		},
+		{
+			name: "subject without scheme matches config with scheme",
+			config: WhitelistConfig{
+				Issuers: []string{"https://issuer.example.com"},
+			},
+			request: &authzen.EvaluationRequest{
+				Subject: authzen.Subject{ID: "issuer.example.com"},
+				Action:  &authzen.Action{Name: "issuer"},
+			},
+			decision: true,
+		},
+		{
+			name: "subject with scheme matches config without scheme",
+			config: WhitelistConfig{
+				Issuers: []string{"issuer.example.com"},
+			},
+			request: &authzen.EvaluationRequest{
+				Subject: authzen.Subject{ID: "https://issuer.example.com"},
+				Action:  &authzen.Action{Name: "issuer"},
+			},
+			decision: true,
+		},
+		{
+			name: "subject without scheme matches config with scheme and path",
+			config: WhitelistConfig{
+				Verifiers: []string{"https://rp.example.com/verifier"},
+			},
+			request: &authzen.EvaluationRequest{
+				Subject: authzen.Subject{ID: "rp.example.com/verifier"},
+				Action:  &authzen.Action{Name: "credential-verifier"},
+			},
+			decision: true,
+		},
+		{
+			name: "wildcard prefix match is scheme-agnostic",
+			config: WhitelistConfig{
+				Issuers: []string{"https://example.com/*"},
+			},
+			request: &authzen.EvaluationRequest{
+				Subject: authzen.Subject{ID: "example.com/issuer1"},
+				Action:  &authzen.Action{Name: "issuer"},
+			},
+			decision: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -127,6 +171,31 @@ func TestWhitelistRegistry_Evaluate(t *testing.T) {
 			}
 			if resp.Decision != tt.decision {
 				t.Errorf("expected decision=%v, got %v", tt.decision, resp.Decision)
+			}
+		})
+	}
+}
+
+func TestNormalizeEntityID(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"https://example.com", "example.com"},
+		{"http://example.com", "example.com"},
+		{"https://example.com/path", "example.com/path"},
+		{"https://example.com/path/", "example.com/path"},
+		{"example.com", "example.com"},
+		{"example.com/path", "example.com/path"},
+		{"example.com/path/", "example.com/path"},
+		{"https://example.com:8443/path", "example.com:8443/path"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := normalizeEntityID(tt.input)
+			if got != tt.expected {
+				t.Errorf("normalizeEntityID(%q) = %q, want %q", tt.input, got, tt.expected)
 			}
 		})
 	}
