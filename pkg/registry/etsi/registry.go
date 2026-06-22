@@ -850,6 +850,10 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	start := time.Now()
 	opts := x509.VerifyOptions{
 		Roots: pool,
+		// ExtKeyUsageAny: WRPACs are access certificates and may carry only
+		// id-kp-clientAuth (1.3.6.1.5.5.7.3.2). Go's default is
+		// ExtKeyUsageServerAuth which rejects clientAuth-only leaves.
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
 
 	// Add intermediate certificates if provided in the chain

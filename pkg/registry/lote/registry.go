@@ -345,6 +345,9 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 
 	opts := x509.VerifyOptions{
 		Roots: ent.certPool,
+		// ExtKeyUsageAny: WRPACs may carry only id-kp-clientAuth.
+		// Go's zero-value KeyUsages defaults to ExtKeyUsageServerAuth.
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
 	if len(certs) > 1 {
 		intermediates := x509.NewCertPool()
