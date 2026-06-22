@@ -163,7 +163,7 @@ func TestValidatorRegistry(t *testing.T) {
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
-	assert.Equal(t, "x509", cfg.CertFormat)
+	assert.Equal(t, "jwt", cfg.CertFormat) // WRPRC is a JWT per GEN-5.2.1-01
 	assert.False(t, cfg.StrictEntitlementCheck)
 	assert.True(t, cfg.AllowWithoutWRPRC)
 	assert.Equal(t, 10*time.Second, cfg.Timeout)
