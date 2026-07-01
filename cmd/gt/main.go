@@ -150,11 +150,6 @@ func main() {
 		logger = logging.NewLogger(level)
 	}
 
-	logger.Info("Starting go-trust server",
-		logging.F("version", Version),
-		logging.F("host", *host),
-		logging.F("port", *port))
-
 	// Load configuration file if provided
 	var cfg *config.Config
 	if *configFile != "" {
@@ -192,6 +187,11 @@ func main() {
 			*logFormat = cfg.Logging.Format
 		}
 	}
+
+	logger.Info("Starting go-trust server",
+		logging.F("version", Version),
+		logging.F("host", *host),
+		logging.F("port", *port))
 
 	// Create server context
 	serverCtx := api.NewServerContext(logger)
