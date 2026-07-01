@@ -278,7 +278,29 @@ registries:
     config_file: "/etc/go-trust/whitelist.yaml"
     watch_file: true  # Auto-reload on changes
 
-    # Option 2: Configure inline
+    # Option 2: Configure inline (recommended: use lists + actions)
+    #
+    # Named lists of trusted entities:
+    # lists:
+    #   pid-issuers:
+    #     - "https://pid-issuer.example.com"
+    #     - "https://issuer.example.org"
+    #     - "https://trusted-domain.com/*"  # Wildcard prefix match
+    #   verifiers:
+    #     - "https://verifier.example.com"
+    #     - "https://rp.example.org"
+    #   trusted-subjects:
+    #     - "https://any-role.example.com"  # Matches any role
+    #
+    # Map action names to list names:
+    # actions:
+    #   pid-provider: "pid-issuers"
+    #   issuer: "pid-issuers"
+    #   credential-issuer: "pid-issuers"
+    #   verifier: "verifiers"
+    #   credential-verifier: "verifiers"
+    #
+    # Legacy inline configuration (deprecated, use lists + actions above):
     # issuers:
     #   - "https://pid-issuer.example.com"
     #   - "https://issuer.example.org"
