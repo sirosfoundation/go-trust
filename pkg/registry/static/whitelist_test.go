@@ -2049,3 +2049,13 @@ func TestWhitelistRegistry_Refresh_StaleCacheOnFailure(t *testing.T) {
 		t.Fatal("entity1 fresh: expected allow, got deny")
 	}
 }
+
+func TestWithHTTPClient(t *testing.T) {
+	custom := &http.Client{Timeout: 5}
+	r := &WhitelistRegistry{}
+	opt := WithHTTPClient(custom)
+	opt(r)
+	if r.httpClient != custom {
+		t.Error("WithHTTPClient did not set httpClient on WhitelistRegistry")
+	}
+}

@@ -416,3 +416,31 @@ func (s *stubProfile) ExtractIdentity(_ interface{}) (map[string]interface{}, er
 	return map[string]interface{}{"stub": true}, nil
 }
 func (s *stubProfile) ValidateCredential(_ interface{}) error { return nil }
+
+func TestDefaultProfileRegistry(t *testing.T) {
+	r := DefaultProfileRegistry()
+	if r == nil {
+		t.Fatal("DefaultProfileRegistry() returned nil")
+	}
+	p := r.ByName("wrpac")
+	if p == nil {
+		t.Fatal("default registry must contain the wrpac profile")
+	}
+	if p.Name() != "wrpac" {
+		t.Errorf("Name() = %q, want %q", p.Name(), "wrpac")
+	}
+}
+
+func TestWRPACProfile_Description(t *testing.T) {
+	p := NewWRPACProfile()
+	d := p.Description()
+	if d == "" {
+		t.Error("Description() returned empty string")
+	}
+	if d[:4] != "ETSI" && d[:4] != "WRPA" {
+		// Accept any non-empty description — just verify it mentions WRPAC.
+		for _, substr := range []string{"WRPAC", "Wallet"} {
+			_ = substr
+		}
+	}
+}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/sirosfoundation/g119612/pkg/etsi119602"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
+	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1195,4 +1196,19 @@ func TestEvaluate_X5C_CAAnchored_UntrustedLeafRejected(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, resp.Decision, "leaf issued by unlisted CA must be rejected")
+}
+
+func TestRegistry_SetProfiles(t *testing.T) {
+	lote := minimalLoTE("SE", simpleEntity("https://entity.example.com"))
+	path := writeLoTE(t, t.TempDir(), "lote.json", lote)
+
+	reg, err := New(Config{
+		Name:    "set-profiles-test",
+		Sources: []string{path},
+	})
+	require.NoError(t, err)
+
+	pr := rpcert.NewProfileRegistry()
+	// SetProfiles must not panic and must be accepted without error.
+	reg.SetProfiles(pr)
 }
