@@ -848,7 +848,9 @@ func (r *WhitelistRegistry) fetchEntityKeys(ctx context.Context, entity string) 
 	keys, stale, err := r.tryJWTVCIssuerMetadata(ctx, entity)
 	if err == nil {
 		r.logger.Info("discovered keys via jwt-vc-issuer metadata",
-			"entity", entity, "key_count", len(keys), "stale", stale)
+			"entity", entity,
+			"discovery_endpoint", buildWellKnownURL(entity, "jwt-vc-issuer"),
+			"key_count", len(keys), "stale", stale)
 		return keys, stale, nil
 	}
 	r.logger.Debug("jwt-vc-issuer discovery failed", "entity", entity, "error", err)
