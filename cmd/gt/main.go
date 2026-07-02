@@ -150,11 +150,6 @@ func main() {
 		logger = logging.NewLogger(level)
 	}
 
-	logger.Info("Starting go-trust server",
-		logging.F("version", Version),
-		logging.F("host", *host),
-		logging.F("port", *port))
-
 	// Load configuration file if provided
 	var cfg *config.Config
 	if *configFile != "" {
@@ -192,6 +187,44 @@ func main() {
 			*logFormat = cfg.Logging.Format
 		}
 	}
+
+	// Reconfigure logger in case log settings were updated by config.
+	switch *logLevel {
+	case "debug", "DEBUG", "Debug":
+		*logLevel = "debug"
+		level = logging.DebugLevel
+	case "info", "INFO", "Info":
+		*logLevel = "info"
+		level = logging.InfoLevel
+	case "warn", "WARN", "Warn":
+		*logLevel = "warn"
+		level = logging.WarnLevel
+	case "error", "ERROR", "Error":
+		*logLevel = "error"
+		level = logging.ErrorLevel
+	case "fatal", "FATAL", "Fatal":
+		*logLevel = "fatal"
+		level = logging.FatalLevel
+	default:
+		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n", *logLevel)
+		os.Exit(1)
+	}
+	switch *logFormat {
+	case "json", "JSON", "Json":
+		*logFormat = "json"
+		logger = logging.JSONLogger(level)
+	case "text", "TEXT", "Text":
+		*logFormat = "text"
+		logger = logging.NewLogger(level)
+	default:
+		fmt.Fprintf(os.Stderr, "Invalid log format: %s\n", *logFormat)
+		os.Exit(1)
+	}
+
+	logger.Info("Starting go-trust server",
+		logging.F("version", Version),
+		logging.F("host", *host),
+		logging.F("port", *port))
 
 	// Create server context
 	serverCtx := api.NewServerContext(logger)
