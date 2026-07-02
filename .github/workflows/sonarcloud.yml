@@ -20,6 +20,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxslt1-dev xsltproc bc
+
+      - name: Run tests with coverage
+        env:
+          SKIP_NETWORK_TESTS: "1"
+        run: go test -timeout 10m -coverprofile=coverage.out -covermode=atomic ./...
+
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v5
         env:
@@ -28,3 +44,4 @@ jobs:
           args: >
             -Dsonar.organization=${{ github.repository_owner }}
             -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
+            -Dsonar.go.coverage.reportPaths=coverage.out
