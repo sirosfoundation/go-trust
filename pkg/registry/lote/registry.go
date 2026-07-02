@@ -79,6 +79,11 @@ type entityIndex struct {
 
 	// byKeyHash maps SHA-256 key hash → set of entity IDs that have that key.
 	byKeyHash map[string]map[string]bool
+
+	// globalCertPool is the union of all entity certPools, used for
+	// CA-anchored chain validation when subject.id is not itself a listed entity
+	// (e.g. Access Certificate lists enumerate CAs, not individual RPs).
+	globalCertPool *x509.CertPool
 }
 
 // indexedEntity holds a single entity and its precomputed key hashes.
@@ -173,6 +178,15 @@ func (r *Registry) Evaluate(_ context.Context, req *authzen.EvaluationRequest) (
 	// Look up entity by subject ID.
 	ent, ok := r.index.byID[subjectID]
 	if !ok {
+		// For x5c requests: the list may enumerate CAs rather than individual
+		// relying parties (e.g. an Access Certificate list). Attempt CA-anchored
+		// chain validation against the combined pool of all listed entity certs.
+		// This matches the model described in issue #90.
+		if req.Resource.Type == "x5c" && r.index.globalCertPool != nil {
+			if resp := r.validateX5CChainCA(req, credentialTypes); resp != nil {
+				return resp, nil
+			}
+		}
 		reason := map[string]interface{}{
 			"admin": fmt.Sprintf("entity %q not found in any LoTE", subjectID),
 		}
@@ -382,6 +396,85 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 	return nil
 }
 
+// validateX5CChainCA handles the CA-anchored trust model (issue #90): when the
+// subject.id is not itself a listed entity — as is the case for Access Certificate
+// trust lists that enumerate CAs rather than individual relying parties — the x5c
+// chain is validated against the combined pool of all listed entity certs.
+// Returns a positive response if the chain validates, nil otherwise.
+func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credentialTypes []string) *authzen.EvaluationResponse {
+	certs, err := parseX5CCerts(req, r.config.CryptoExt)
+	if err != nil || len(certs) == 0 {
+		return nil
+	}
+
+	opts := x509.VerifyOptions{
+		Roots: r.index.globalCertPool,
+		// ExtKeyUsageAny: access certificates may carry only id-kp-clientAuth.
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}
+	if len(certs) > 1 {
+		intermediates := x509.NewCertPool()
+		for _, cert := range certs[1:] {
+			intermediates.AddCert(cert)
+		}
+		opts.Intermediates = intermediates
+	}
+
+	if _, err := certs[0].Verify(opts); err != nil {
+		return nil // chain does not validate against any listed CA
+	}
+
+	// Find which listed entity's CA pool the chain validates against (for metadata).
+	matchedID, territory := r.findMatchingEntityForChain(certs)
+
+	// Post-chain-validation enrichment (profile / WRPRC checks).
+	enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles)
+	if !enrichment.Decision {
+		reason := map[string]interface{}{
+			"admin": fmt.Sprintf("x5c chain validates against CA %q in LoTE but enrichment check failed", matchedID),
+		}
+		for k, v := range enrichment.FailureReason {
+			reason[k] = v
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
+		return &authzen.EvaluationResponse{
+			Decision: false,
+			Context:  &authzen.EvaluationResponseContext{Reason: reason},
+		}
+	}
+
+	resp := r.buildSuccessResponse(req.Subject.ID, territory,
+		fmt.Sprintf("x5c chain validates against CA-anchored entity %q in LoTE", matchedID),
+		credentialTypes)
+	registry.ApplyEnrichmentToResponse(resp, enrichment)
+	return resp
+}
+
+// findMatchingEntityForChain identifies which listed entity's cert pool the given
+// chain validates against. Returns the entity ID and territory of the first match.
+func (r *Registry) findMatchingEntityForChain(certs []*x509.Certificate) (entityID, territory string) {
+	for _, ent := range r.index.byID {
+		if ent.certPool == nil {
+			continue
+		}
+		opts := x509.VerifyOptions{
+			Roots:     ent.certPool,
+			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		}
+		if len(certs) > 1 {
+			intermediates := x509.NewCertPool()
+			for _, cert := range certs[1:] {
+				intermediates.AddCert(cert)
+			}
+			opts.Intermediates = intermediates
+		}
+		if _, err := certs[0].Verify(opts); err == nil {
+			return ent.entityID, ent.territory
+		}
+	}
+	return "", ""
+}
+
 // parseX5CCerts extracts X.509 certificates from an x5c resource key.
 func parseX5CCerts(req *authzen.EvaluationRequest, ext *cryptoutil.Extensions) ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
@@ -493,6 +586,12 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 								ie.certPool = x509.NewCertPool()
 							}
 							ie.certPool.AddCert(cert)
+							// Also add to the global pool for CA-anchored chain
+							// validation (issue #90).
+							if idx.globalCertPool == nil {
+								idx.globalCertPool = x509.NewCertPool()
+							}
+							idx.globalCertPool.AddCert(cert)
 						}
 					}
 				}
