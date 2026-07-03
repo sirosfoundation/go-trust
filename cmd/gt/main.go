@@ -150,16 +150,16 @@ func main() {
 		logger = logging.NewLogger(level)
 	}
 
-	// Load configuration file if provided
-	var cfg *config.Config
+	// Always load configuration to apply environment variable overrides,
+	// even when no config file is provided.
+	cfg, err := config.LoadConfig(*configFile)
+	if err != nil {
+		logger.Fatal("Failed to load configuration file",
+			logging.F("file", *configFile),
+			logging.F("error", err.Error()))
+	}
+
 	if *configFile != "" {
-		var err error
-		cfg, err = config.LoadConfig(*configFile)
-		if err != nil {
-			logger.Fatal("Failed to load configuration file",
-				logging.F("file", *configFile),
-				logging.F("error", err.Error()))
-		}
 		logger.Info("Loaded configuration from file",
 			logging.F("file", *configFile))
 
@@ -169,23 +169,24 @@ func main() {
 				logging.F("file", *configFile),
 				logging.F("error", err.Error()))
 		}
+	}
 
-		// Use config file values if CLI flags weren't explicitly set
-		if *host == "127.0.0.1" && cfg.Server.Host != "" {
-			*host = cfg.Server.Host
-		}
-		if *port == "6001" && cfg.Server.Port != "" {
-			*port = cfg.Server.Port
-		}
-		if *externalURL == "" && cfg.Server.ExternalURL != "" {
-			*externalURL = cfg.Server.ExternalURL
-		}
-		if *logLevel == "info" && cfg.Logging.Level != "" {
-			*logLevel = cfg.Logging.Level
-		}
-		if *logFormat == "text" && cfg.Logging.Format != "" {
-			*logFormat = cfg.Logging.Format
-		}
+	// Use config values if CLI flags weren't explicitly set.
+	// This applies both config file values and environment variable overrides.
+	if *host == "127.0.0.1" && cfg.Server.Host != "" {
+		*host = cfg.Server.Host
+	}
+	if *port == "6001" && cfg.Server.Port != "" {
+		*port = cfg.Server.Port
+	}
+	if *externalURL == "" && cfg.Server.ExternalURL != "" {
+		*externalURL = cfg.Server.ExternalURL
+	}
+	if *logLevel == "info" && cfg.Logging.Level != "" {
+		*logLevel = cfg.Logging.Level
+	}
+	if *logFormat == "text" && cfg.Logging.Format != "" {
+		*logFormat = cfg.Logging.Format
 	}
 
 	// Reconfigure logger in case log settings were updated by config.
