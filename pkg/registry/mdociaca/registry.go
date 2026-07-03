@@ -476,6 +476,9 @@ func (r *Registry) validateChain(chain []*x509.Certificate, iacas []*x509.Certif
 		Roots:         roots,
 		Intermediates: intermediates,
 		CurrentTime:   time.Now(),
+		// ExtKeyUsageAny: access certificates may carry only id-kp-clientAuth.
+		// Go's zero-value KeyUsages defaults to ExtKeyUsageServerAuth.
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
 
 	_, err := leaf.Verify(opts)

@@ -11,11 +11,13 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sirosfoundation/g119612/pkg/etsi119602"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
+	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1113,4 +1115,108 @@ func TestBuildIndex_ImplicitTrust(t *testing.T) {
 
 	// Service key should be indexed
 	assert.NotEmpty(t, idx.byKeyHash, "service keys should be indexed when ServiceStatus is absent")
+}
+
+// TestEvaluate_X5C_CAAnchored_SubjectIDNotListed is a regression test for
+// issue #90: when subject.id is a relying party that is NOT listed as an entity
+// in the LoTE (only its issuing CA is listed), chain validation should still
+// succeed by matching against the global CA pool.
+func TestEvaluate_X5C_CAAnchored_SubjectIDNotListed(t *testing.T) {
+	caCert, caKey := generateTestCA(t)
+
+	// Leaf with clientAuth-only EKU, simulating a WRPAC.
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(42),
+		Subject:      pkix.Name{CommonName: "RP Leaf"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+	leafCert, err := x509.ParseCertificate(leafDER)
+	require.NoError(t, err)
+
+	// LoTE lists only the CA entity — the RP ("https://rp.example.com") is NOT listed.
+	caEntityID := "https://access-ca.example.com"
+	lote := minimalLoTE("SE", x509Entity(caEntityID, caCert))
+	path := writeLoTE(t, t.TempDir(), "lote.json", lote)
+
+	reg, err := New(Config{
+		Name:    "ca-anchored-test",
+		Sources: []string{path},
+	})
+	require.NoError(t, err)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://rp.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "https://rp.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(leafCert.Raw),
+				base64.StdEncoding.EncodeToString(caCert.Raw),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	if !resp.Decision {
+		t.Errorf("expected true decision (issue #90): RP not listed but leaf chains to listed CA; got false. Reason: %v", resp.Context.Reason)
+	}
+
+	// Verify the admin reason string does not contain the doubled "in LoTE" phrasing.
+	if admin, ok := resp.Context.Reason["admin"].(string); ok {
+		if strings.Contains(admin, "in LoTE\"") {
+			t.Errorf("admin reason has doubled 'in LoTE' phrasing: %s", admin)
+		}
+	}
+}
+
+// TestEvaluate_X5C_CAAnchored_UntrustedLeafRejected ensures that the global CA
+// pool fallback does not grant access to a leaf issued by an unknown CA.
+func TestEvaluate_X5C_CAAnchored_UntrustedLeafRejected(t *testing.T) {
+	caCert, _ := generateTestCA(t)
+	otherCA, otherKey := generateTestCA(t)
+
+	// Leaf issued by otherCA (NOT listed in the LoTE).
+	leafCert := generateLeafCert(t, otherCA, otherKey)
+
+	lote := minimalLoTE("SE", x509Entity("https://access-ca.example.com", caCert))
+	path := writeLoTE(t, t.TempDir(), "lote.json", lote)
+
+	reg, err := New(Config{
+		Name:    "ca-anchored-reject-test",
+		Sources: []string{path},
+	})
+	require.NoError(t, err)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://rp.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "https://rp.example.com",
+			Key:  []interface{}{base64.StdEncoding.EncodeToString(leafCert.Raw)},
+		},
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.Decision, "leaf issued by unlisted CA must be rejected")
+}
+
+func TestRegistry_SetProfiles(t *testing.T) {
+	lote := minimalLoTE("SE", simpleEntity("https://entity.example.com"))
+	path := writeLoTE(t, t.TempDir(), "lote.json", lote)
+
+	reg, err := New(Config{
+		Name:    "set-profiles-test",
+		Sources: []string{path},
+	})
+	require.NoError(t, err)
+
+	pr := rpcert.NewProfileRegistry()
+	// SetProfiles must not panic and must be accepted without error.
+	reg.SetProfiles(pr)
 }

@@ -48,6 +48,7 @@ import (
 	"github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
+	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
 )
 
 // TSLConfig configures an ETSI TSL registry.
@@ -133,6 +134,7 @@ type TSLRegistry struct {
 	loadedAt    time.Time
 	sourceFiles []string
 	lotlSigners []*x509.Certificate // LOTL signer certificates for signature verification
+	profiles    *rpcert.ProfileRegistry
 	mu          sync.RWMutex
 	healthy     bool
 	lastError   error
@@ -160,8 +162,9 @@ func NewTSLRegistry(cfg TSLConfig) (*TSLRegistry, error) {
 	}
 
 	r := &TSLRegistry{
-		config: cfg,
-		stopCh: make(chan struct{}),
+		config:   cfg,
+		profiles: rpcert.DefaultProfileRegistry(),
+		stopCh:   make(chan struct{}),
 	}
 
 	if err := r.load(); err != nil {
@@ -847,6 +850,10 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	start := time.Now()
 	opts := x509.VerifyOptions{
 		Roots: pool,
+		// ExtKeyUsageAny: WRPACs are access certificates and may carry only
+		// id-kp-clientAuth (1.3.6.1.5.5.7.3.2). Go's default is
+		// ExtKeyUsageServerAuth which rejects clientAuth-only leaves.
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
 
 	// Add intermediate certificates if provided in the chain
@@ -974,13 +981,29 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	// Include credential_types in response if specified
 	addCredentialTypesToReason(reason, credentialTypes)
 
+	// Post-chain-validation enrichment: cert policy OID check + RP identity extraction
+	enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles)
+	if !enrichment.Decision {
+		for k, v := range enrichment.FailureReason {
+			reason[k] = v
+		}
+		return &authzen.EvaluationResponse{
+			Decision: false,
+			Context: &authzen.EvaluationResponseContext{
+				Reason: reason,
+			},
+		}, nil
+	}
+
 	// Success - certificate is trusted
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason: reason,
 		},
-	}, nil
+	}
+	registry.ApplyEnrichmentToResponse(resp, enrichment)
+	return resp, nil
 }
 
 // SupportedResourceTypes returns the resource types this registry can handle.
@@ -996,6 +1019,14 @@ func (r *TSLRegistry) SupportedResourceTypes() []string {
 // SupportsResolutionOnly returns false - ETSI TSL requires certificate validation.
 func (r *TSLRegistry) SupportsResolutionOnly() bool {
 	return false
+}
+
+// SetProfiles replaces the RP certificate profile registry used during
+// x5c enrichment. Pass nil to disable profile-based enrichment.
+func (r *TSLRegistry) SetProfiles(profiles *rpcert.ProfileRegistry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.profiles = profiles
 }
 
 // Info returns metadata about this registry.

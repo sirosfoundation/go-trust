@@ -30,6 +30,8 @@ Go-Trust is designed to run inside the same trust domain as the entity that reli
 - **Prometheus Metrics**: Comprehensive observability support
 - **Kubernetes Native**: Liveness and readiness probes, ConfigMap support
 - **Test Server**: Embedded test server for integration testing
+- **X5C Enrichment**: Certificate policy OID validation and RP identity extraction
+- **Swagger UI**: Built-in API documentation at `/swagger/`
 - **High Quality**: >80% test coverage, comprehensive linting, security scanning
 
 ## Quick Start
@@ -106,6 +108,7 @@ Environment variable: `GO_TRUST_EXTERNAL_URL` for external URL.
 | `GET /readyz?verbose=true` | Readiness with detailed TSL info |
 | `GET /metrics` | Prometheus metrics |
 | `GET /registries` | List configured trust registries |
+| `GET /swagger/*` | Swagger UI API documentation |
 
 ### AuthZEN Evaluation Request
 
@@ -174,12 +177,12 @@ Go-Trust implements a flexible multi-registry architecture that allows multiple 
 │  AuthZEN Client │────▶│   Go-Trust PDP  │
 └─────────────────┘     └────────┬────────┘
                                  │
-    ┌────────────┬───────────────┼───────────────┬────────────┐
-    ▼            ▼               ▼               ▼            ▼
-┌────────┐ ┌────────┐   ┌─────────────┐ ┌───────────┐ ┌──────────┐
-│  ETSI  │ │  ETSI  │   │  OpenID Fed │ │  DID Web  │ │   mDOC   │
-│  TSL   │ │  LoTE  │   │  Registry   │ │  Registry │ │   IACA   │
-└────────┘ └────────┘   └─────────────┘ └───────────┘ └──────────┘
+    ┌────────┬──────┬────────────┼────────────┬──────────┬────────────┐
+    ▼        ▼      ▼            ▼            ▼          ▼            ▼
+┌──────┐┌──────┐┌─────────┐┌─────────┐┌───────────┐┌────────┐┌────────┐
+│ ETSI ││ ETSI ││ OpenID  ││DID Web/ ││ DID JWKS/ ││ mDOC  ││  RP   │
+│ TSL  ││ LoTE ││  Fed    ││ WebVH   ││  Key      ││ IACA  ││ Cert  │
+└──────┘└──────┘└─────────┘└─────────┘└───────────┘└────────┘└────────┘
 ```
 
 ### TrustRegistry Interface
@@ -190,11 +193,14 @@ All trust registries implement the same interface:
 type TrustRegistry interface {
     Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error)
     SupportedResourceTypes() []string
+    SupportsResolutionOnly() bool
     Info() RegistryInfo
     Healthy() bool
     Refresh(ctx context.Context) error
 }
 ```
+
+`SupportsResolutionOnly()` indicates whether the registry only performs DID/key resolution without trust evaluation (e.g. `did:key`).
 
 ### Resolution Strategies
 
@@ -249,6 +255,18 @@ Resolves and validates DID Web VH (Verifiable History) identifiers with cryptogr
 - Pre-rotation key support
 
 **Supported resource types:** `did_document`, `jwk`, `verification_method`
+
+#### DID JWKS Registry
+
+Resolves `did:jwks` identifiers that encode JWKS endpoints directly in the DID. Supports discovery via OAuth2/OIDC metadata endpoints.
+
+**Supported resource types:** `jwk`, `key`
+
+#### DID Key Registry
+
+Resolves `did:key` identifiers that encode public keys directly in the DID (no network resolution required). Part of the generic DID resolver framework in `pkg/registry/did/`.
+
+**Supported resource types:** `jwk`, `key`
 
 #### mDOC IACA Registry
 
@@ -339,6 +357,17 @@ resp, err := reg.Evaluate(ctx, req)
 - JSON-native trust evaluation for modern credential ecosystems
 - LoTE-based trust where entities are identified by JWK, X.509, or DID
 - Transition from XML TSL to JSON LoTE format
+
+#### RP Certificate Registry (ETSI TS 119 475)
+
+Validates Relying Party registration certificates per ETSI TS 119 475 and TS 119 411-8. Verifies that a relying party presents a valid registration certificate issued by a recognized authority.
+
+**Features:**
+- X.509 certificate chain validation for RP certificates
+- Certificate policy OID validation
+- RP identity extraction from certificate Subject DN and SANs
+
+**Supported resource types:** `x5c`
 
 ### Static Trust Registries
 
@@ -578,6 +607,63 @@ curl -X POST http://localhost:6001/evaluation \
   }'
 ```
 
+### X5C Enrichment
+
+When evaluating `x5c` resources, Go-Trust can enrich evaluation responses with additional information extracted from the leaf certificate:
+
+**Certificate Policy OID Validation:**
+Require that the leaf certificate contains specific policy OIDs. Configure via policy constraints or request parameters:
+
+```yaml
+policies:
+  policies:
+    credential-issuer:
+      etsi:
+        required_cert_policy_oids:
+          - "2.16.840.1.101.2.1.11.36"
+          - "1.3.6.1.4.1.311.94.1.1"
+        extract_rp_identity: true
+```
+
+Or per-request via `action.parameters`:
+```json
+{
+  "action": {
+    "name": "credential-issuer",
+    "parameters": {
+      "required_cert_policy_oids": ["2.16.840.1.101.2.1.11.36"],
+      "extract_rp_identity": true
+    }
+  }
+}
+```
+
+**RP Identity Extraction:**
+When enabled, the response includes the relying party's identity extracted from the leaf certificate:
+
+```json
+{
+  "decision": true,
+  "context": {
+    "reason": {
+      "matched_policy_oids": ["2.16.840.1.101.2.1.11.36"]
+    },
+    "trust_metadata": {
+      "rp_identity": {
+        "organization": ["Example Corp"],
+        "common_name": "Example RP",
+        "country": ["SE"],
+        "serial_number": "1234567890",
+        "dns_sans": ["rp.example.com"]
+      },
+      "matched_policy_oids": ["2.16.840.1.101.2.1.11.36"]
+    }
+  }
+}
+```
+
+X5C enrichment is supported by both ETSI TSL and LoTE registries.
+
 ## Deployment
 
 ### Docker
@@ -744,7 +830,7 @@ srv := testserver.New(testserver.WithRegistry(reg))
 
 ### Requirements
 
-- Go 1.25+ (check `go.mod` for exact version)
+- Go 1.26+ (check `go.mod` for exact version)
 - CGO enabled (`CGO_ENABLED=1`)
 - Make for build automation
 
@@ -762,22 +848,29 @@ make quick          # Quick pre-commit checks
 
 ```
 go-trust/
-├── cmd/gt/         # Main application
+├── cmd/gt/            # Main application
 ├── pkg/
-│   ├── api/        # HTTP API implementation
-│   ├── authzen/    # AuthZEN protocol types
-│   ├── registry/   # Trust registry interface and manager
-│   │   ├── etsi/     # ETSI TSL registry (XML, TS 119 612)
-│   │   ├── lote/     # ETSI LoTE registry (JSON, TS 119 602)
-│   │   ├── oidfed/   # OpenID Federation registry
-│   │   ├── didweb/   # DID Web registry
-│   │   ├── didwebvh/ # DID Web VH registry
-│   │   ├── mdociaca/ # mDOC IACA registry
-│   │   └── static/   # Static registries (always/never/system/whitelist)
-│   ├── logging/    # Structured logging
-│   └── testserver/ # Embedded test server
-├── example/        # Example configurations
-└── docs/           # Architecture documentation
+│   ├── api/           # HTTP API implementation (Swagger UI)
+│   ├── authzen/       # AuthZEN protocol types
+│   ├── authzenclient/ # AuthZEN client library
+│   ├── config/        # YAML configuration loading
+│   ├── registry/      # Trust registry interface and manager
+│   │   ├── etsi/        # ETSI TSL registry (XML, TS 119 612)
+│   │   ├── lote/        # ETSI LoTE registry (JSON, TS 119 602)
+│   │   ├── oidfed/      # OpenID Federation registry
+│   │   ├── didweb/      # DID Web registry
+│   │   ├── didwebvh/    # DID Web VH registry
+│   │   ├── didjwks/     # DID JWKS registry
+│   │   ├── did/         # Generic DID resolver + did:key
+│   │   ├── didutil/     # DID utility functions
+│   │   ├── mdociaca/    # mDOC IACA registry
+│   │   ├── rpcert/      # RP Certificate registry (TS 119 475)
+│   │   └── static/      # Static registries (always/never/system/whitelist)
+│   ├── resilience/    # Resilient HTTP fetcher
+│   ├── trustapi/      # Trust API evaluator types
+│   └── testserver/    # Embedded test server
+├── example/           # Example configurations
+└── docs/              # Architecture documentation
 ```
 
 ## Contributing

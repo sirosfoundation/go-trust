@@ -164,6 +164,9 @@ func (r *SystemCertPoolRegistry) Evaluate(ctx context.Context, req *authzen.Eval
 	start := time.Now()
 	opts := x509.VerifyOptions{
 		Roots: r.certPool,
+		// ExtKeyUsageAny: WRPACs may carry only id-kp-clientAuth.
+		// Go's zero-value KeyUsages defaults to ExtKeyUsageServerAuth.
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
 
 	// Add intermediate certificates if provided

@@ -390,3 +390,98 @@ func TestApplyPolicyToRequest_NilActionParameters(t *testing.T) {
 
 	// Context may be nil or empty since no constraints were applied
 }
+
+// TestApplyPolicyToRequest_ETSICertPolicyOIDs verifies that RequiredCertPolicyOIDs
+// and ExtractRPIdentity are injected into request context.
+func TestApplyPolicyToRequest_ETSICertPolicyOIDs(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	policy := &Policy{
+		Name: "verifier-with-oids",
+		ETSI: &ETSIPolicyConstraints{
+			RequiredCertPolicyOIDs: []string{"1.2.3.4.5", "2.16.840.1.101"},
+			ExtractRPIdentity:      true,
+		},
+	}
+
+	req := &authzen.EvaluationRequest{}
+	pctx := &PolicyContext{Policy: policy}
+
+	mgr.applyPolicyToRequest(req, pctx)
+
+	require.NotNil(t, req.Context)
+	assert.Equal(t, []string{"1.2.3.4.5", "2.16.840.1.101"}, req.Context["required_cert_policy_oids"])
+	assert.Equal(t, true, req.Context["extract_rp_identity"])
+}
+
+// TestApplyPolicyToRequest_ETSINoOIDs verifies that empty OID list is not injected.
+func TestApplyPolicyToRequest_ETSINoOIDs(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	policy := &Policy{
+		Name: "verifier-no-oids",
+		ETSI: &ETSIPolicyConstraints{
+			ServiceTypes:      []string{"http://uri.etsi.org/TrstSvc/Svctype/CA/QC"},
+			ExtractRPIdentity: false,
+		},
+	}
+
+	req := &authzen.EvaluationRequest{}
+	pctx := &PolicyContext{Policy: policy}
+
+	mgr.applyPolicyToRequest(req, pctx)
+
+	require.NotNil(t, req.Context)
+	assert.Nil(t, req.Context["required_cert_policy_oids"])
+	assert.Nil(t, req.Context["extract_rp_identity"])
+}
+
+// TestApplyPolicyToRequest_ActionParameterAllowlist verifies that security-sensitive
+// context keys cannot be injected via action.parameters.
+func TestApplyPolicyToRequest_ActionParameterAllowlist(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	req := &authzen.EvaluationRequest{
+		Action: &authzen.Action{
+			Name: "test",
+			Parameters: map[string]interface{}{
+				// Allowed keys — should appear in context
+				"query":                map[string]interface{}{"credentials": []interface{}{}},
+				"requested_attributes": []string{"family_name"},
+				"credential_types":     []string{"eu.europa.ec.eudi.pid.1"},
+				"purpose":              "age verification",
+
+				// Blocked keys — should NOT appear in context
+				"strict_entitlement_check":  true,
+				"allow_intermediaries":      true,
+				"required_cert_policy_oids": []string{"1.2.3.4"},
+				"extract_rp_identity":       true,
+				"allowed_attributes":        []string{"everything"},
+				"_policy":                   "injected-policy",
+				"service_types":             []string{"injected"},
+				"required_trust_marks":      []string{"injected"},
+			},
+		},
+	}
+	pctx := &PolicyContext{Policy: nil}
+
+	mgr.applyPolicyToRequest(req, pctx)
+
+	require.NotNil(t, req.Context)
+
+	// Allowed keys present
+	assert.NotNil(t, req.Context["query"])
+	assert.Equal(t, []string{"family_name"}, req.Context["requested_attributes"])
+	assert.Equal(t, []string{"eu.europa.ec.eudi.pid.1"}, req.Context["credential_types"])
+	assert.Equal(t, "age verification", req.Context["purpose"])
+
+	// Security-sensitive keys blocked
+	assert.Nil(t, req.Context["strict_entitlement_check"], "strict_entitlement_check should be blocked")
+	assert.Nil(t, req.Context["allow_intermediaries"], "allow_intermediaries should be blocked")
+	assert.Nil(t, req.Context["required_cert_policy_oids"], "required_cert_policy_oids should be blocked")
+	assert.Nil(t, req.Context["extract_rp_identity"], "extract_rp_identity should be blocked")
+	assert.Nil(t, req.Context["allowed_attributes"], "allowed_attributes should be blocked")
+	assert.Nil(t, req.Context["_policy"], "_policy should be blocked")
+	assert.Nil(t, req.Context["service_types"], "service_types should be blocked")
+	assert.Nil(t, req.Context["required_trust_marks"], "required_trust_marks should be blocked")
+}
