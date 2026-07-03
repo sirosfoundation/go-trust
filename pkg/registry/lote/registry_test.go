@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1165,6 +1166,13 @@ func TestEvaluate_X5C_CAAnchored_SubjectIDNotListed(t *testing.T) {
 
 	if !resp.Decision {
 		t.Errorf("expected true decision (issue #90): RP not listed but leaf chains to listed CA; got false. Reason: %v", resp.Context.Reason)
+	}
+
+	// Verify the admin reason string does not contain the doubled "in LoTE" phrasing.
+	if admin, ok := resp.Context.Reason["admin"].(string); ok {
+		if strings.Contains(admin, "in LoTE\"") {
+			t.Errorf("admin reason has doubled 'in LoTE' phrasing: %s", admin)
+		}
 	}
 }
 

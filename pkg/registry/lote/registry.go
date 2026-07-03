@@ -444,7 +444,7 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 	}
 
 	resp := r.buildSuccessResponse(req.Subject.ID, territory,
-		fmt.Sprintf("x5c chain validates against CA-anchored entity %q in LoTE", matchedID),
+		fmt.Sprintf("x5c chain validates against CA-anchored entity %q for subject", matchedID),
 		credentialTypes)
 	registry.ApplyEnrichmentToResponse(resp, enrichment)
 	return resp
