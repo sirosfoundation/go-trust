@@ -72,6 +72,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  --help         Show this help message and exit")
 	fmt.Fprintln(os.Stderr, "  --version      Show version information and exit")
 	fmt.Fprintln(os.Stderr, "  --config       Configuration file path (YAML format)")
+	fmt.Fprintln(os.Stderr, "                 Can also be set via GT_CONFIG environment variable (overrides --config)")
 	fmt.Fprintln(os.Stderr, "  --host         API server hostname (default: 127.0.0.1)")
 	fmt.Fprintln(os.Stderr, "  --port         API server port (default: 6001)")
 	fmt.Fprintln(os.Stderr, "  --external-url External URL for PDP discovery (e.g., https://pdp.example.com)")
@@ -97,7 +98,7 @@ func usage() {
 func main() {
 	showHelp := flag.Bool("help", false, "Show help message")
 	showVersion := flag.Bool("version", false, "Show version information")
-	configFile := flag.String("config", "", "Configuration file path (YAML format)")
+	configFile := flag.String("config", "", "Configuration file path (YAML format). Overridden by GT_CONFIG environment variable.")
 	host := flag.String("host", "127.0.0.1", "API server hostname")
 	port := flag.String("port", "6001", "API server port")
 	externalURL := flag.String("external-url", "", "External URL for PDP discovery")
@@ -116,6 +117,11 @@ func main() {
 	logFormat := flag.String("log-format", "text", "Logging format: text or json")
 
 	flag.Parse()
+
+	// GT_CONFIG environment variable overrides the --config flag.
+	if envConfig := os.Getenv("GT_CONFIG"); envConfig != "" {
+		*configFile = envConfig
+	}
 
 	if *showHelp {
 		usage()
