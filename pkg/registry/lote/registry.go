@@ -88,13 +88,49 @@ type entityIndex struct {
 
 // indexedEntity holds a single entity and its precomputed key hashes.
 type indexedEntity struct {
-	entity    etsi119602.TrustedEntity
-	entityID  string
-	territory string
-	keyHashes map[string]bool // SHA-256 fingerprints of all digital identities
+	entity     etsi119602.TrustedEntity
+	entityID   string
+	territory  string
+	schemeType string          // LoTE schemeType URI (determines status checking behavior)
+	keyHashes  map[string]bool // SHA-256 fingerprints of all digital identities
 	// certPool contains X.509 certificates from this entity's digital identities,
 	// used as trust anchors for PKIX path validation of x5c requests.
 	certPool *x509.CertPool
+}
+
+// Pub-EAA service status URIs per ETSI TS 119 602 Annex H.
+const (
+	pubEAAStatusNotified  = "http://uri.etsi.org/19602/PubEAAProvidersList/SvcStatus/notified"
+	pubEAAStatusWithdrawn = "http://uri.etsi.org/19602/PubEAAProvidersList/SvcStatus/withdrawn"
+)
+
+// hasNotifiedService checks if a Pub-EAA entity has at least one active (non-withdrawn)
+// service with "notified" status. Per ETSI TS 119 602 Annex H, Pub-EAA services must
+// have explicit ServiceStatus; only "notified" confers trust.
+// Withdrawn services are excluded regardless of their status value.
+func hasNotifiedService(entity etsi119602.TrustedEntity) bool {
+	for _, svc := range entity.TrustedEntityServices {
+		if isWithdrawnStatus(svc.ServiceInformation.ServiceStatus) {
+			continue
+		}
+		if svc.ServiceInformation.ServiceStatus == pubEAAStatusNotified {
+			return true
+		}
+	}
+	return false
+}
+
+// allServicesWithdrawnOrAbsent returns true when every service in a Pub-EAA entity
+// either has a withdrawn status or has no status set at all. Used to produce a
+// more informative denial reason than the generic "no notified service" message.
+func allServicesWithdrawnOrAbsent(entity etsi119602.TrustedEntity) bool {
+	for _, svc := range entity.TrustedEntityServices {
+		s := svc.ServiceInformation.ServiceStatus
+		if s != "" && !isWithdrawnStatus(s) {
+			return false
+		}
+	}
+	return true
 }
 
 var _ registry.TrustRegistry = (*Registry)(nil)
@@ -199,8 +235,26 @@ func (r *Registry) Evaluate(_ context.Context, req *authzen.EvaluationRequest) (
 		}, nil
 	}
 
-	// Per ETSI TS 119 602-1: presence in the list = trusted (no entity-level status).
-	// Withdrawn services are excluded during indexing.
+	// Check trust status based on LoTE profile type (ETSI TS 119 602 compliance).
+	// - Pub-EAA (Annex H): ServiceStatus is mandatory, check at service level
+	// - All other profiles (PID, Wallet, WRPAC, WRPRC, Registrars): presence in list = trusted
+	// Withdrawn services are excluded during indexing for all profiles.
+	if etsi119602.IsPubEAASchemeType(ent.schemeType) {
+		// Pub-EAA requires explicit service status check (ETSI TS 119 602 Annex H).
+		if !hasNotifiedService(ent.entity) {
+			adminMsg := fmt.Sprintf("entity %q has no service with 'notified' status", subjectID)
+			if allServicesWithdrawnOrAbsent(ent.entity) {
+				adminMsg = fmt.Sprintf("entity %q has no active services (all withdrawn or status absent)", subjectID)
+			}
+			reason := map[string]interface{}{"admin": adminMsg}
+			addCredentialTypesToReason(reason, credentialTypes)
+			return &authzen.EvaluationResponse{
+				Decision: false,
+				Context:  &authzen.EvaluationResponseContext{Reason: reason},
+			}, nil
+		}
+	}
+	// For non-Pub-EAA profiles: presence in list means trusted (no status check needed)
 
 	// Resolution-only: no key check needed.
 	if req.IsResolutionOnlyRequest() {
@@ -424,8 +478,34 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 		return nil // chain does not validate against any listed CA
 	}
 
-	// Find which listed entity's CA pool the chain validates against (for metadata).
-	matchedID, territory := r.findMatchingEntityForChain(certs)
+	// Find which listed entity's CA pool the chain validates against (for metadata
+	// and profile-aware status checking).
+	matchedEnt := r.findMatchingEntityForChain(certs)
+	if matchedEnt == nil {
+		// chain validated against globalCertPool but we can't identify the CA entity;
+		// this should not normally happen — treat as unresolvable.
+		return nil
+	}
+	matchedID := matchedEnt.entityID
+	territory := matchedEnt.territory
+
+	// For Pub-EAA LoTEs: the CA-anchored path must also enforce the notified-status
+	// requirement. A chain anchored to a Pub-EAA CA whose services are not notified
+	// must be rejected, matching the behaviour of the direct-lookup path.
+	if etsi119602.IsPubEAASchemeType(matchedEnt.schemeType) {
+		if !hasNotifiedService(matchedEnt.entity) {
+			adminMsg := fmt.Sprintf("x5c chain anchors to Pub-EAA CA %q which has no service with 'notified' status", matchedID)
+			if allServicesWithdrawnOrAbsent(matchedEnt.entity) {
+				adminMsg = fmt.Sprintf("x5c chain anchors to Pub-EAA CA %q which has no active services (all withdrawn or status absent)", matchedID)
+			}
+			reason := map[string]interface{}{"admin": adminMsg}
+			addCredentialTypesToReason(reason, credentialTypes)
+			return &authzen.EvaluationResponse{
+				Decision: false,
+				Context:  &authzen.EvaluationResponseContext{Reason: reason},
+			}
+		}
+	}
 
 	// Post-chain-validation enrichment (profile / WRPRC checks).
 	enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles)
@@ -451,8 +531,8 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 }
 
 // findMatchingEntityForChain identifies which listed entity's cert pool the given
-// chain validates against. Returns the entity ID and territory of the first match.
-func (r *Registry) findMatchingEntityForChain(certs []*x509.Certificate) (entityID, territory string) {
+// chain validates against. Returns the first matched indexedEntity, or nil if none match.
+func (r *Registry) findMatchingEntityForChain(certs []*x509.Certificate) *indexedEntity {
 	for _, ent := range r.index.byID {
 		if ent.certPool == nil {
 			continue
@@ -469,10 +549,10 @@ func (r *Registry) findMatchingEntityForChain(certs []*x509.Certificate) (entity
 			opts.Intermediates = intermediates
 		}
 		if _, err := certs[0].Verify(opts); err == nil {
-			return ent.entityID, ent.territory
+			return ent
 		}
 	}
-	return "", ""
+	return nil
 }
 
 // parseX5CCerts extracts X.509 certificates from an x5c resource key.
@@ -552,19 +632,35 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 
 	for _, lote := range lotes {
 		territory := lote.ListAndSchemeInformation.SchemeTerritory
+		schemeType := lote.ListAndSchemeInformation.LoTEType
+		isPubEAA := etsi119602.IsPubEAASchemeType(schemeType)
 		for _, ent := range lote.TrustedEntitiesList {
 			id := entityID(ent)
 			ie := &indexedEntity{
-				entity:    ent,
-				entityID:  id,
-				territory: territory,
-				keyHashes: make(map[string]bool),
+				entity:     ent,
+				entityID:   id,
+				territory:  territory,
+				schemeType: schemeType,
+				keyHashes:  make(map[string]bool),
 			}
 
-			// Index service digital identities; skip withdrawn services.
+			// Index service digital identities.
+			// - Non-Pub-EAA LoTEs: skip withdrawn services only (presence = trusted).
+			// - Pub-EAA LoTEs (ETSI TS 119 602 Annex H): only index services with
+			//   an explicit "notified" status. Services with absent, withdrawn, or
+			//   any other status are excluded so that a key from a non-notified
+			//   service is never reachable through the index even when the entity
+			//   also has a notified service.
 			for _, svc := range ent.TrustedEntityServices {
-				if isWithdrawnStatus(svc.ServiceInformation.ServiceStatus) {
-					continue
+				status := svc.ServiceInformation.ServiceStatus
+				if isPubEAA {
+					if status != pubEAAStatusNotified {
+						continue
+					}
+				} else {
+					if isWithdrawnStatus(status) {
+						continue
+					}
 				}
 				sdi := svc.ServiceInformation.ServiceDigitalIdentity
 				hashes := hashServiceDigitalIdentity(sdi, ext)
