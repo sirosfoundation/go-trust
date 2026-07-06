@@ -1625,3 +1625,80 @@ func TestBuildIndex_SchemeTypePropagation(t *testing.T) {
 	assert.Equal(t, etsi119602.LoTETypePubEAAProviders, ent.schemeType,
 		"schemeType must be propagated from LoTEType during buildIndex")
 }
+
+// TestEvaluate_PubEAA_MixedServices_OnlyNotifiedKeyAccepted verifies that for a
+// Pub-EAA entity with two services — one notified and one with absent status —
+// only the notified service's key is accepted. The key from the absent-status
+// service must be rejected even though the entity has a notified service.
+// This addresses the Copilot review finding that buildIndex previously indexed
+// keys from all non-withdrawn services regardless of Pub-EAA status.
+func TestEvaluate_PubEAA_MixedServices_OnlyNotifiedKeyAccepted(t *testing.T) {
+	entityID := "https://pubeaa-mixed.example.com"
+
+	// Two distinct EC P-256 public keys. Key A belongs to the notified service,
+	// key B to the absent-status service.
+	keyNotified := map[string]any{
+		"kty": "EC", "crv": "P-256",
+		"x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+		"y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+	}
+	keyAbsent := map[string]any{
+		"kty": "EC", "crv": "P-256",
+		"x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4",
+		"y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM",
+	}
+
+	ent := etsi119602.TrustedEntity{
+		TrustedEntityInformation: etsi119602.TrustedEntityInformation{
+			TEInformationURI: []etsi119602.NonEmptyMultiLangURI{{Lang: "en", URIValue: entityID}},
+		},
+		TrustedEntityServices: []etsi119602.TrustedEntityService{
+			{
+				ServiceInformation: etsi119602.ServiceInformation{
+					ServiceName:           etsi119602.NameSet{{Lang: "en", Value: "Notified Issuance"}},
+					ServiceTypeIdentifier: "http://uri.etsi.org/19602/SvcType/PubEAA/Issuance",
+					ServiceStatus:         pubEAAStatusNotified,
+					ServiceDigitalIdentity: etsi119602.ServiceDigitalIdentity{
+						PublicKeyValues: []map[string]any{keyNotified},
+					},
+				},
+			},
+			{
+				ServiceInformation: etsi119602.ServiceInformation{
+					ServiceName:           etsi119602.NameSet{{Lang: "en", Value: "Absent-Status Issuance"}},
+					ServiceTypeIdentifier: "http://uri.etsi.org/19602/SvcType/PubEAA/Issuance",
+					// ServiceStatus intentionally absent — must NOT be indexed
+					ServiceDigitalIdentity: etsi119602.ServiceDigitalIdentity{
+						PublicKeyValues: []map[string]any{keyAbsent},
+					},
+				},
+			},
+		},
+	}
+	lote := minimalPubEAALoTE("SE", ent)
+	path := writeLoTE(t, t.TempDir(), "lote.json", lote)
+	reg, err := New(Config{Sources: []string{path}})
+	require.NoError(t, err)
+
+	makeReq := func(key map[string]any) *authzen.EvaluationRequest {
+		return &authzen.EvaluationRequest{
+			Subject: authzen.Subject{Type: "key", ID: entityID},
+			Resource: authzen.Resource{
+				Type: "jwk",
+				ID:   entityID,
+				Key:  []interface{}{key},
+			},
+		}
+	}
+
+	// The notified service's key must be accepted.
+	respOK, err := reg.Evaluate(context.Background(), makeReq(keyNotified))
+	require.NoError(t, err)
+	assert.True(t, respOK.Decision, "notified service key must be trusted")
+
+	// The absent-status service's key must be rejected, even though the entity
+	// has another service that is notified.
+	respDeny, err := reg.Evaluate(context.Background(), makeReq(keyAbsent))
+	require.NoError(t, err)
+	assert.False(t, respDeny.Decision, "absent-status service key must NOT be trusted")
+}

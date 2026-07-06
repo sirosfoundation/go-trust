@@ -633,6 +633,7 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 	for _, lote := range lotes {
 		territory := lote.ListAndSchemeInformation.SchemeTerritory
 		schemeType := lote.ListAndSchemeInformation.LoTEType
+		isPubEAA := etsi119602.IsPubEAASchemeType(schemeType)
 		for _, ent := range lote.TrustedEntitiesList {
 			id := entityID(ent)
 			ie := &indexedEntity{
@@ -643,10 +644,23 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 				keyHashes:  make(map[string]bool),
 			}
 
-			// Index service digital identities; skip withdrawn services.
+			// Index service digital identities.
+			// - Non-Pub-EAA LoTEs: skip withdrawn services only (presence = trusted).
+			// - Pub-EAA LoTEs (ETSI TS 119 602 Annex H): only index services with
+			//   an explicit "notified" status. Services with absent, withdrawn, or
+			//   any other status are excluded so that a key from a non-notified
+			//   service is never reachable through the index even when the entity
+			//   also has a notified service.
 			for _, svc := range ent.TrustedEntityServices {
-				if isWithdrawnStatus(svc.ServiceInformation.ServiceStatus) {
-					continue
+				status := svc.ServiceInformation.ServiceStatus
+				if isPubEAA {
+					if status != pubEAAStatusNotified {
+						continue
+					}
+				} else {
+					if isWithdrawnStatus(status) {
+						continue
+					}
 				}
 				sdi := svc.ServiceInformation.ServiceDigitalIdentity
 				hashes := hashServiceDigitalIdentity(sdi, ext)
