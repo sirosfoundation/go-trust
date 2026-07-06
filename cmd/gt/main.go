@@ -76,7 +76,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  --host         API server hostname (default: 127.0.0.1)")
 	fmt.Fprintln(os.Stderr, "  --port         API server port (default: 6001)")
 	fmt.Fprintln(os.Stderr, "  --external-url External URL for PDP discovery (e.g., https://pdp.example.com)")
-	fmt.Fprintln(os.Stderr, "                 Can also be set via GO_TRUST_EXTERNAL_URL environment variable")
+	fmt.Fprintln(os.Stderr, "                 Can also be set via GT_EXTERNAL_URL environment variable")
 	fmt.Fprintln(os.Stderr, "\nETSI TSL Registry Options:")
 	fmt.Fprintln(os.Stderr, "  --etsi-cert-bundle   Path to PEM file with trusted CA certificates")
 	fmt.Fprintln(os.Stderr, "  --etsi-tsl-files     Comma-separated list of local TSL XML files")
@@ -332,7 +332,7 @@ func main() {
 	// Set BaseURL for .well-known discovery
 	baseURL := *externalURL
 	if baseURL == "" {
-		baseURL = os.Getenv("GO_TRUST_EXTERNAL_URL")
+		baseURL = os.Getenv("GT_EXTERNAL_URL")
 	}
 	if baseURL == "" {
 		baseURL = fmt.Sprintf("http://%s:%s", *host, *port)
