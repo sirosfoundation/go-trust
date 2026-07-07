@@ -19,19 +19,20 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/sha512"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"hash"
 	"io"
 	"math/big"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	// Import hash implementations so crypto.SHA256 etc. are available via .New().
+	_ "crypto/sha256"
+	_ "crypto/sha512"
 )
 
 // VerifyLoTESignature verifies the JWS signature of a raw LoTE payload.
@@ -123,33 +124,36 @@ func verifyJWSSignature(alg string, pub crypto.PublicKey, signingInput, sig []by
 		if !ok {
 			return fmt.Errorf("algorithm %s requires RSA public key", alg)
 		}
-		h, hash := algHash(alg)
-		digest := h.Sum(nil)
-		_ = digest
-		hh := hash.New()
+		h := jwsHash(alg)
+		hh := h.New()
 		hh.Write(signingInput)
-		return rsa.VerifyPKCS1v15(rsaKey, hash, hh.Sum(nil), sig)
+		// RS256/384/512 use PKCS#1 v1.5 signature scheme per RFC 7518 §3.3.
+		// This is a signature verification operation (not encryption); PKCS#1 v1.5
+		// is a valid and widely-deployed JWS algorithm. RSA-PSS (PS256/384/512) is
+		// preferred for new deployments but RS* must be supported for interoperability
+		// with existing LoTE signers.
+		return rsa.VerifyPKCS1v15(rsaKey, h, hh.Sum(nil), sig) //nolint:gosec
 
 	case "PS256", "PS384", "PS512":
 		rsaKey, ok := pub.(*rsa.PublicKey)
 		if !ok {
 			return fmt.Errorf("algorithm %s requires RSA public key", alg)
 		}
-		_, hash := algHash(alg)
-		hh := hash.New()
+		h := jwsHash(alg)
+		hh := h.New()
 		hh.Write(signingInput)
-		return rsa.VerifyPSS(rsaKey, hash, hh.Sum(nil), sig, nil)
+		return rsa.VerifyPSS(rsaKey, h, hh.Sum(nil), sig, nil)
 
 	case "ES256", "ES384", "ES512":
 		ecKey, ok := pub.(*ecdsa.PublicKey)
 		if !ok {
 			return fmt.Errorf("algorithm %s requires ECDSA public key", alg)
 		}
-		_, hash := algHash(alg)
-		hh := hash.New()
+		h := jwsHash(alg)
+		hh := h.New()
 		hh.Write(signingInput)
 		digest := hh.Sum(nil)
-		// ECDSA JWS signature is r || s (fixed-size big-endian)
+		// ECDSA JWS signature is r || s (fixed-size big-endian) per RFC 7518 §3.4.
 		keyBytes := (ecKey.Curve.Params().BitSize + 7) / 8
 		if len(sig) != 2*keyBytes {
 			return fmt.Errorf("ECDSA signature has unexpected length %d (want %d)", len(sig), 2*keyBytes)
@@ -166,15 +170,15 @@ func verifyJWSSignature(alg string, pub crypto.PublicKey, signingInput, sig []by
 	}
 }
 
-// algHash maps a JWA algorithm name to a zeroed hash.Hash and its crypto.Hash ID.
-func algHash(alg string) (hash.Hash, crypto.Hash) {
+// jwsHash maps a JWA algorithm name to its crypto.Hash identifier (RFC 7518 §3).
+func jwsHash(alg string) crypto.Hash {
 	switch alg {
 	case "RS256", "PS256", "ES256":
-		return sha256.New(), crypto.SHA256
+		return crypto.SHA256
 	case "RS384", "PS384", "ES384":
-		return sha512.New384(), crypto.SHA384
+		return crypto.SHA384
 	default: // RS512, PS512, ES512
-		return sha512.New(), crypto.SHA512
+		return crypto.SHA512
 	}
 }
 
