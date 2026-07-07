@@ -1,0 +1,230 @@
+// Package lote — LoTE JWS signature verification per ETSI TS 119 615.
+//
+// verifyLoTESignature verifies the JWS envelope of a LoTE JWT document when a
+// non-nil trust anchor pool is provided. The LoTE document MUST be a compact
+// JWS (header.payload.signature) or a JSON serialisation with a protected
+// header that carries the signer certificate chain in the x5c header parameter.
+//
+// If the trust anchor pool is nil the function returns nil (verification skipped).
+// This preserves backwards compatibility for callers that use NilTrustAnchorProvider.
+//
+// References:
+//   - ETSI TS 119 615 v1.1.1 — Trust Anchor validation procedures
+//   - ETSI TS 119 612 v2.1.1 — Trusted List format (JSON)
+//   - RFC 7515 — JSON Web Signature
+package lote
+
+import (
+	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/sha512"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"hash"
+	"io"
+	"math/big"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+)
+
+// VerifyLoTESignature verifies the JWS signature of a raw LoTE payload.
+//
+// raw is the raw bytes fetched from the LoTE endpoint (compact JWT or JSON).
+// roots is the CertPool to anchor the signer certificate chain; nil means skip.
+// now is the verification time (normally time.Now(), injected for testing).
+//
+// On success the signer leaf certificate is returned so callers can log it.
+// Returns (nil, nil) when roots is nil (verification skipped).
+func VerifyLoTESignature(ctx context.Context, raw []byte, roots *x509.CertPool, now time.Time) (*x509.Certificate, error) {
+	if roots == nil {
+		return nil, nil
+	}
+
+	token := strings.TrimSpace(string(raw))
+
+	var headerB64, payloadB64, sigB64 string
+	if parts := strings.Split(token, "."); len(parts) == 3 {
+		// Compact JWS
+		headerB64, payloadB64, sigB64 = parts[0], parts[1], parts[2]
+	} else {
+		// Try JSON serialisation: {"protected":"…","payload":"…","signature":"…"}
+		var flat struct {
+			Protected string `json:"protected"`
+			Payload   string `json:"payload"`
+			Signature string `json:"signature"`
+		}
+		if err := json.Unmarshal(raw, &flat); err != nil {
+			return nil, fmt.Errorf("lote: cannot parse as compact JWT or JSON JWS: %w", err)
+		}
+		headerB64 = flat.Protected
+		payloadB64 = flat.Payload
+		sigB64 = flat.Signature
+	}
+
+	// Decode header
+	headerBytes, err := base64.RawURLEncoding.DecodeString(headerB64)
+	if err != nil {
+		return nil, fmt.Errorf("lote: decoding JWS header: %w", err)
+	}
+	var header struct {
+		Alg string   `json:"alg"`
+		X5C []string `json:"x5c"`
+	}
+	if err := json.Unmarshal(headerBytes, &header); err != nil {
+		return nil, fmt.Errorf("lote: parsing JWS header: %w", err)
+	}
+	if len(header.X5C) == 0 {
+		return nil, fmt.Errorf("lote: JWS header missing x5c certificate chain required by ETSI TS 119 615")
+	}
+
+	// Parse x5c chain
+	leaf, intermediates, err := parseX5CChainRaw(header.X5C)
+	if err != nil {
+		return nil, fmt.Errorf("lote: parsing x5c from JWS header: %w", err)
+	}
+
+	// Verify signer certificate against trust anchors
+	verifyOpts := x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		CurrentTime:   now,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}
+	if _, err := leaf.Verify(verifyOpts); err != nil {
+		return nil, fmt.Errorf("lote: signer certificate chain validation failed: %w", err)
+	}
+
+	// Verify JWS signature
+	signingInput := headerB64 + "." + payloadB64
+	sigBytes, err := base64.RawURLEncoding.DecodeString(sigB64)
+	if err != nil {
+		return nil, fmt.Errorf("lote: decoding JWS signature: %w", err)
+	}
+	if err := verifyJWSSignature(header.Alg, leaf.PublicKey, []byte(signingInput), sigBytes); err != nil {
+		return nil, fmt.Errorf("lote: JWS signature verification failed: %w", err)
+	}
+
+	return leaf, nil
+}
+
+// verifyJWSSignature checks a JWS signature given the algorithm name, public key,
+// signing input (ASCII bytes of "header.payload"), and raw signature bytes.
+func verifyJWSSignature(alg string, pub crypto.PublicKey, signingInput, sig []byte) error {
+	switch alg {
+	case "RS256", "RS384", "RS512":
+		rsaKey, ok := pub.(*rsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("algorithm %s requires RSA public key", alg)
+		}
+		h, hash := algHash(alg)
+		digest := h.Sum(nil)
+		_ = digest
+		hh := hash.New()
+		hh.Write(signingInput)
+		return rsa.VerifyPKCS1v15(rsaKey, hash, hh.Sum(nil), sig)
+
+	case "PS256", "PS384", "PS512":
+		rsaKey, ok := pub.(*rsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("algorithm %s requires RSA public key", alg)
+		}
+		_, hash := algHash(alg)
+		hh := hash.New()
+		hh.Write(signingInput)
+		return rsa.VerifyPSS(rsaKey, hash, hh.Sum(nil), sig, nil)
+
+	case "ES256", "ES384", "ES512":
+		ecKey, ok := pub.(*ecdsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("algorithm %s requires ECDSA public key", alg)
+		}
+		_, hash := algHash(alg)
+		hh := hash.New()
+		hh.Write(signingInput)
+		digest := hh.Sum(nil)
+		// ECDSA JWS signature is r || s (fixed-size big-endian)
+		keyBytes := (ecKey.Curve.Params().BitSize + 7) / 8
+		if len(sig) != 2*keyBytes {
+			return fmt.Errorf("ECDSA signature has unexpected length %d (want %d)", len(sig), 2*keyBytes)
+		}
+		r := new(big.Int).SetBytes(sig[:keyBytes])
+		s := new(big.Int).SetBytes(sig[keyBytes:])
+		if !ecdsa.Verify(ecKey, digest, r, s) {
+			return fmt.Errorf("ECDSA signature invalid")
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported JWS algorithm %q", alg)
+	}
+}
+
+// algHash maps a JWA algorithm name to a zeroed hash.Hash and its crypto.Hash ID.
+func algHash(alg string) (hash.Hash, crypto.Hash) {
+	switch alg {
+	case "RS256", "PS256", "ES256":
+		return sha256.New(), crypto.SHA256
+	case "RS384", "PS384", "ES384":
+		return sha512.New384(), crypto.SHA384
+	default: // RS512, PS512, ES512
+		return sha512.New(), crypto.SHA512
+	}
+}
+
+// parseX5CChainRaw parses a base64-encoded DER x5c array into leaf and
+// intermediates. Returns an error when the array is empty or parsing fails.
+func parseX5CChainRaw(x5c []string) (*x509.Certificate, *x509.CertPool, error) {
+	if len(x5c) == 0 {
+		return nil, nil, fmt.Errorf("x5c is empty")
+	}
+	intermediates := x509.NewCertPool()
+	var leaf *x509.Certificate
+	for i, b64 := range x5c {
+		der, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			// Some implementations use raw URL encoding
+			der, err = base64.RawStdEncoding.DecodeString(b64)
+			if err != nil {
+				return nil, nil, fmt.Errorf("x5c[%d]: base64 decode failed: %w", i, err)
+			}
+		}
+		cert, err := x509.ParseCertificate(der)
+		if err != nil {
+			return nil, nil, fmt.Errorf("x5c[%d]: parse certificate: %w", i, err)
+		}
+		if i == 0 {
+			leaf = cert
+		} else {
+			intermediates.AddCert(cert)
+		}
+	}
+	return leaf, intermediates, nil
+}
+
+// fetchRawSource fetches the raw bytes from a URL or local file path.
+// Used to obtain the original JWS payload for signature verification before
+// the parsed LoTE is accepted.
+func fetchRawSource(src string, timeout time.Duration) ([]byte, error) {
+	if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") {
+		client := &http.Client{Timeout: timeout}
+		resp, err := client.Get(src) //nolint:noctx // timeout set on client
+		if err != nil {
+			return nil, fmt.Errorf("HTTP GET %s: %w", src, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("HTTP GET %s returned status %d", src, resp.StatusCode)
+		}
+		return io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MiB safety limit
+	}
+	// Local file
+	path := strings.TrimPrefix(src, "file://")
+	return os.ReadFile(path)
+}

@@ -56,6 +56,22 @@ type Config struct {
 	// CryptoExt provides extensible certificate parsing for non-standard curves
 	// (e.g. brainpool). If nil, standard x509.ParseCertificate is used.
 	CryptoExt *cryptoutil.Extensions
+
+	// TrustAnchorProvider supplies root certificates used to anchor the LoTE
+	// signer certificate chain for JWS signature verification per ETSI TS 119 615.
+	// When nil (or when the provider returns a nil pool), signature verification
+	// is skipped — suitable for test environments or deployments where the source
+	// is trusted through other means (HTTPS, controlled distribution).
+	// For APTITUDE/EUDI production use, inject an implementation that fetches
+	// roots from the OJEU or a pinned bundle.
+	TrustAnchorProvider LoTETrustAnchorProvider
+
+	// RegisterClient is an optional National Register client used as a fallback
+	// when WRPAC/WRPRC issuer resolution fails (AUTHZ-WRPAC-01-FAIL per RFC003).
+	// When nil, no register fallback is attempted and the request is denied.
+	// Inject a real implementation pointing at the national common REST API
+	// (GET /wrp) for production APTITUDE/EUDI deployments.
+	RegisterClient rpcert.NationalRegisterClient
 }
 
 // Registry is a TrustRegistry backed by ETSI TS 119 602 LoTE documents.
@@ -202,7 +218,7 @@ func (r *Registry) Stop() {
 
 // --- TrustRegistry interface ---
 
-func (r *Registry) Evaluate(_ context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -221,6 +237,26 @@ func (r *Registry) Evaluate(_ context.Context, req *authzen.EvaluationRequest) (
 		if req.Resource.Type == "x5c" && r.index.globalCertPool != nil {
 			if resp := r.validateX5CChainCA(req, credentialTypes); resp != nil {
 				return resp, nil
+			}
+		}
+		// National Register fallback (RFC003 AUTHZ-WRPAC-01-FAIL / AUTHZ-WRPRC-01-FAIL):
+		// when issuer resolution fails and a register client is configured, attempt
+		// a register lookup before denying. A successful register response is treated
+		// as equivalent to "registered but not yet notified in LoTE".
+		if r.config.RegisterClient != nil {
+			if regEnt, regErr := r.config.RegisterClient.LookupRP(ctx, subjectID); regErr == nil && regEnt != nil && regEnt.IsValid() {
+				reason := map[string]interface{}{
+					"admin":               fmt.Sprintf("entity %q resolved via National Register fallback (not in LoTE)", subjectID),
+					"registration_status": string(regEnt.RegistrationStatus),
+				}
+				addCredentialTypesToReason(reason, credentialTypes)
+				return &authzen.EvaluationResponse{
+					Decision: true,
+					Context: &authzen.EvaluationResponseContext{
+						Reason:        reason,
+						TrustMetadata: regEnt,
+					},
+				}, nil
 			}
 		}
 		reason := map[string]interface{}{
@@ -585,8 +621,35 @@ func (r *Registry) refresh() error {
 		Timeout: r.config.FetchTimeout,
 	}
 
+	// Resolve trust anchors once per refresh (may be nil → skip sig verification).
+	var taPool *x509.CertPool
+	if r.config.TrustAnchorProvider != nil {
+		var taErr error
+		taPool, taErr = r.config.TrustAnchorProvider.TrustAnchors(context.Background())
+		if taErr != nil {
+			return fmt.Errorf("lote: resolving trust anchors: %w", taErr)
+		}
+	}
+
 	// Load direct LoTE sources (JSON or XML, auto-detected).
 	for _, src := range r.config.Sources {
+		// When a TrustAnchorProvider is configured, fetch raw bytes first so we
+		// can verify the JWS signature before accepting the parsed content.
+		if taPool != nil {
+			raw, rawErr := fetchRawSource(src, r.config.FetchTimeout)
+			if rawErr != nil {
+				return fmt.Errorf("failed to fetch raw LoTE from %s: %w", src, rawErr)
+			}
+			signerCert, sigErr := VerifyLoTESignature(context.Background(), raw, taPool, time.Now())
+			if sigErr != nil {
+				return fmt.Errorf("LoTE signature verification failed for %s: %w", src, sigErr)
+			}
+			if signerCert != nil && r.config.Logger != nil {
+				r.config.Logger.Info("LoTE JWS signature verified",
+					slog.String("source", src),
+					slog.String("signer", signerCert.Subject.CommonName))
+			}
+		}
 		lote, err := etsi119602.FetchLoTE(src, opts)
 		if err != nil {
 			return fmt.Errorf("failed to fetch LoTE from %s: %w", src, err)
