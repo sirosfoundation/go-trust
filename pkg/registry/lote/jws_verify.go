@@ -218,7 +218,7 @@ func fetchRawSource(src string, timeout time.Duration) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("HTTP GET %s: %w", src, err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("HTTP GET %s returned status %d", src, resp.StatusCode)
 		}
