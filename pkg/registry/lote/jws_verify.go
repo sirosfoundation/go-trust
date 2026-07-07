@@ -1,9 +1,11 @@
 // Package lote — LoTE JWS signature verification per ETSI TS 119 615.
 //
-// verifyLoTESignature verifies the JWS envelope of a LoTE JWT document when a
-// non-nil trust anchor pool is provided. The LoTE document MUST be a compact
-// JWS (header.payload.signature) or a JSON serialisation with a protected
-// header that carries the signer certificate chain in the x5c header parameter.
+// VerifyLoTESignature verifies the JWS envelope of a LoTE JWT document when a
+// non-nil trust anchor pool is provided. Two JWS serializations are supported:
+//   - Compact serialization: "<header>.<payload>.<signature>"
+//   - Flattened JSON serialization: {"protected":"…","payload":"…","signature":"…"}
+//
+// General JSON serialization (multiple signatures array) is NOT supported.
 //
 // If the trust anchor pool is nil the function returns nil (verification skipped).
 // This preserves backwards compatibility for callers that use NilTrustAnchorProvider.
@@ -142,7 +144,9 @@ func verifyJWSSignature(alg string, pub crypto.PublicKey, signingInput, sig []by
 		h := jwsHash(alg)
 		hh := h.New()
 		hh.Write(signingInput)
-		return rsa.VerifyPSS(rsaKey, h, hh.Sum(nil), sig, nil)
+		// RFC 7518 §3.5 requires salt length = hash length for PS256/384/512.
+		pssOpts := &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: h}
+		return rsa.VerifyPSS(rsaKey, h, hh.Sum(nil), sig, pssOpts)
 
 	case "ES256", "ES384", "ES512":
 		ecKey, ok := pub.(*ecdsa.PublicKey)

@@ -724,3 +724,66 @@ func TestApplyEnrichmentToResponse_ProfileValidationWarning(t *testing.T) {
 	assert.Equal(t, "wrpac: certificate keyUsage does not include nonRepudiation",
 		resp.Context.Reason["profile_validation_warning"])
 }
+
+// ---------------------------------------------------------------------------
+// WRPACOrgID population (Thread 8 — explicit regression guard)
+// ---------------------------------------------------------------------------
+
+func TestEnrichX5CResponseWithProfiles_WRPACOrgID_Populated(t *testing.T) {
+	// Build a WRPAC certificate with a Subject.SerialNumber (organization_identifier).
+	cert := buildWRPACCert(t, "LEIXG-529900T8BM49AURSDO55")
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{"extract_rp_identity": true},
+	}
+
+	result := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry())
+
+	assert.Equal(t, "wrpac", result.MatchedProfile)
+	assert.Equal(t, "LEIXG-529900T8BM49AURSDO55", result.WRPACOrgID,
+		"WRPACOrgID must be populated from WRPAC organization_identifier for binding checks")
+}
+
+func TestEnrichX5CResponseWithProfiles_WRPACOrgID_PopulatedWithoutFullIdentity(t *testing.T) {
+	// Verify WRPACOrgID is populated even when extract_rp_identity is NOT set —
+	// the binding check must work independently of full identity extraction.
+	cert := buildWRPACCert(t, "LEIXG-529900T8BM49AURSDO55")
+	req := &authzen.EvaluationRequest{} // no extract_rp_identity
+
+	result := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry())
+
+	assert.Equal(t, "wrpac", result.MatchedProfile)
+	assert.Equal(t, "LEIXG-529900T8BM49AURSDO55", result.WRPACOrgID,
+		"WRPACOrgID must be populated regardless of extract_rp_identity flag")
+	assert.Nil(t, result.RPIdentity, "RPIdentity must be nil when not requested")
+}
+
+func TestEnrichX5CResponseWithProfiles_WRPACOrgID_EmptyWhenNoProfile(t *testing.T) {
+	// A non-WRPAC cert should leave WRPACOrgID empty.
+	cert := &x509.Certificate{
+		Subject: pkix.Name{SerialNumber: "SN-12345"},
+	}
+	req := &authzen.EvaluationRequest{}
+
+	result := EnrichX5CResponseWithProfiles(req, cert, nil)
+
+	assert.Empty(t, result.WRPACOrgID)
+}
+
+// buildWRPACCert creates a WRPAC certificate struct with the given org identifier
+// in Subject.SerialNumber, carrying the NCP-l-eudiwrp policy OID.
+// Uses a bare struct (like other enrichment tests) to avoid Go 1.22+ Policies
+// vs PolicyIdentifiers migration issues in x509.CreateCertificate.
+func buildWRPACCert(t *testing.T, orgID string) *x509.Certificate {
+	t.Helper()
+	return &x509.Certificate{
+		Subject: pkix.Name{
+			SerialNumber: orgID,
+			Organization: []string{"Test Corp"},
+			Country:      []string{"SE"},
+		},
+		KeyUsage:          x509.KeyUsageContentCommitment,
+		PolicyIdentifiers: []asn1.ObjectIdentifier{{0, 4, 0, 194118, 1, 2}}, // NCP-l-eudiwrp
+		NotBefore:         time.Now().Add(-time.Minute),
+		NotAfter:          time.Now().Add(time.Hour),
+	}
+}

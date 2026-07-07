@@ -50,8 +50,11 @@ func TestCheckWRPACWRPRCBinding_NilWRPRC(t *testing.T) {
 func TestStrictDCQLPolicyEvaluator_AllowsMatchingTypes(t *testing.T) {
 	ev := StrictDCQLPolicyEvaluator{}
 	ent := &RPEntitlements{
-		RPIdentifier:      "rp1",
-		AllowedAttributes: []string{"eu.europa.ec.eudi.pid.1", "org.iso.18013.5.1.mDL"},
+		RPIdentifier: "rp1",
+		ProvidedAttestations: []CredentialQuery{
+			{Format: "vc+sd-jwt", Meta: map[string]interface{}{"vct": "eu.europa.ec.eudi.pid.1"}},
+			{Format: "mso_mdoc", Meta: map[string]interface{}{"doctype": "org.iso.18013.5.1.mDL"}},
+		},
 	}
 	result := ev.Evaluate(context.Background(), ent, []string{"eu.europa.ec.eudi.pid.1"})
 	assert.True(t, result.Allowed)
@@ -61,8 +64,10 @@ func TestStrictDCQLPolicyEvaluator_AllowsMatchingTypes(t *testing.T) {
 func TestStrictDCQLPolicyEvaluator_BlocksOverRequest(t *testing.T) {
 	ev := StrictDCQLPolicyEvaluator{}
 	ent := &RPEntitlements{
-		RPIdentifier:      "rp1",
-		AllowedAttributes: []string{"eu.europa.ec.eudi.pid.1"},
+		RPIdentifier: "rp1",
+		ProvidedAttestations: []CredentialQuery{
+			{Format: "vc+sd-jwt", Meta: map[string]interface{}{"vct": "eu.europa.ec.eudi.pid.1"}},
+		},
 	}
 	result := ev.Evaluate(context.Background(), ent, []string{"eu.europa.ec.eudi.pid.1", "org.iso.18013.5.1.mDL"})
 	assert.False(t, result.Allowed)
@@ -73,23 +78,40 @@ func TestStrictDCQLPolicyEvaluator_BlocksOverRequest(t *testing.T) {
 func TestStrictDCQLPolicyEvaluator_CaseInsensitive(t *testing.T) {
 	ev := StrictDCQLPolicyEvaluator{}
 	ent := &RPEntitlements{
-		RPIdentifier:      "rp1",
-		AllowedAttributes: []string{"Eu.Europa.Ec.Eudi.Pid.1"},
+		RPIdentifier: "rp1",
+		ProvidedAttestations: []CredentialQuery{
+			{Format: "vc+sd-jwt", Meta: map[string]interface{}{"vct": "EU.EUROPA.EC.EUDI.PID.1"}},
+		},
 	}
 	result := ev.Evaluate(context.Background(), ent, []string{"eu.europa.ec.eudi.pid.1"})
 	assert.True(t, result.Allowed)
 }
 
-func TestStrictDCQLPolicyEvaluator_EmptyAllowedSkipsEnforcement(t *testing.T) {
+func TestStrictDCQLPolicyEvaluator_MatchesVctValues(t *testing.T) {
+	// vct_values is the array form used in some DCQL profiles
 	ev := StrictDCQLPolicyEvaluator{}
-	ent := &RPEntitlements{RPIdentifier: "rp1"} // no allowed attrs
+	ent := &RPEntitlements{
+		RPIdentifier: "rp1",
+		ProvidedAttestations: []CredentialQuery{
+			{Format: "vc+sd-jwt", Meta: map[string]interface{}{
+				"vct_values": []interface{}{"eu.europa.ec.eudi.pid.1", "eu.europa.ec.eudi.pid.2"},
+			}},
+		},
+	}
+	result := ev.Evaluate(context.Background(), ent, []string{"eu.europa.ec.eudi.pid.2"})
+	assert.True(t, result.Allowed)
+}
+
+func TestStrictDCQLPolicyEvaluator_EmptyAttestationsSkipsEnforcement(t *testing.T) {
+	ev := StrictDCQLPolicyEvaluator{}
+	ent := &RPEntitlements{RPIdentifier: "rp1"} // no attestations
 	result := ev.Evaluate(context.Background(), ent, []string{"anything"})
 	assert.True(t, result.Allowed, "no registered types means cannot enforce; should permit")
 }
 
 func TestStrictDCQLPolicyEvaluator_NoRequestedTypes(t *testing.T) {
 	ev := StrictDCQLPolicyEvaluator{}
-	ent := &RPEntitlements{AllowedAttributes: []string{"pid"}}
+	ent := &RPEntitlements{ProvidedAttestations: []CredentialQuery{{Format: "vc+sd-jwt"}}}
 	result := ev.Evaluate(context.Background(), ent, nil)
 	assert.True(t, result.Allowed)
 }
@@ -97,8 +119,10 @@ func TestStrictDCQLPolicyEvaluator_NoRequestedTypes(t *testing.T) {
 func TestPermissiveDCQLPolicyEvaluator_AlwaysAllows(t *testing.T) {
 	ev := PermissiveDCQLPolicyEvaluator{}
 	ent := &RPEntitlements{
-		RPIdentifier:      "rp1",
-		AllowedAttributes: []string{"eu.europa.ec.eudi.pid.1"},
+		RPIdentifier: "rp1",
+		ProvidedAttestations: []CredentialQuery{
+			{Format: "vc+sd-jwt", Meta: map[string]interface{}{"vct": "eu.europa.ec.eudi.pid.1"}},
+		},
 	}
 	result := ev.Evaluate(context.Background(), ent, []string{"eu.europa.ec.eudi.pid.1", "org.iso.18013.5.1.mDL"})
 	assert.True(t, result.Allowed, "permissive evaluator must always allow")

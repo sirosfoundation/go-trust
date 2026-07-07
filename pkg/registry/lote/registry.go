@@ -243,8 +243,14 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		// when issuer resolution fails and a register client is configured, attempt
 		// a register lookup before denying. A successful register response is treated
 		// as equivalent to "registered but not yet notified in LoTE".
+		// Release the RLock before the (potentially blocking) network call to avoid
+		// stalling concurrent refreshes or other evaluations under the writer lock.
 		if r.config.RegisterClient != nil {
-			if regEnt, regErr := r.config.RegisterClient.LookupRP(ctx, subjectID); regErr == nil && regEnt != nil && regEnt.IsValid() {
+			regClient := r.config.RegisterClient
+			r.mu.RUnlock()
+			regEnt, regErr := regClient.LookupRP(ctx, subjectID)
+			r.mu.RLock()
+			if regErr == nil && regEnt != nil && regEnt.IsValid() {
 				reason := map[string]interface{}{
 					"admin":               fmt.Sprintf("entity %q resolved via National Register fallback (not in LoTE)", subjectID),
 					"registration_status": string(regEnt.RegistrationStatus),
@@ -649,6 +655,15 @@ func (r *Registry) refresh() error {
 					slog.String("source", src),
 					slog.String("signer", signerCert.Subject.CommonName))
 			}
+			// Parse from the same raw bytes that were verified to eliminate the
+			// TOCTOU race: a second fetch via FetchLoTE could return different
+			// content between signature verification and index building.
+			lote, err := etsi119602.ParseLoTE(raw)
+			if err != nil {
+				return fmt.Errorf("failed to parse verified LoTE from %s: %w", src, err)
+			}
+			lotes = append(lotes, lote)
+			continue
 		}
 		lote, err := etsi119602.FetchLoTE(src, opts)
 		if err != nil {

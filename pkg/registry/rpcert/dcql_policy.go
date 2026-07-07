@@ -54,26 +54,49 @@ type DCQLPolicyEvaluator interface {
 type StrictDCQLPolicyEvaluator struct{}
 
 // Evaluate returns Allowed=false when any requested type is absent from the
-// RP's entitlements.ProvidedAttestations (for providers) or RP credential list.
+// credential types registered in the RP's entitlements.
+//
+// requestedTypes should be credential type identifiers such as:
+//   - SD-JWT VC vct values: "eu.europa.ec.eudi.pid.1"
+//   - ISO mdoc doctypes: "org.iso.18013.5.1.mDL"
+//
+// The allow-list is built from ProvidedAttestations (for EAA providers) and
+// the credentials array (for relying-party flows), by extracting vct/doctype
+// values from the credential meta fields. Format strings (e.g. "sd-jwt") and
+// claim attribute names (e.g. "family_name") are distinct and are not matched
+// here — use DetectOverRequest for attribute-level enforcement.
 func (StrictDCQLPolicyEvaluator) Evaluate(_ context.Context, ent *RPEntitlements, requestedTypes []string) DCQLPolicyResult {
 	if ent == nil || len(requestedTypes) == 0 {
 		return DCQLPolicyResult{Allowed: true, Message: "no credential types to check"}
 	}
 
-	// Build allowed set from AllowedAttributes (top-level claim names) plus
-	// any credential format/meta keys from ProvidedAttestations.
-	allowed := make(map[string]bool, len(ent.AllowedAttributes))
-	for _, a := range ent.AllowedAttributes {
-		allowed[strings.ToLower(a)] = true
-	}
+	// Build the allow-set from registered credential type identifiers.
+	// We extract vct (SD-JWT VC) and doctype (mdoc) values from the meta fields
+	// of ProvidedAttestations entries. Format strings (sd-jwt, mso_mdoc) are
+	// added as a coarse-grained fallback for entries that lack a type meta field.
+	allowed := make(map[string]bool)
 	for _, c := range ent.ProvidedAttestations {
+		if vct, ok := c.Meta["vct"].(string); ok && vct != "" {
+			allowed[strings.ToLower(vct)] = true
+		}
+		if dt, ok := c.Meta["doctype"].(string); ok && dt != "" {
+			allowed[strings.ToLower(dt)] = true
+		}
+		// vct_values is an array form used in some DCQL profiles
+		if vctVals, ok := c.Meta["vct_values"].([]interface{}); ok {
+			for _, v := range vctVals {
+				if s, ok := v.(string); ok && s != "" {
+					allowed[strings.ToLower(s)] = true
+				}
+			}
+		}
 		if c.Format != "" {
 			allowed[strings.ToLower(c.Format)] = true
 		}
 	}
 
 	if len(allowed) == 0 {
-		// No registered credential data — cannot enforce; permit.
+		// No registered credential type data — cannot enforce; permit.
 		return DCQLPolicyResult{Allowed: true, Message: "no registered credential types; cannot enforce DCQL policy"}
 	}
 
