@@ -9,6 +9,8 @@
 // and are in the /SubEntitlement/ path.
 package rpcert
 
+import "fmt"
+
 // Entitlement role URIs (Annex A.2, id-etsi-wrpa-entitlement 1–10).
 const (
 	// EntitlementServiceProvider is the general service provider role.
@@ -109,4 +111,30 @@ func (e *RPEntitlements) IsEAAProvider() bool {
 	return e.HasEntitlement(EntitlementQEAAProvider) ||
 		e.HasEntitlement(EntitlementNonQEAAProvider) ||
 		e.HasEntitlement(EntitlementPUBEAAProvider)
+}
+
+// BindingError is returned when WRPAC and WRPRC subject identifiers do not match.
+type BindingError struct {
+	WRPACOrgID string
+	WRPRCSubID string
+}
+
+func (e *BindingError) Error() string {
+	return fmt.Sprintf("WRPAC organization_identifier %q does not match WRPRC sub.id %q (ARF RPRC_16, TS 119 475 §5.1)", e.WRPACOrgID, e.WRPRCSubID)
+}
+
+// CheckWRPACWRPRCBinding verifies that the organization_identifier from the WRPAC
+// matches the sub.id of the WRPRC per ARF RPRC_16 and ETSI TS 119 475 §5.1.
+//
+// Either argument being empty means "not present" — the check is only enforced
+// when both values are non-empty, so callers in WRPRC-only flows pass "" for
+// wrpacOrgID without triggering a spurious error.
+func CheckWRPACWRPRCBinding(wrpacOrgID string, wrprc *RPEntitlements) error {
+	if wrpacOrgID == "" || wrprc == nil || wrprc.Subject.ID == "" {
+		return nil
+	}
+	if wrpacOrgID != wrprc.Subject.ID {
+		return &BindingError{WRPACOrgID: wrpacOrgID, WRPRCSubID: wrprc.Subject.ID}
+	}
+	return nil
 }

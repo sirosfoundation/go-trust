@@ -38,6 +38,11 @@ type X5CEnrichmentResult struct {
 	// on policy strictness).
 	ProfileValidationError string
 
+	// WRPACOrgID is the organization_identifier extracted from the WRPAC leaf
+	// certificate. Populated when the matched profile is "wrpac". Used by callers
+	// to perform WRPAC–WRPRC subject binding per ARF RPRC_16.
+	WRPACOrgID string
+
 	// FailureReason is set when Decision is false, describing why.
 	FailureReason map[string]interface{}
 }
@@ -98,16 +103,31 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 
 	// Extract RP identity if requested — prefer profile-specific extraction
 	if ShouldExtractRPIdentity(req) {
+		var identity map[string]interface{}
 		if matchedProfile != nil {
-			identity, err := matchedProfile.ExtractIdentity(leaf)
-			if err == nil {
-				result.RPIdentity = identity
-			} else {
-				// Fall back to generic extraction
-				result.RPIdentity = ExtractRPIdentity(leaf)
+			var err error
+			identity, err = matchedProfile.ExtractIdentity(leaf)
+			if err != nil {
+				identity = ExtractRPIdentity(leaf)
 			}
 		} else {
-			result.RPIdentity = ExtractRPIdentity(leaf)
+			identity = ExtractRPIdentity(leaf)
+		}
+		result.RPIdentity = identity
+
+		// Populate WRPACOrgID for downstream WRPAC–WRPRC binding checks when
+		// the matched profile is "wrpac" (or any profile that exposes
+		// organization_identifier in its identity map).
+		if id, ok := identity["organization_identifier"].(string); ok && id != "" {
+			result.WRPACOrgID = id
+		}
+	} else if matchedProfile != nil && matchedProfile.Name() == "wrpac" {
+		// Extract org ID for binding even when full identity extraction is not
+		// requested, so the binding check can run without leaking the full map.
+		if identity, err := matchedProfile.ExtractIdentity(leaf); err == nil {
+			if id, ok := identity["organization_identifier"].(string); ok {
+				result.WRPACOrgID = id
+			}
 		}
 	}
 
