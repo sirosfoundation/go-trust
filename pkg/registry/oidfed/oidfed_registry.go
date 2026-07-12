@@ -1125,6 +1125,12 @@ func (r *OIDFedRegistry) validatePreSuppliedTrustChain(req *authzen.EvaluationRe
 		return nil
 	}
 
+	// [Security] Cap chain length to prevent DoS via CPU/memory exhaustion.
+	// Reject excessively long chains before parsing.
+	if len(chainJWTs) > r.maxChainDepth {
+		return nil
+	}
+
 	// Parse all entity statements
 	statements := make([]*oidfed.EntityStatement, 0, len(chainJWTs))
 	for _, jwtStr := range chainJWTs {
@@ -1135,21 +1141,25 @@ func (r *OIDFedRegistry) validatePreSuppliedTrustChain(req *authzen.EvaluationRe
 		statements = append(statements, es)
 	}
 
+	// [Security] Normalize entity IDs for comparison (trim trailing slashes)
+	normalizedEntityID := strings.TrimRight(entityID, "/")
+
 	// Verify leaf entity matches the requested entity ID
-	if statements[0].Subject != entityID {
+	if strings.TrimRight(statements[0].Subject, "/") != normalizedEntityID {
 		return nil
 	}
 
-	// Verify anchor matches a configured trust anchor
+	// Verify anchor matches a configured trust anchor and get configured JWKS
 	anchor := statements[len(statements)-1]
-	anchorMatched := false
-	for _, ta := range r.trustAnchors {
-		if ta.EntityID == anchor.Issuer {
-			anchorMatched = true
+	normalizedAnchorIssuer := strings.TrimRight(anchor.Issuer, "/")
+	var configuredAnchor *oidfed.TrustAnchor
+	for i := range r.trustAnchors {
+		if r.trustAnchors[i].EntityID == normalizedAnchorIssuer {
+			configuredAnchor = &r.trustAnchors[i]
 			break
 		}
 	}
-	if !anchorMatched {
+	if configuredAnchor == nil {
 		return nil
 	}
 
@@ -1158,24 +1168,83 @@ func (r *OIDFedRegistry) validatePreSuppliedTrustChain(req *authzen.EvaluationRe
 		return nil
 	}
 
-	// Verify signatures: each statement is verified against the JWKS of
-	// the next statement in the chain (its issuer). The anchor verifies
-	// against its own JWKS (self-signed).
-	for i := 0; i < len(statements); i++ {
+	// [Security] Verify chain linkage: each statement's issuer must match
+	// the next statement's subject, forming a continuous path.
+	for i := 0; i < len(statements)-1; i++ {
+		if statements[i].Issuer != statements[i+1].Subject {
+			return nil
+		}
+	}
+
+	// [Security] Verify the anchor using configured JWKS (not the untrusted
+	// JWKS from the chain itself). If no configured JWKS is available for
+	// this anchor, fall back to resolver-based validation.
+	anchorJWKS := configuredAnchor.JWKS
+	if anchorJWKS.Set == nil {
+		// No configured JWKS for this anchor — cannot securely verify
+		// the pre-supplied chain. Fall back to resolver.
+		return nil
+	}
+	if !anchor.Verify(anchorJWKS) {
+		return nil
+	}
+
+	// Verify non-anchor statements: each is verified against the JWKS of
+	// the next statement in the chain (its issuer).
+	for i := 0; i < len(statements)-1; i++ {
 		if !statements[i].TimeValid() {
 			return nil
 		}
-
-		var issuerJWKS oidfedjwx.JWKS
-		if i == len(statements)-1 {
-			// Anchor: self-signed, verify against own JWKS
-			issuerJWKS = anchor.JWKS
-		} else {
-			// Non-anchor: verify against issuer's (next element's) JWKS
-			issuerJWKS = statements[i+1].JWKS
-		}
-
+		issuerJWKS := statements[i+1].JWKS
 		if !statements[i].Verify(issuerJWKS) {
+			return nil
+		}
+	}
+
+	// Check anchor time validity
+	if !anchor.TimeValid() {
+		return nil
+	}
+
+	// [Security] Enforce entity type constraints (same as resolver-based path).
+	// If entityTypes are configured, verify the leaf entity has matching metadata.
+	if len(entityTypes) > 0 && len(statements) > 0 {
+		leaf := statements[0]
+		if leaf.Metadata == nil {
+			return nil
+		}
+		hasMatchingType := false
+		for _, et := range entityTypes {
+			switch et {
+			case "openid_provider":
+				if leaf.Metadata.OpenIDProvider != nil {
+					hasMatchingType = true
+				}
+			case "openid_relying_party":
+				if leaf.Metadata.RelyingParty != nil {
+					hasMatchingType = true
+				}
+			case "oauth_authorization_server":
+				if leaf.Metadata.OAuthAuthorizationServer != nil {
+					hasMatchingType = true
+				}
+			case "oauth_client":
+				if leaf.Metadata.OAuthClient != nil {
+					hasMatchingType = true
+				}
+			case "federation_entity":
+				if leaf.Metadata.FederationEntity != nil {
+					hasMatchingType = true
+				}
+			default:
+				// Unknown entity types pass through (don't block)
+				hasMatchingType = true
+			}
+			if hasMatchingType {
+				break
+			}
+		}
+		if !hasMatchingType {
 			return nil
 		}
 	}

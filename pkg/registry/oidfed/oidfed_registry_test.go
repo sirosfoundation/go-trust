@@ -2162,6 +2162,7 @@ func TestOIDFedRegistry_ValidatePreSuppliedTrustChain(t *testing.T) {
 		trustAnchors: oidfed.TrustAnchors{
 			{EntityID: "https://trust-anchor.example.com"},
 		},
+		maxChainDepth: 10,
 	}
 
 	t.Run("nil context returns nil", func(t *testing.T) {
@@ -2205,6 +2206,23 @@ func TestOIDFedRegistry_ValidatePreSuppliedTrustChain(t *testing.T) {
 		result := reg.validatePreSuppliedTrustChain(req, "https://entity.example.com", nil)
 		if result != nil {
 			t.Error("expected nil for single-element chain")
+		}
+	})
+
+	t.Run("chain exceeds max depth", func(t *testing.T) {
+		shortReg := &OIDFedRegistry{
+			trustAnchors:  reg.trustAnchors,
+			maxChainDepth: 3,
+		}
+		// Create a chain of 4 elements (exceeds maxChainDepth=3)
+		req := &authzen.EvaluationRequest{
+			Context: map[string]interface{}{
+				ContextKeyTrustChain: []string{"a.b.c", "d.e.f", "g.h.i", "j.k.l"},
+			},
+		}
+		result := shortReg.validatePreSuppliedTrustChain(req, "https://entity.example.com", nil)
+		if result != nil {
+			t.Error("expected nil for chain exceeding max depth")
 		}
 	})
 
