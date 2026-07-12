@@ -2156,3 +2156,91 @@ func TestExtractConstraintsFromContext_CredentialTypeTrustMarkDerivation(t *test
 		})
 	}
 }
+
+func TestOIDFedRegistry_ValidatePreSuppliedTrustChain(t *testing.T) {
+	reg := &OIDFedRegistry{
+		trustAnchors: oidfed.TrustAnchors{
+			{EntityID: "https://trust-anchor.example.com"},
+		},
+	}
+
+	t.Run("nil context returns nil", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{}
+		result := reg.validatePreSuppliedTrustChain(req, "https://entity.example.com", nil)
+		if result != nil {
+			t.Error("expected nil for nil context")
+		}
+	})
+
+	t.Run("no trust_chain key returns nil", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{
+			Context: map[string]interface{}{
+				"other_key": "value",
+			},
+		}
+		result := reg.validatePreSuppliedTrustChain(req, "https://entity.example.com", nil)
+		if result != nil {
+			t.Error("expected nil when trust_chain key not present")
+		}
+	})
+
+	t.Run("wrong type for trust_chain returns nil", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{
+			Context: map[string]interface{}{
+				ContextKeyTrustChain: 12345, // wrong type
+			},
+		}
+		result := reg.validatePreSuppliedTrustChain(req, "https://entity.example.com", nil)
+		if result != nil {
+			t.Error("expected nil for non-string-slice trust_chain")
+		}
+	})
+
+	t.Run("single element chain returns nil (too short)", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{
+			Context: map[string]interface{}{
+				ContextKeyTrustChain: []string{"eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJ0ZXN0In0.fake"},
+			},
+		}
+		result := reg.validatePreSuppliedTrustChain(req, "https://entity.example.com", nil)
+		if result != nil {
+			t.Error("expected nil for single-element chain")
+		}
+	})
+
+	t.Run("unparseable JWT returns nil", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{
+			Context: map[string]interface{}{
+				ContextKeyTrustChain: []string{"not-a-jwt", "also-not-a-jwt"},
+			},
+		}
+		result := reg.validatePreSuppliedTrustChain(req, "https://entity.example.com", nil)
+		if result != nil {
+			t.Error("expected nil for unparseable JWTs")
+		}
+	})
+
+	t.Run("[]interface{} type for trust_chain", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{
+			Context: map[string]interface{}{
+				ContextKeyTrustChain: []interface{}{"not-a-jwt", "also-not-a-jwt"},
+			},
+		}
+		result := reg.validatePreSuppliedTrustChain(req, "https://entity.example.com", nil)
+		if result != nil {
+			t.Error("expected nil for unparseable JWTs from []interface{}")
+		}
+	})
+
+	t.Run("empty string slice returns nil", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{
+			Context: map[string]interface{}{
+				ContextKeyTrustChain: []string{},
+			},
+		}
+		result := reg.validatePreSuppliedTrustChain(req, "https://entity.example.com", nil)
+		if result != nil {
+			t.Error("expected nil for empty chain")
+		}
+	})
+}
