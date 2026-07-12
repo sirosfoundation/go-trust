@@ -71,6 +71,17 @@ const (
 	// When both credential_types and this mapping are present, the registry validates
 	// that the entity has ALL mapped trust marks for the requested credential types.
 	ContextKeyCredentialTypeTrustMarks = "credential_type_trust_marks"
+
+	// ContextKeyTrustChain provides a pre-supplied trust chain from the verifier's JAR header.
+	// Value: []string of JWS entity statements from leaf to trust anchor
+	// Per OID4VP §5.9.3.6, a verifier may include a trust_chain in the signed request JWT.
+	// When present, the registry validates this chain instead of resolving from scratch,
+	// avoiding redundant network requests. The chain is still validated for:
+	// - Signature integrity of each entity statement
+	// - Trust anchor matching against configured anchors
+	// - Entity type constraints
+	// - Required trust marks
+	ContextKeyTrustChain = "trust_chain"
 )
 
 // OpenID Federation Response Metadata Keys

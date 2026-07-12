@@ -639,47 +639,53 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 
 	// Resolve trust chains if not cached
 	if chains == nil {
-		resolver := &oidfed.TrustResolver{
-			StartingEntity: entityID,
-			TrustAnchors:   r.trustAnchors,
-			Types:          entityTypes,
-		}
+		// Check for pre-supplied trust_chain from request context (OID4VP §5.9.3.6)
+		chains = r.validatePreSuppliedTrustChain(req, entityID, entityTypes)
 
-		// Wrap resolution with context timeout.
-		// NOTE: go-oidfed's TrustResolver does not accept context.Context,
-		// so on timeout the goroutine will continue until the underlying HTTP
-		// requests complete. This is acceptable for now; a future go-oidfed
-		// release should add context support.
-		type resolveResult struct {
-			chains []oidfed.TrustChain
-		}
-		resultCh := make(chan resolveResult, 1)
-		go func() {
-			resultCh <- resolveResult{chains: resolver.ResolveToValidChains()}
-		}()
+		// Fall back to resolving from scratch if no pre-supplied chain
+		if chains == nil {
+			resolver := &oidfed.TrustResolver{
+				StartingEntity: entityID,
+				TrustAnchors:   r.trustAnchors,
+				Types:          entityTypes,
+			}
 
-		// Use request context deadline or default 30s timeout
-		resolveCtx := ctx
-		if _, hasDeadline := resolveCtx.Deadline(); !hasDeadline {
-			var cancel context.CancelFunc
-			resolveCtx, cancel = context.WithTimeout(resolveCtx, 30*time.Second)
-			defer cancel()
-		}
+			// Wrap resolution with context timeout.
+			// NOTE: go-oidfed's TrustResolver does not accept context.Context,
+			// so on timeout the goroutine will continue until the underlying HTTP
+			// requests complete. This is acceptable for now; a future go-oidfed
+			// release should add context support.
+			type resolveResult struct {
+				chains []oidfed.TrustChain
+			}
+			resultCh := make(chan resolveResult, 1)
+			go func() {
+				resultCh <- resolveResult{chains: resolver.ResolveToValidChains()}
+			}()
 
-		select {
-		case res := <-resultCh:
-			chains = res.chains
-		case <-resolveCtx.Done():
-			return &authzen.EvaluationResponse{
-				Decision: false,
-				Context: &authzen.EvaluationResponseContext{
-					Reason: map[string]interface{}{
-						"message":   "trust chain resolution timed out",
-						"entity_id": entityID,
-						"error":     resolveCtx.Err().Error(),
+			// Use request context deadline or default 30s timeout
+			resolveCtx := ctx
+			if _, hasDeadline := resolveCtx.Deadline(); !hasDeadline {
+				var cancel context.CancelFunc
+				resolveCtx, cancel = context.WithTimeout(resolveCtx, 30*time.Second)
+				defer cancel()
+			}
+
+			select {
+			case res := <-resultCh:
+				chains = res.chains
+			case <-resolveCtx.Done():
+				return &authzen.EvaluationResponse{
+					Decision: false,
+					Context: &authzen.EvaluationResponseContext{
+						Reason: map[string]interface{}{
+							"message":   "trust chain resolution timed out",
+							"entity_id": entityID,
+							"error":     resolveCtx.Err().Error(),
+						},
 					},
-				},
-			}, nil
+				}, nil
+			}
 		}
 
 		// Filter chains by maxDepth
@@ -1082,6 +1088,101 @@ func (r *OIDFedRegistry) checkTrustMarksWithList(chain oidfed.TrustChain, requir
 	}
 
 	return true
+}
+
+// validatePreSuppliedTrustChain attempts to validate a trust chain supplied in
+// the request context (from the verifier's JAR header per OID4VP §5.9.3.6).
+// Returns nil if no trust_chain is present or if validation fails.
+//
+// Validation steps:
+//  1. Parse each JWT in the chain into an EntityStatement
+//  2. Verify the leaf entity matches the requested entityID
+//  3. Verify the anchor matches a configured trust anchor
+//  4. Verify each statement's signature using the issuer's JWKS
+//  5. Check time validity of each statement
+func (r *OIDFedRegistry) validatePreSuppliedTrustChain(req *authzen.EvaluationRequest, entityID string, entityTypes []string) []oidfed.TrustChain {
+	if req.Context == nil {
+		return nil
+	}
+
+	// Extract trust_chain from context
+	var chainJWTs []string
+	switch v := req.Context[ContextKeyTrustChain].(type) {
+	case []string:
+		chainJWTs = v
+	case []interface{}:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				chainJWTs = append(chainJWTs, s)
+			}
+		}
+	default:
+		return nil
+	}
+
+	if len(chainJWTs) < 2 {
+		// A valid trust chain needs at least leaf + anchor
+		return nil
+	}
+
+	// Parse all entity statements
+	statements := make([]*oidfed.EntityStatement, 0, len(chainJWTs))
+	for _, jwtStr := range chainJWTs {
+		es, err := oidfed.ParseEntityStatement([]byte(jwtStr))
+		if err != nil {
+			return nil // Any parse failure invalidates the chain
+		}
+		statements = append(statements, es)
+	}
+
+	// Verify leaf entity matches the requested entity ID
+	if statements[0].Subject != entityID {
+		return nil
+	}
+
+	// Verify anchor matches a configured trust anchor
+	anchor := statements[len(statements)-1]
+	anchorMatched := false
+	for _, ta := range r.trustAnchors {
+		if ta.EntityID == anchor.Issuer {
+			anchorMatched = true
+			break
+		}
+	}
+	if !anchorMatched {
+		return nil
+	}
+
+	// Verify the anchor self-signs (issuer == subject)
+	if anchor.Issuer != anchor.Subject {
+		return nil
+	}
+
+	// Verify signatures: each statement is verified against the JWKS of
+	// the next statement in the chain (its issuer). The anchor verifies
+	// against its own JWKS (self-signed).
+	for i := 0; i < len(statements); i++ {
+		if !statements[i].TimeValid() {
+			return nil
+		}
+
+		var issuerJWKS oidfedjwx.JWKS
+		if i == len(statements)-1 {
+			// Anchor: self-signed, verify against own JWKS
+			issuerJWKS = anchor.JWKS
+		} else {
+			// Non-anchor: verify against issuer's (next element's) JWKS
+			issuerJWKS = statements[i+1].JWKS
+		}
+
+		if !statements[i].Verify(issuerJWKS) {
+			return nil
+		}
+	}
+
+	// Build a TrustChain from the validated statements
+	chain := oidfed.TrustChain(statements)
+	return []oidfed.TrustChain{chain}
 }
 
 // getPresentTrustMarks returns a list of trust mark types present in the chain.
