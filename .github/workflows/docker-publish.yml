@@ -17,6 +17,8 @@ on:
         required: false
         default: ''
 
+permissions: read-all
+
 jobs:
   docker:
     uses: sirosfoundation/.github/.github/workflows/docker-build-push.yml@main
