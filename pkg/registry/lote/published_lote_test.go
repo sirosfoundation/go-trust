@@ -27,8 +27,8 @@ const (
 
 func skipIfOffline(t *testing.T) {
 	t.Helper()
-	if os.Getenv("GO_TRUST_INTEGRATION") == "" {
-		t.Skip("set GO_TRUST_INTEGRATION to a non-empty value to run live integration tests")
+	if os.Getenv("GT_INTEGRATION") == "" {
+		t.Skip("set GT_INTEGRATION to a non-empty value to run live integration tests")
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Head(loteURL)

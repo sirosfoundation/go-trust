@@ -57,7 +57,7 @@ spec:
           containerPort: 6001
           protocol: TCP
         env:
-        - name: GO_TRUST_EXTERNAL_URL
+        - name: GT_EXTERNAL_URL
           value: "https://pdp.example.com"
         livenessProbe:
           httpGet:

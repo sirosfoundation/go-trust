@@ -95,7 +95,7 @@ gt \
 | `--log-format` | Log format: text, json | `text` |
 | `--config` | Configuration file (YAML) | - |
 
-Environment variable: `GO_TRUST_EXTERNAL_URL` for external URL.
+Environment variable: `GT_EXTERNAL_URL` for external URL.
 
 ## API Endpoints
 
