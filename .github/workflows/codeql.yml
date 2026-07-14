@@ -14,6 +14,9 @@ on:
   schedule:
     - cron: '0 8 * * 1' # Run every Monday at 8:00 AM
 
+permissions:
+  contents: read
+
 jobs:
   analyze:
     name: Analyze

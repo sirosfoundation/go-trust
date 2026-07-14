@@ -10,6 +10,9 @@ on:
     types: [published]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   sbom:
     uses: sirosfoundation/.github/.github/workflows/sbom.yml@03160e376dbdeb9f2c904e7a9f45499b2f67e8fa # main
