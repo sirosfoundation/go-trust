@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/sirosfoundation/go-trust/actions/workflows/go.yml/badge.svg)](https://github.com/sirosfoundation/go-trust/actions/workflows/go.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/sirosfoundation/go-trust.svg)](https://pkg.go.dev/github.com/sirosfoundation/go-trust)
-[![Go Report Card](https://goreportcard.com/badge/github.com/sirosfoundation/go-trust)](https://goreportcard.com/report/github.com/sirosfoundation/go-trust)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/sirosfoundation/go-trust/badge)](https://scorecard.dev/viewer/?uri=github.com/sirosfoundation/go-trust)
 [![Coverage](https://raw.githubusercontent.com/sirosfoundation/go-trust/badges/.badges/main/coverage.svg)](https://github.com/sirosfoundation/go-trust/actions/workflows/go.yml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/sirosfoundation/go-trust)](https://go.dev/)
 [![GHCR](https://img.shields.io/badge/ghcr.io-sirosfoundation%2Fgo--trust-blue)](https://ghcr.io/sirosfoundation/go-trust)
