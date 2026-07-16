@@ -17,7 +17,7 @@ require (
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/sirosfoundation/g119612 v0.5.0
-	github.com/sirosfoundation/go-cryptoutil v0.5.0
+	github.com/sirosfoundation/go-cryptoutil v0.6.0
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.6.1
