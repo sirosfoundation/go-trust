@@ -435,7 +435,7 @@ policies:
 
       # Only use mDOC IACA registry
       registries:
-        - "mdoc-iaca"
+        - "mDOC-IACA"
 
     # ---------------------------------------------------------------------------
     # mDoc Issuer Policy (non-mDL)
@@ -452,7 +452,7 @@ policies:
 
       # Use mDOC IACA registry for certificate validation
       registries:
-        - "mdoc-iaca"
+        - "mDOC-IACA"
 
     # ---------------------------------------------------------------------------
     # Generic Trust Policy
