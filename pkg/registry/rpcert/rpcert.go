@@ -93,6 +93,18 @@ type RPEntitlements struct {
 	// (`registry_uri`, Table 7). Used to resolve registration data.
 	RegistryURI string `json:"registry_uri,omitempty"`
 
+	// ServiceIdentifier is a URI that identifies the specific service instance
+	// this registration is valid for. Carried in the WRPRC JWT as the
+	// "service_identifier" claim (Stefan Santesson's de-facto convention,
+	// not yet in ETSI TS 119 475 v1.1.1).
+	//
+	// When the corresponding WRPAC also carries the same URI under Subject
+	// attribute OIDWRPACServiceIdentifier (0.4.0.19475.99.1), the values
+	// MUST match — enforced by CheckWRPACWRPRCServiceBinding.
+	//
+	// TODO(etsi): standardise the WRPRC claim name once ETSI TS 119 475 is updated.
+	ServiceIdentifier string `json:"service_identifier,omitempty"`
+
 	// PolicyIDs contains the WRPRC certificate policy identifiers from the
 	// `policy_id` claim (OVR-6.1.3-01). The standard WRPRC OID is
 	// OIDWRPRCPolicy ("0.4.0.19475.3.1").

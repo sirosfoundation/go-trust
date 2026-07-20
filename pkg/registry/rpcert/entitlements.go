@@ -138,3 +138,59 @@ func CheckWRPACWRPRCBinding(wrpacOrgID string, wrprc *RPEntitlements) error {
 	}
 	return nil
 }
+
+// ServiceBindingError is returned when WRPAC and WRPRC service identifiers do
+// not match. A nil WRPACServiceID or a WRPRC without service_identifier are
+// both treated as "absent" and cause no error — see CheckWRPACWRPRCServiceBinding.
+type ServiceBindingError struct {
+	WRPACServiceID string
+	WRPRCServiceID string
+}
+
+func (e *ServiceBindingError) Error() string {
+	return fmt.Sprintf(
+		"WRPAC service_identifier %q does not match WRPRC service_identifier %q"+
+			" — service-level binding check failed (Stefan Santesson convention,"+
+			" OID 0.4.0.19475.99.1 pending ETSI standardisation)",
+		e.WRPACServiceID, e.WRPRCServiceID,
+	)
+}
+
+// CheckWRPACWRPRCServiceBinding verifies that the service_identifier from the
+// WRPAC Subject DN (OIDWRPACServiceIdentifier = 0.4.0.19475.99.1) matches the
+// "service_identifier" claim in the WRPRC JWT.
+//
+// This is a service-level binding check that complements the organisation-level
+// binding performed by CheckWRPACWRPRCBinding. It allows distinguishing between
+// multiple WRPAC/WRPRC pairs issued to the same organisation for different
+// services (e.g. a sign-in service and a payment service).
+//
+// The check is OPTIONAL and only enforced when BOTH sides carry the value:
+//   - wrpacServiceID is the value from X5CEnrichmentResult.WRPACServiceID.
+//     If empty (strict ETSI cert without the attribute), the check is skipped.
+//   - wrprc.ServiceIdentifier is the WRPRC JWT "service_identifier" claim.
+//     If empty (WRPRC issued before this convention), the check is skipped.
+//
+// Callers MUST still call CheckWRPACWRPRCBinding for organisation-level binding
+// before calling this function — the two checks are complementary, not alternatives.
+//
+// Background: Stefan Santesson (PTS Sweden) proposed this convention as a
+// de-facto interoperability mechanism pending ETSI standardisation. It is NOT
+// part of ETSI TS 119 411-8 v1.1.1 or TS 119 475 v1.1.1.
+//
+// TODO(etsi): Once ETSI formally assigns the OID and standardises the WRPRC
+// claim name, update OIDWRPACServiceIdentifier (wrpac.go) and the JSON tag
+// on RPEntitlements.ServiceIdentifier to match.
+func CheckWRPACWRPRCServiceBinding(wrpacServiceID string, wrprc *RPEntitlements) error {
+	if wrpacServiceID == "" || wrprc == nil || wrprc.ServiceIdentifier == "" {
+		// One or both sides absent — check is not applicable.
+		return nil
+	}
+	if wrpacServiceID != wrprc.ServiceIdentifier {
+		return &ServiceBindingError{
+			WRPACServiceID: wrpacServiceID,
+			WRPRCServiceID: wrprc.ServiceIdentifier,
+		}
+	}
+	return nil
+}

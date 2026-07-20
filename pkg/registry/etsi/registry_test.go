@@ -2286,88 +2286,89 @@ func TestTSLRegistry_Info_LastUpdated(t *testing.T) {
 		t.Error("expected LastUpdated to advance after refresh")
 	}
 }
+
 // TestTSLRegistry_Evaluate_X5C_ClientAuthOnlyEKU is a regression test for
 // issue #81: x509.VerifyOptions{} without KeyUsages defaults to
 // ExtKeyUsageServerAuth and rejects certificates that carry only
 // id-kp-clientAuth (1.3.6.1.5.5.7.3.2), as is common for WRPACs.
 func TestTSLRegistry_Evaluate_X5C_ClientAuthOnlyEKU(t *testing.T) {
-        tmpDir, err := os.MkdirTemp("", "tsl-clientauth-eku-test-*")
-        if err != nil {
-                t.Fatalf("failed to create temp dir: %v", err)
-        }
-        defer os.RemoveAll(tmpDir)
+	tmpDir, err := os.MkdirTemp("", "tsl-clientauth-eku-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
 
-        // Root CA: trust anchor stored in the registry's cert bundle
-        caKey, err := rsa.GenerateKey(rand.Reader, 2048)
-        if err != nil {
-                t.Fatalf("generate CA key: %v", err)
-        }
-        caTemplate := &x509.Certificate{
-                SerialNumber:          big.NewInt(1),
-                Subject:               pkix.Name{CommonName: "Test Root CA"},
-                NotBefore:             time.Now().Add(-1 * time.Hour),
-                NotAfter:              time.Now().Add(24 * time.Hour),
-                KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-                BasicConstraintsValid: true,
-                IsCA:                  true,
-        }
-        caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
-        if err != nil {
-                t.Fatalf("create CA cert: %v", err)
-        }
-        caCert, err := x509.ParseCertificate(caDER)
-        if err != nil {
-                t.Fatalf("parse CA cert: %v", err)
-        }
-        caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
-        certPath := writeTestCertFile(t, tmpDir, "ca.pem", caPEM)
+	// Root CA: trust anchor stored in the registry's cert bundle
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate CA key: %v", err)
+	}
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test Root CA"},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create CA cert: %v", err)
+	}
+	caCert, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatalf("parse CA cert: %v", err)
+	}
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+	certPath := writeTestCertFile(t, tmpDir, "ca.pem", caPEM)
 
-        // Leaf certificate with ONLY id-kp-clientAuth — no serverAuth
-        leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
-        if err != nil {
-                t.Fatalf("generate leaf key: %v", err)
-        }
-        leafTemplate := &x509.Certificate{
-                SerialNumber: big.NewInt(2),
-                Subject:      pkix.Name{CommonName: "WRPAC Leaf"},
-                NotBefore:    time.Now().Add(-1 * time.Hour),
-                NotAfter:     time.Now().Add(24 * time.Hour),
-                KeyUsage:     x509.KeyUsageDigitalSignature,
-                ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-        }
-        leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
-        if err != nil {
-                t.Fatalf("create leaf cert: %v", err)
-        }
-        leafB64 := base64.StdEncoding.EncodeToString(leafDER)
-        caB64 := base64.StdEncoding.EncodeToString(caDER)
+	// Leaf certificate with ONLY id-kp-clientAuth — no serverAuth
+	leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate leaf key: %v", err)
+	}
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "WRPAC Leaf"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create leaf cert: %v", err)
+	}
+	leafB64 := base64.StdEncoding.EncodeToString(leafDER)
+	caB64 := base64.StdEncoding.EncodeToString(caDER)
 
-        reg, err := NewTSLRegistry(TSLConfig{
-                Name:       "clientauth-eku-test",
-                CertBundle: certPath,
-        })
-        if err != nil {
-                t.Fatalf("create registry: %v", err)
-        }
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:       "clientauth-eku-test",
+		CertBundle: certPath,
+	})
+	if err != nil {
+		t.Fatalf("create registry: %v", err)
+	}
 
-        req := &authzen.EvaluationRequest{
-                Resource: authzen.Resource{
-                        Type: "x5c",
-                        // Provide the full chain: leaf + CA
-                        Key: []interface{}{leafB64, caB64},
-                },
-        }
+	req := &authzen.EvaluationRequest{
+		Resource: authzen.Resource{
+			Type: "x5c",
+			// Provide the full chain: leaf + CA
+			Key: []interface{}{leafB64, caB64},
+		},
+	}
 
-        resp, err := reg.Evaluate(context.Background(), req)
-        if err != nil {
-                t.Fatalf("unexpected error: %v", err)
-        }
+	resp, err := reg.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-        if !resp.Decision {
-                reason := "unknown"
-                if resp.Context != nil && resp.Context.Reason != nil {
-                        reason = fmt.Sprintf("%v", resp.Context.Reason)
-                }
-                t.Errorf("expected true decision for clientAuth-only leaf (issue #81), got false. Reason: %s", reason)
-        }
+	if !resp.Decision {
+		reason := "unknown"
+		if resp.Context != nil && resp.Context.Reason != nil {
+			reason = fmt.Sprintf("%v", resp.Context.Reason)
+		}
+		t.Errorf("expected true decision for clientAuth-only leaf (issue #81), got false. Reason: %s", reason)
+	}
 }
