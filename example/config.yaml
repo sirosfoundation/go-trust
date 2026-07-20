@@ -435,7 +435,24 @@ policies:
 
       # Only use mDOC IACA registry
       registries:
-        - "mdoc-iaca"
+        - "mDOC-IACA"
+
+    # ---------------------------------------------------------------------------
+    # mDoc Issuer Policy (non-mDL)
+    # ---------------------------------------------------------------------------
+    # For mDoc credential issuers (PID over mDoc, EAA over mDoc, etc.)
+    # The vc verifier routes any non-mDL DocType here via action "mdoc-issuer".
+    mdoc-issuer:
+      description: "Trust requirements for mDoc issuers (non-mDL doctypes)"
+
+      mdociaca:
+        issuer_allowlist:
+          - "https://pid-issuer.eudiw.dev"
+        require_iaca_endpoint: true
+
+      # Use mDOC IACA registry for certificate validation
+      registries:
+        - "mDOC-IACA"
 
     # ---------------------------------------------------------------------------
     # Generic Trust Policy
