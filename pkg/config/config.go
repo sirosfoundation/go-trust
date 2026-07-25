@@ -80,6 +80,9 @@ type WhitelistRegistryConfig struct {
 	Issuers         []string `yaml:"issuers,omitempty"`
 	Verifiers       []string `yaml:"verifiers,omitempty"`
 	TrustedSubjects []string `yaml:"trusted_subjects,omitempty"`
+	// AllowHTTP permits JWKS auto-discovery over plain HTTP instead of
+	// requiring HTTPS. Testing only - see pkg/registry/static.WhitelistConfig.
+	AllowHTTP bool `yaml:"allow_http,omitempty"`
 }
 
 // StaticRegistryConfig contains static (always/never trusted) registry configuration.

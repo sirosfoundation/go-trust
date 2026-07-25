@@ -465,6 +465,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 					Issuers:         wlCfg.Issuers,
 					Verifiers:       wlCfg.Verifiers,
 					TrustedSubjects: wlCfg.TrustedSubjects,
+					AllowHTTP:       wlCfg.AllowHTTP,
 				}),
 			)
 		}
