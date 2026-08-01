@@ -742,12 +742,19 @@ func (r *WhitelistRegistry) Healthy() bool {
 // at least some keys were loaded, allowing continued operation during transient
 // outages of individual issuers.
 func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// Snapshot the inputs to this refresh under a brief read lock.
+	// resolvedLists/config are only ever set at construction time (never
+	// mutated afterward), and oldKeyHashes is only used to preserve stale
+	// entries for entities whose fetch fails this round - neither needs to
+	// stay locked for the network I/O below.
+	r.mu.RLock()
+	resolvedLists := r.resolvedLists
+	oldKeyHashes := r.keyHashes
+	r.mu.RUnlock()
 
 	// Collect all unique entities from all resolved lists
 	entities := make(map[string]bool)
-	for _, entries := range r.resolvedLists {
+	for _, entries := range resolvedLists {
 		for _, entry := range entries {
 			if entry != "*" && !strings.HasSuffix(entry, "*") {
 				entities[entry] = true
@@ -755,10 +762,22 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 		}
 	}
 
-	// Build new key hashes map, preserving stale entries for failed fetches
+	// Build new key hashes map, preserving stale entries for failed fetches.
+	//
+	// Deliberately NOT holding r.mu across this loop: fetchEntityKeys does
+	// real network I/O (JWKS discovery across several well-known endpoint
+	// patterns, each with its own retries/timeouts) that can take minutes
+	// per entity when an entity is slow or unreachable - e.g. an mdoc-only
+	// issuer with no JWKS endpoint at all. Evaluate() only needs a read lock,
+	// so holding the write lock for this whole loop (as this used to)
+	// blocked every concurrent evaluation - including fast resolution-only
+	// requests that don't even need the data being refreshed - for as long
+	// as the slowest entity's fetch took. Building the new map here and only
+	// taking the write lock afterward to swap it in lets concurrent
+	// Evaluate() calls keep using the still-valid old state while a refresh
+	// is in progress.
 	newKeyHashes := make(map[string]map[string]bool)
 
-	// Fetch JWKS for each entity
 	var fetchErrors []string
 	for entity := range entities {
 		normEntity := normalizeEntityID(entity)
@@ -769,7 +788,7 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 				"error", err)
 			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %s", entity, err))
 			// Preserve stale keys for this entity if available
-			if old, ok := r.keyHashes[normEntity]; ok && len(old) > 0 {
+			if old, ok := oldKeyHashes[normEntity]; ok && len(old) > 0 {
 				newKeyHashes[normEntity] = old
 				r.logger.Info("preserving stale keys for entity",
 					"entity", entity,
@@ -804,19 +823,27 @@ func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
 		}
 	}
 
+	// Swap in the new state - brief write lock, no I/O.
+	r.mu.Lock()
 	r.keyHashes = newKeyHashes
 	r.lastRefresh = time.Now()
+	if len(fetchErrors) > 0 {
+		// Still consider loaded if at least some entities have keys.
+		r.keysLoaded = len(newKeyHashes) > 0
+	} else {
+		r.keysLoaded = true
+	}
+	entityCount := len(r.keyHashes)
+	totalKeys := r.countTotalKeys()
+	r.mu.Unlock()
 
 	if len(fetchErrors) > 0 {
-		// Still consider loaded if at least some entities have keys
-		r.keysLoaded = len(newKeyHashes) > 0
 		return fmt.Errorf("failed to fetch keys for %d entities", len(fetchErrors))
 	}
 
-	r.keysLoaded = true
 	r.logger.Info("whitelist keys refreshed",
-		"entities", len(r.keyHashes),
-		"total_keys", r.countTotalKeys())
+		"entities", entityCount,
+		"total_keys", totalKeys)
 	return nil
 }
 
