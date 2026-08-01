@@ -1533,6 +1533,94 @@ func TestWhitelistRegistry_RefreshLoop(t *testing.T) {
 	}
 }
 
+// TestWhitelistRegistry_EvaluateDoesNotBlockOnConcurrentRefresh guards
+// against a real bug: Refresh() used to hold r.mu (the write lock) for its
+// entire duration, including the network I/O to fetch each entity's JWKS.
+// Evaluate() only needs a read lock, so a slow-to-resolve entity (an
+// unreachable host, one with no JWKS endpoint at all, etc.) meant every
+// concurrent Evaluate() call - even a fast resolution-only one needing none
+// of the data being refreshed - blocked for as long as that fetch took.
+// Confirmed in production: a background refresh (default every 5 minutes)
+// stalling on one slow entity caused every trust evaluation during that
+// window to time out from the caller's perspective, well before the fetch
+// itself ever gave up.
+func TestWhitelistRegistry_EvaluateDoesNotBlockOnConcurrentRefresh(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	jwks := map[string]interface{}{
+		"keys": []interface{}{ecdsaPubKeyToJWK(&key.PublicKey, "slow-refresh-key")},
+	}
+
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
+	var startOnce sync.Once
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startOnce.Do(func() { close(fetchStarted) })
+		<-releaseFetch
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(jwks)
+	}))
+	defer server.Close()
+
+	reg := NewWhitelistRegistry(
+		WithWhitelistConfig(WhitelistConfig{
+			Issuers:   []string{server.URL},
+			AllowHTTP: true,
+		}),
+	)
+	defer reg.Close()
+
+	// Kick off a Refresh() that will block inside the HTTP handler above
+	// until the test releases it - simulating a slow/unreachable entity.
+	refreshDone := make(chan error, 1)
+	go func() {
+		refreshDone <- reg.Refresh(context.Background())
+	}()
+
+	select {
+	case <-fetchStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Refresh() did not start fetching in time")
+	}
+
+	// While that Refresh() is still blocked on network I/O, a concurrent
+	// resolution-only Evaluate() for the same entity must complete quickly -
+	// whitelist membership only depends on config set at construction time,
+	// not on the JWKS cache Refresh() is rebuilding, so it must not wait for
+	// the in-flight Refresh() to finish.
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{ID: server.URL},
+		Action:  &authzen.Action{Name: "issuer"},
+	}
+
+	evalDone := make(chan struct{})
+	var resp *authzen.EvaluationResponse
+	var evalErr error
+	go func() {
+		resp, evalErr = reg.Evaluate(context.Background(), req)
+		close(evalDone)
+	}()
+
+	select {
+	case <-evalDone:
+		// Good - Evaluate() did not block behind the in-flight Refresh().
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Evaluate() blocked on a concurrent Refresh()'s network I/O - lock held too long")
+	}
+
+	close(releaseFetch)
+	if err := <-refreshDone; err != nil {
+		t.Fatalf("Refresh() failed: %v", err)
+	}
+
+	if evalErr != nil {
+		t.Fatalf("Evaluate() returned error: %v", evalErr)
+	}
+	if !resp.Decision {
+		t.Error("expected decision=true for whitelisted entity (resolution-only)")
+	}
+}
+
 func TestWhitelistRegistry_RefreshLoopWithOption(t *testing.T) {
 	// Test using WithRefreshInterval option
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
