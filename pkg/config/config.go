@@ -37,6 +37,8 @@ type RegistriesConfig struct {
 	LoTE *LoTERegistryConfig `yaml:"lote,omitempty"`
 	// mDOC IACA registry
 	MDOCIACA *MDOCIACARegistryConfig `yaml:"mdociaca,omitempty"`
+	// FIDO Alliance MDS3 registry (FIDO2/CTAP2 hardware-key attestation trust)
+	FIDOMDS3 *FIDOMDS3RegistryConfig `yaml:"fidomds3,omitempty"`
 	// Static test registries
 	AlwaysTrusted *StaticRegistryConfig `yaml:"always_trusted,omitempty"`
 	NeverTrusted  *StaticRegistryConfig `yaml:"never_trusted,omitempty"`
@@ -152,6 +154,18 @@ type MDOCIACARegistryConfig struct {
 	IssuerAllowlist []string `yaml:"issuer_allowlist,omitempty"`
 	CacheTTL        string   `yaml:"cache_ttl,omitempty"`
 	HTTPTimeout     string   `yaml:"http_timeout,omitempty"`
+}
+
+// FIDOMDS3RegistryConfig contains FIDO Alliance Metadata Service v3
+// registry configuration.
+type FIDOMDS3RegistryConfig struct {
+	Enabled            bool   `yaml:"enabled"`
+	Name               string `yaml:"name,omitempty"`
+	Description        string `yaml:"description,omitempty"`
+	URL                string `yaml:"url,omitempty"`
+	FetchTimeout       string `yaml:"fetch_timeout,omitempty"`
+	RefreshInterval    string `yaml:"refresh_interval,omitempty"`
+	RootCertificatePEM string `yaml:"root_certificate_pem,omitempty"`
 }
 
 // LoTERegistryConfig contains ETSI TS 119 602 LoTE registry configuration.
