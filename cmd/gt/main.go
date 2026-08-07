@@ -763,6 +763,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			Description:        mdsCfg.Description,
 			URL:                mdsCfg.URL,
 			RootCertificatePEM: mdsCfg.RootCertificatePEM,
+			CachePath:          mdsCfg.CachePath,
 			Logger:             slog.Default(),
 		}
 

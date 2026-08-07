@@ -11,6 +11,8 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -286,4 +288,144 @@ func TestRefreshInterval_ZeroDisablesLoop(t *testing.T) {
 	// nothing to assert beyond "it returns without starting a goroutine that
 	// panics/blocks"; give it a moment in case it misbehaves.
 	time.Sleep(10 * time.Millisecond)
+}
+
+func TestNew_SuccessfulFetchPersistsToDiskCache(t *testing.T) {
+	server := newTestServer(t, exampleMetadataBLOB, http.StatusOK)
+	defer server.Close()
+
+	cachePath := filepath.Join(t.TempDir(), "fidomds3-cache.jwt")
+
+	reg, err := New(Config{
+		URL:                server.URL,
+		RootCertificatePEM: metadata.ExampleMDSRoot,
+		CachePath:          cachePath,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if !reg.Healthy() {
+		t.Error("expected registry to be healthy after a successful fetch")
+	}
+
+	got, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatalf("expected New() to have written the disk cache: %v", err)
+	}
+	if string(got) != exampleMetadataBLOB {
+		t.Error("disk cache content does not match the fetched blob")
+	}
+}
+
+func TestNew_DiskCacheSurvivesLiveFetchFailure(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "fidomds3-cache.jwt")
+	if err := os.WriteFile(cachePath, []byte(exampleMetadataBLOB), 0o600); err != nil {
+		t.Fatalf("seed disk cache: %v", err)
+	}
+
+	server := newTestServer(t, "boom", http.StatusInternalServerError)
+	defer server.Close()
+
+	reg, err := New(Config{
+		URL:                server.URL,
+		RootCertificatePEM: metadata.ExampleMDSRoot,
+		CachePath:          cachePath,
+	})
+	if err != nil {
+		t.Fatalf("New: %v, want success from disk-cached data despite a failing live fetch", err)
+	}
+	if !reg.Healthy() {
+		t.Error("expected registry to remain healthy when disk-cached data loaded successfully, even though the live refresh failed")
+	}
+
+	aaguid := uuid.MustParse(exampleAAGUID)
+	reg.mu.RLock()
+	_, ok := reg.entries[aaguid]
+	reg.mu.RUnlock()
+	if !ok {
+		t.Errorf("expected entry for AAGUID %s to be indexed from the disk cache", exampleAAGUID)
+	}
+}
+
+func TestNew_CorruptDiskCacheFallsBackToLiveFetch(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "fidomds3-cache.jwt")
+	if err := os.WriteFile(cachePath, []byte("not a valid MDS3 blob"), 0o600); err != nil {
+		t.Fatalf("seed disk cache: %v", err)
+	}
+
+	server := newTestServer(t, exampleMetadataBLOB, http.StatusOK)
+	defer server.Close()
+
+	reg, err := New(Config{
+		URL:                server.URL,
+		RootCertificatePEM: metadata.ExampleMDSRoot,
+		CachePath:          cachePath,
+	})
+	if err != nil {
+		t.Fatalf("New: %v, want success from the live fetch despite a corrupt disk cache", err)
+	}
+	if !reg.Healthy() {
+		t.Error("expected registry to be healthy after falling back to a successful live fetch")
+	}
+
+	aaguid := uuid.MustParse(exampleAAGUID)
+	reg.mu.RLock()
+	_, ok := reg.entries[aaguid]
+	reg.mu.RUnlock()
+	if !ok {
+		t.Errorf("expected entry for AAGUID %s to be indexed from the live fetch", exampleAAGUID)
+	}
+}
+
+func TestNew_CorruptDiskCacheAndFailingLiveFetchFails(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "fidomds3-cache.jwt")
+	if err := os.WriteFile(cachePath, []byte("not a valid MDS3 blob"), 0o600); err != nil {
+		t.Fatalf("seed disk cache: %v", err)
+	}
+
+	server := newTestServer(t, "boom", http.StatusInternalServerError)
+	defer server.Close()
+
+	_, err := New(Config{
+		URL:                server.URL,
+		RootCertificatePEM: metadata.ExampleMDSRoot,
+		CachePath:          cachePath,
+	})
+	if err == nil {
+		t.Fatal("expected New() to fail when neither the disk cache nor the live fetch is usable")
+	}
+}
+
+func TestRefresh_PersistsUpdatedBlobToDisk(t *testing.T) {
+	server := newTestServer(t, exampleMetadataBLOB, http.StatusOK)
+	defer server.Close()
+
+	cachePath := filepath.Join(t.TempDir(), "fidomds3-cache.jwt")
+
+	reg, err := New(Config{
+		URL:                server.URL,
+		RootCertificatePEM: metadata.ExampleMDSRoot,
+		CachePath:          cachePath,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Remove what New() wrote so this test only asserts on what an explicit
+	// Refresh() call does.
+	if err := os.Remove(cachePath); err != nil {
+		t.Fatalf("remove seeded cache: %v", err)
+	}
+
+	if err := reg.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	got, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatalf("expected Refresh() to have (re)written the disk cache: %v", err)
+	}
+	if string(got) != exampleMetadataBLOB {
+		t.Error("disk cache content does not match the refreshed blob")
+	}
 }

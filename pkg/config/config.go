@@ -166,6 +166,10 @@ type FIDOMDS3RegistryConfig struct {
 	FetchTimeout       string `yaml:"fetch_timeout,omitempty"`
 	RefreshInterval    string `yaml:"refresh_interval,omitempty"`
 	RootCertificatePEM string `yaml:"root_certificate_pem,omitempty"`
+	// CachePath persists the raw MDS3 blob to disk so a restart doesn't
+	// have to block on (or fail because of) a live fetch - see
+	// fidomds3.Config.CachePath's doc for the load/refresh semantics.
+	CachePath string `yaml:"cache_path,omitempty"`
 }
 
 // LoTERegistryConfig contains ETSI TS 119 602 LoTE registry configuration.

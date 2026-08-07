@@ -17,9 +17,13 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -53,6 +57,20 @@ type Config struct {
 	// non-production MDS instance (e.g. FIDO's conformance/testing MDS) or
 	// in tests.
 	RootCertificatePEM string
+
+	// CachePath, if set, persists the raw (still-signed) MDS3 blob to this
+	// file path on every successful fetch, and loads from it at
+	// construction time before attempting any network call. This means a
+	// process restart doesn't have to block on - or fail because of - a
+	// live fetch: New() serves the last-known-good, disk-cached blob
+	// immediately (re-verifying its JWT signature exactly as a live fetch
+	// would, never trusting the file blindly), then attempts a live
+	// refresh in the background; a live-refresh failure at that point is
+	// non-fatal (logged, stale data continues to be served) precisely
+	// because there's already a verified fallback. Without CachePath set,
+	// New() falls back to today's behavior: it must complete a live fetch
+	// to succeed at all. Empty disables disk persistence entirely.
+	CachePath string
 
 	// Logger for structured logging. May be nil.
 	Logger *slog.Logger
@@ -98,8 +116,41 @@ func New(cfg Config) (*Registry, error) {
 		stopCh:  make(chan struct{}),
 	}
 
+	loadedFromDisk := false
+	if cfg.CachePath != "" {
+		if raw, err := r.loadFromDisk(); err != nil {
+			if r.config.Logger != nil {
+				r.config.Logger.Warn("FIDO MDS3 disk cache unusable, will require a live fetch",
+					slog.String("path", cfg.CachePath), slog.String("error", err.Error()))
+			}
+		} else if err := r.decodeAndIndex(raw); err != nil {
+			if r.config.Logger != nil {
+				r.config.Logger.Warn("FIDO MDS3 disk cache failed verification, will require a live fetch",
+					slog.String("path", cfg.CachePath), slog.String("error", err.Error()))
+			}
+		} else {
+			loadedFromDisk = true
+			if r.config.Logger != nil {
+				r.config.Logger.Info("FIDO MDS3 loaded from disk cache, will refresh live in the background",
+					slog.String("path", cfg.CachePath))
+			}
+		}
+	}
+
 	if err := r.refresh(); err != nil {
-		return nil, fmt.Errorf("initial FIDO MDS3 load failed: %w", err)
+		if loadedFromDisk {
+			// Already have a verified, if possibly stale, index from disk -
+			// a failed live refresh right now is not fatal, exactly the
+			// same "degrade to stale data" tolerance refresh() already
+			// gives a mid-life ticker failure.
+			if r.config.Logger != nil {
+				r.config.Logger.Warn("FIDO MDS3 initial live refresh failed, continuing with disk-cached data",
+					slog.String("error", err.Error()))
+			}
+			r.setHealthy(true)
+			return r, nil
+		}
+		return nil, fmt.Errorf("initial FIDO MDS3 load failed (no usable disk cache): %w", err)
 	}
 
 	return r, nil
@@ -141,11 +192,39 @@ func (r *Registry) Stop() {
 	}
 }
 
-// refresh fetches, verifies, and parses the MDS3 blob, then atomically swaps
-// in a fresh AAGUID index. On failure the previously-loaded index (if any)
-// is left in place - a transient fetch failure degrades to stale data, it
-// does not blank the registry.
+// refresh fetches the MDS3 blob live, decodes/verifies/indexes it (see
+// decodeAndIndex), and - if CachePath is set - persists the raw bytes to
+// disk on success. On failure the previously-loaded index (if any) is left
+// in place - a transient fetch failure degrades to stale data, it does not
+// blank the registry.
 func (r *Registry) refresh() error {
+	raw, err := r.fetchRaw()
+	if err != nil {
+		r.setHealthy(false)
+		return err
+	}
+
+	if err := r.decodeAndIndex(raw); err != nil {
+		return err
+	}
+
+	if r.config.CachePath != "" {
+		if err := r.saveToDisk(raw); err != nil && r.config.Logger != nil {
+			// Best-effort only - the in-memory index is already valid and
+			// serving; a disk-cache write failure just means a future
+			// restart won't have this round's data as its warm-start
+			// fallback, matching internal/registry/fetcher.go's convention
+			// in go-wallet-backend for this exact class of failure.
+			r.config.Logger.Warn("failed to persist FIDO MDS3 disk cache", slog.String("error", err.Error()))
+		}
+	}
+
+	return nil
+}
+
+// fetchRaw performs the live HTTP GET for the MDS3 blob and returns its raw
+// (still-signed) bytes.
+func (r *Registry) fetchRaw() ([]byte, error) {
 	client := r.config.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: r.config.FetchTimeout}
@@ -153,21 +232,32 @@ func (r *Registry) refresh() error {
 
 	req, err := http.NewRequest(http.MethodGet, r.config.URL, nil) //nolint:noctx // timeout set via client
 	if err != nil {
-		return fmt.Errorf("build MDS3 request: %w", err)
+		return nil, fmt.Errorf("build MDS3 request: %w", err)
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		r.setHealthy(false)
-		return fmt.Errorf("fetch MDS3 blob: %w", err)
+		return nil, fmt.Errorf("fetch MDS3 blob: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // Body close error is not actionable
 
 	if resp.StatusCode != http.StatusOK {
-		r.setHealthy(false)
-		return fmt.Errorf("MDS3 endpoint returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("MDS3 endpoint returned %d", resp.StatusCode)
 	}
 
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read MDS3 response body: %w", err)
+	}
+	return raw, nil
+}
+
+// decodeAndIndex verifies (JWT signature against the configured/default
+// FIDO Alliance root) and parses raw MDS3 blob bytes - from either a live
+// fetch or the disk cache, the trust bar is identical either way - then
+// atomically swaps in a fresh AAGUID index. On failure the previous index
+// (if any) is left untouched and healthy is set false.
+func (r *Registry) decodeAndIndex(raw []byte) error {
 	// WithIgnoreEntryParsingErrors: a handful of unparseable individual
 	// entries (e.g. a malformed statement for one obscure authenticator)
 	// should not take down the whole blob - matches how the lote registry
@@ -182,7 +272,7 @@ func (r *Registry) refresh() error {
 		return fmt.Errorf("create MDS3 decoder: %w", err)
 	}
 
-	payload, err := decoder.Decode(resp.Body)
+	payload, err := decoder.DecodeBytes(raw)
 	if err != nil {
 		r.setHealthy(false)
 		return fmt.Errorf("decode/verify MDS3 blob: %w", err)
@@ -203,11 +293,47 @@ func (r *Registry) refresh() error {
 	r.mu.Unlock()
 
 	if r.config.Logger != nil {
-		r.config.Logger.Info("FIDO MDS3 refreshed",
+		r.config.Logger.Info("FIDO MDS3 index updated",
 			slog.Int("entries", len(entries)),
 			slog.Time("next_update", parsed.Parsed.NextUpdate))
 	}
 
+	return nil
+}
+
+// loadFromDisk reads the raw MDS3 blob bytes from CachePath. Returns an
+// error if CachePath is unset, the file doesn't exist, or it can't be read -
+// callers treat any error here as "no usable disk cache", not a fatal
+// condition.
+func (r *Registry) loadFromDisk() ([]byte, error) {
+	if r.config.CachePath == "" {
+		return nil, errors.New("no cache path configured")
+	}
+	return os.ReadFile(r.config.CachePath)
+}
+
+// saveToDisk persists raw MDS3 blob bytes to CachePath via a write-then-
+// rename so a crash mid-write can never leave a truncated/corrupt cache
+// file for the next startup to (fail to) load.
+func (r *Registry) saveToDisk(raw []byte) error {
+	dir := filepath.Dir(r.config.CachePath)
+	tmp, err := os.CreateTemp(dir, ".fidomds3-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp cache file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) //nolint:errcheck // no-op once renamed below
+
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close() //nolint:errcheck,gosec // already returning the write error
+		return fmt.Errorf("write temp cache file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp cache file: %w", err)
+	}
+	if err := os.Rename(tmpPath, r.config.CachePath); err != nil {
+		return fmt.Errorf("rename temp cache file into place: %w", err)
+	}
 	return nil
 }
 
