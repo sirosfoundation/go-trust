@@ -20,6 +20,7 @@ import (
 	"github.com/sirosfoundation/go-trust/pkg/registry/didweb"
 	"github.com/sirosfoundation/go-trust/pkg/registry/didwebvh"
 	"github.com/sirosfoundation/go-trust/pkg/registry/etsi"
+	"github.com/sirosfoundation/go-trust/pkg/registry/fidomds3"
 	"github.com/sirosfoundation/go-trust/pkg/registry/lote"
 	"github.com/sirosfoundation/go-trust/pkg/registry/mdociaca"
 	"github.com/sirosfoundation/go-trust/pkg/registry/oidfed"
@@ -750,6 +751,55 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		registryMgr.Register(mdocReg)
 		logger.Info("mDOC IACA registry registered from config",
 			logging.F("issuer_allowlist", len(mdocCfg.IssuerAllowlist)))
+	}
+
+	// Configure FIDO MDS3 registry from config
+	if cfg.Registries.FIDOMDS3 != nil && cfg.Registries.FIDOMDS3.Enabled {
+		logger.Info("Configuring FIDO MDS3 registry from config file")
+		mdsCfg := cfg.Registries.FIDOMDS3
+
+		mdsConfig := fidomds3.Config{
+			Name:               mdsCfg.Name,
+			Description:        mdsCfg.Description,
+			URL:                mdsCfg.URL,
+			RootCertificatePEM: mdsCfg.RootCertificatePEM,
+			CachePath:          mdsCfg.CachePath,
+			Logger:             slog.Default(),
+		}
+
+		if mdsCfg.FetchTimeout != "" {
+			if timeout, err := time.ParseDuration(mdsCfg.FetchTimeout); err == nil {
+				mdsConfig.FetchTimeout = timeout
+			} else {
+				logger.Warn("Invalid fetch_timeout for fidomds3 registry, using default",
+					logging.F("value", mdsCfg.FetchTimeout),
+					logging.F("error", err.Error()))
+			}
+		}
+
+		if mdsCfg.RefreshInterval != "" {
+			if interval, err := time.ParseDuration(mdsCfg.RefreshInterval); err == nil {
+				mdsConfig.RefreshInterval = interval
+			} else {
+				logger.Warn("Invalid refresh_interval for fidomds3 registry, using default",
+					logging.F("value", mdsCfg.RefreshInterval),
+					logging.F("error", err.Error()))
+			}
+		}
+
+		mdsReg, err := fidomds3.New(mdsConfig)
+		if err != nil {
+			logger.Fatal("Failed to create FIDO MDS3 registry from config",
+				logging.F("error", err.Error()))
+		}
+
+		if err := mdsReg.StartRefreshLoop(context.Background()); err != nil {
+			logger.Fatal("Failed to start FIDO MDS3 refresh loop",
+				logging.F("error", err.Error()))
+		}
+
+		registryMgr.Register(mdsReg)
+		logger.Info("FIDO MDS3 registry registered from config")
 	}
 
 }
