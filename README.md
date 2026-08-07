@@ -303,6 +303,42 @@ resp, err := reg.Evaluate(ctx, req)
 - EUDI wallet mDOC credential issuance
 - Any OpenID4VCI issuer publishing IACA certificates
 
+#### FIDO MDS3 Registry
+
+Validates a FIDO2/CTAP2 attestation's X.509 certificate chain against the FIDO Alliance Metadata Service v3 (MDS3) — the official, periodically-updated, cryptographically-signed registry of certified authenticator models (e.g. security keys, platform authenticators) and their certification/revocation status.
+
+**Architecture:**
+1. Fetches the MDS3 blob (JWT-signed), verifies its signature, and indexes entries by AAGUID
+2. Periodically re-fetches on a configurable interval; a transient fetch failure degrades to stale data rather than blanking the index
+3. Optional disk cache (`CachePath`) lets a process restart serve the last-known-good, re-verified blob immediately instead of blocking on a live fetch
+4. `Evaluate()` looks up the AAGUID from `subject.id`, verifies the `resource.key` X5C chain against that entry's attestation root certificates, and rejects entries whose `StatusReports` include an undesired status (e.g. revoked, user-verification-bypass)
+5. Optionally enforces a profile-scoped AAGUID allow/blocklist on top of MDS3 status — see [Policy Configuration](#policy-configuration)
+
+**Supported resource types:** `x5c`
+
+```go
+import "github.com/sirosfoundation/go-trust/pkg/registry/fidomds3"
+
+reg, err := fidomds3.New(fidomds3.Config{
+    Name:            "fido-mds3",
+    RefreshInterval: 24 * time.Hour, // Optional; 0 disables periodic refresh
+    CachePath:       "/var/lib/go-trust/fido-mds3.jwt", // Optional disk cache
+})
+reg.StartRefreshLoop(ctx) // Optional; only needed if RefreshInterval is set
+
+// Evaluate trust for a FIDO2 authenticator's attestation
+req := &authzen.EvaluationRequest{
+    Subject:  authzen.Subject{Type: "key", ID: aaguid.String()},
+    Resource: authzen.Resource{Type: "x5c", Key: []interface{}{attestationCertB64}},
+}
+resp, err := reg.Evaluate(ctx, req)
+```
+
+**Use cases:**
+- WebAuthn/passkey hardware-key attestation verification
+- WSCD (Wallet Secure Cryptographic Device) provisioning, where only AAGUIDs with a confirmed-working feature (e.g. previewSign) should be trusted, tighter than "not revoked"
+- Denying a specific AAGUID with a known issue even though FIDO Alliance hasn't revoked its certification
+
 #### LoTE Registry (ETSI TS 119 602)
 
 Evaluates trust from ETSI TS 119 602 Lists of Trusted Entities (LoTE) — the JSON-based successor to XML Trust Status Lists. LoTE documents list trusted entities with their digital identities (X.509 certificates, JWK keys, or DIDs) and service descriptions.
@@ -492,6 +528,17 @@ policies:
         require_iaca_endpoint: true
       registries:
         - "mdoc-iaca"
+
+    # Policy for WSCD previewSign provisioning: only AAGUIDs confirmed to
+    # have a working previewSign implementation are trusted, tighter than
+    # "not revoked by FIDO Alliance"
+    wscd-previewsign-provision:
+      description: "Trust requirements for WSCD previewSign provisioning"
+      fidomds3:
+        allowed_aaguids:
+          - "0132d110-bf4e-4208-a403-ab4f5f12efe5"
+      registries:
+        - "fido-mds3"
 ```
 
 ### Constraint Types
@@ -503,6 +550,11 @@ policies:
 | `oidfed` | Entity types, trust marks, credential type mapping | OpenID Federation |
 | `did` | Allowed domains, verifiable history | DID Web, DID Web VH |
 | `mdociaca` | Issuer allowlist, IACA endpoint | mDOC IACA |
+| `fidomds3` | AAGUID allowlist/blocklist | FIDO MDS3 |
+
+### AAGUID Policy in FIDO MDS3
+
+For the FIDO MDS3 registry, `allowed_aaguids`/`blocked_aaguids` are enforced *on top of*, never instead of, the registry's own MDS3 status-report and X5C chain verification — a request must still pass MDS3 certification checks regardless of policy. If `allowed_aaguids` is non-empty, only those AAGUIDs are trusted (`allowlist_only` semantics), even if MDS3 still certifies others. Otherwise, if `blocked_aaguids` is non-empty, all MDS3-certified AAGUIDs are trusted except those listed (`allow_except_blocklist` semantics). If both are set, `allowed_aaguids` takes precedence. If neither is set — including when no policy matches the request's `action.name` at all — behavior is unchanged: MDS3 status/chain verification only.
 
 ### Credential Types in ETSI TSL
 
@@ -864,6 +916,7 @@ go-trust/
 │   │   ├── did/         # Generic DID resolver + did:key
 │   │   ├── didutil/     # DID utility functions
 │   │   ├── mdociaca/    # mDOC IACA registry
+│   │   ├── fidomds3/    # FIDO Alliance MDS3 registry
 │   │   ├── rpcert/      # RP Certificate registry (TS 119 475)
 │   │   └── static/      # Static registries (always/never/system/whitelist)
 │   ├── resilience/    # Resilient HTTP fetcher

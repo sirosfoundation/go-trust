@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- FIDO Alliance MDS3 trust registry (`pkg/registry/fidomds3/`, #116)
+  - Verifies a FIDO2/CTAP2 attestation's X5C chain against the FIDO Alliance
+    MDS3 entry for its AAGUID, rejecting undesired authenticator statuses
+  - Optional disk cache (`CachePath`) so a process restart can serve the
+    last-known-good, re-verified blob without blocking on a live fetch
+  - Profile-scoped AAGUID allow/blocklist policy (#118): `fidomds3` policy
+    constraints (`allowed_aaguids`/`blocked_aaguids`) let the same AAGUID get
+    different trust decisions depending on the action/profile it's evaluated
+    under (e.g. a curated allowlist for WSCD previewSign provisioning vs. a
+    blocklist for known-broken authenticators elsewhere), enforced on top of
+    (never instead of) MDS3 status/chain verification
+  - New shared `pkg/registry.ExtractStringList` helper for reading
+    policy-derived string lists out of an evaluation request's context
+
 - WhitelistRegistry (`pkg/registry/static/whitelist.go`)
   - Simple URL-based whitelist for trusted issuers and verifiers
   - YAML/JSON configuration file support
