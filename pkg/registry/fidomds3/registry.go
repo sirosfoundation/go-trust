@@ -360,6 +360,29 @@ func (r *Registry) setHealthy(healthy bool) {
 //     certification status
 //   - blocked_aaguids: these AAGUIDs are denied even if MDS3 certifies them
 //     (only checked when allowed_aaguids is absent/empty)
+//
+// checkAAGUIDPolicy enforces the allowed_aaguids/blocked_aaguids policy
+// constraints (see Evaluate's doc comment) against a resolved AAGUID.
+// Returns a deny response if the policy rejects it, or nil if evaluation
+// should continue to MDS3 status/chain verification.
+func (r *Registry) checkAAGUIDPolicy(reqCtx map[string]interface{}, aaguid uuid.UUID) *authzen.EvaluationResponse {
+	if reqCtx == nil {
+		return nil
+	}
+	if allowed := registry.ExtractStringList(reqCtx, "allowed_aaguids"); len(allowed) > 0 {
+		if !slices.Contains(allowed, aaguid.String()) {
+			return r.denyWithReason(fmt.Sprintf("AAGUID %s is not on the policy allowlist for this profile", aaguid))
+		}
+		return nil
+	}
+	if blocked := registry.ExtractStringList(reqCtx, "blocked_aaguids"); len(blocked) > 0 {
+		if slices.Contains(blocked, aaguid.String()) {
+			return r.denyWithReason(fmt.Sprintf("AAGUID %s is on the policy blocklist for this profile", aaguid))
+		}
+	}
+	return nil
+}
+
 func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	aaguid, err := uuid.Parse(req.Subject.ID)
 	if err != nil {
@@ -374,16 +397,8 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		return r.denyWithReason(fmt.Sprintf("no FIDO MDS3 entry for AAGUID %s", aaguid)), nil
 	}
 
-	if req.Context != nil {
-		if allowed := registry.ExtractStringList(req.Context, "allowed_aaguids"); len(allowed) > 0 {
-			if !slices.Contains(allowed, aaguid.String()) {
-				return r.denyWithReason(fmt.Sprintf("AAGUID %s is not on the policy allowlist for this profile", aaguid)), nil
-			}
-		} else if blocked := registry.ExtractStringList(req.Context, "blocked_aaguids"); len(blocked) > 0 {
-			if slices.Contains(blocked, aaguid.String()) {
-				return r.denyWithReason(fmt.Sprintf("AAGUID %s is on the policy blocklist for this profile", aaguid)), nil
-			}
-		}
+	if resp := r.checkAAGUIDPolicy(req.Context, aaguid); resp != nil {
+		return resp, nil
 	}
 
 	chain, err := parseX5CChain(req.Resource.Key)
