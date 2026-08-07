@@ -375,11 +375,11 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	}
 
 	if req.Context != nil {
-		if allowed := extractAAGUIDList(req.Context, "allowed_aaguids"); len(allowed) > 0 {
+		if allowed := registry.ExtractStringList(req.Context, "allowed_aaguids"); len(allowed) > 0 {
 			if !slices.Contains(allowed, aaguid.String()) {
 				return r.denyWithReason(fmt.Sprintf("AAGUID %s is not on the policy allowlist for this profile", aaguid)), nil
 			}
-		} else if blocked := extractAAGUIDList(req.Context, "blocked_aaguids"); len(blocked) > 0 {
+		} else if blocked := registry.ExtractStringList(req.Context, "blocked_aaguids"); len(blocked) > 0 {
 			if slices.Contains(blocked, aaguid.String()) {
 				return r.denyWithReason(fmt.Sprintf("AAGUID %s is on the policy blocklist for this profile", aaguid)), nil
 			}
@@ -437,31 +437,6 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 			Reason: reason,
 		},
 	}, nil
-}
-
-// extractAAGUIDList reads a policy-derived AAGUID list from a request's
-// context. Values may arrive as []string (set directly, e.g. from Go code
-// or tests) or []interface{} (typical after JSON unmarshaling), matching
-// how other registries in this package tree (e.g. mdociaca's
-// extractIssuerAllowlist) read policy constraints from req.Context.
-func extractAAGUIDList(ctx map[string]interface{}, key string) []string {
-	v, ok := ctx[key]
-	if !ok {
-		return nil
-	}
-	switch s := v.(type) {
-	case []string:
-		return s
-	case []interface{}:
-		result := make([]string, 0, len(s))
-		for _, item := range s {
-			if str, ok := item.(string); ok {
-				result = append(result, str)
-			}
-		}
-		return result
-	}
-	return nil
 }
 
 // SupportedResourceTypes returns the resource types this registry handles.

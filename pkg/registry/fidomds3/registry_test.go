@@ -426,18 +426,6 @@ func TestEvaluate_AllowlistTakesPrecedenceOverBlocklist(t *testing.T) {
 	}
 }
 
-func TestExtractAAGUIDList(t *testing.T) {
-	if got := extractAAGUIDList(map[string]interface{}{}, "allowed_aaguids"); got != nil {
-		t.Errorf("expected nil for missing key, got %v", got)
-	}
-	if got := extractAAGUIDList(map[string]interface{}{"allowed_aaguids": []string{"a", "b"}}, "allowed_aaguids"); len(got) != 2 {
-		t.Errorf("expected []string passthrough, got %v", got)
-	}
-	if got := extractAAGUIDList(map[string]interface{}{"allowed_aaguids": []interface{}{"a", "b"}}, "allowed_aaguids"); len(got) != 2 {
-		t.Errorf("expected []interface{} to convert to []string, got %v", got)
-	}
-}
-
 func TestRefreshInterval_ZeroDisablesLoop(t *testing.T) {
 	server := newTestServer(t, exampleMetadataBLOB, http.StatusOK)
 	defer server.Close()
