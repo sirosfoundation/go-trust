@@ -271,6 +271,173 @@ func TestEvaluate_UndesiredStatus(t *testing.T) {
 	}
 }
 
+// newSelfCertifiedEntry builds an entry whose attestation root is a
+// self-signed CA certificate that we hand-construct (and hold the private
+// key for) ourselves - unlike TestEvaluate_UntrustedChain, which loads a
+// *real* fetched MDS3 entry whose genuine attestationRootCertificates key
+// material nobody testing this code possesses, entries built directly via
+// the Registry.entries map (as this helper and TestEvaluate_UndesiredStatus
+// already do) are entirely test-controlled, so a real positive chain is
+// achievable synthetically: it returns the base64-encoded DER of that same
+// CA certificate as a one-element x5c chain, which genuinely verifies
+// against the entry's own attestation roots. This gives policy tests a real
+// "MDS3 would trust this" positive baseline to layer allow/blocklist denial
+// on top of.
+func newSelfCertifiedEntry(t *testing.T, aaguid uuid.UUID) (*metadata.Entry, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-attestation-root"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse self-signed cert: %v", err)
+	}
+	entry := &metadata.Entry{
+		AaGUID: aaguid,
+		MetadataStatement: metadata.Statement{
+			Description:                 "test authenticator",
+			AttestationRootCertificates: []*x509.Certificate{cert},
+		},
+	}
+	return entry, base64.StdEncoding.EncodeToString(der)
+}
+
+func TestEvaluate_NoProfileUnaffected(t *testing.T) {
+	aaguid := uuid.New()
+	entry, chainB64 := newSelfCertifiedEntry(t, aaguid)
+	r := &Registry{entries: map[uuid.UUID]*metadata.Entry{aaguid: entry}}
+
+	resp, err := r.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: aaguid.String()},
+		Resource: authzen.Resource{Type: "x5c", ID: aaguid.String(), Key: []interface{}{chainB64}},
+	})
+	if err != nil {
+		t.Fatalf("Evaluate returned error: %v", err)
+	}
+	if !resp.Decision {
+		t.Error("expected Decision=true when no policy context is present and MDS3 checks pass")
+	}
+}
+
+func TestEvaluate_AllowlistDeniesUnlistedAAGUID(t *testing.T) {
+	aaguid := uuid.New()
+	entry, chainB64 := newSelfCertifiedEntry(t, aaguid)
+	r := &Registry{entries: map[uuid.UUID]*metadata.Entry{aaguid: entry}}
+
+	resp, err := r.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: aaguid.String()},
+		Resource: authzen.Resource{Type: "x5c", ID: aaguid.String(), Key: []interface{}{chainB64}},
+		Context:  map[string]interface{}{"allowed_aaguids": []string{uuid.New().String()}},
+	})
+	if err != nil {
+		t.Fatalf("Evaluate returned error: %v", err)
+	}
+	if resp.Decision {
+		t.Error("expected Decision=false for an AAGUID not on the policy allowlist, even though MDS3 would trust it")
+	}
+}
+
+func TestEvaluate_AllowlistAllowsListedAAGUID(t *testing.T) {
+	aaguid := uuid.New()
+	entry, chainB64 := newSelfCertifiedEntry(t, aaguid)
+	r := &Registry{entries: map[uuid.UUID]*metadata.Entry{aaguid: entry}}
+
+	resp, err := r.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: aaguid.String()},
+		Resource: authzen.Resource{Type: "x5c", ID: aaguid.String(), Key: []interface{}{chainB64}},
+		Context:  map[string]interface{}{"allowed_aaguids": []string{aaguid.String()}},
+	})
+	if err != nil {
+		t.Fatalf("Evaluate returned error: %v", err)
+	}
+	if !resp.Decision {
+		t.Error("expected Decision=true for an AAGUID on the policy allowlist")
+	}
+}
+
+func TestEvaluate_BlocklistDeniesListedAAGUID(t *testing.T) {
+	aaguid := uuid.New()
+	entry, chainB64 := newSelfCertifiedEntry(t, aaguid)
+	r := &Registry{entries: map[uuid.UUID]*metadata.Entry{aaguid: entry}}
+
+	resp, err := r.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: aaguid.String()},
+		Resource: authzen.Resource{Type: "x5c", ID: aaguid.String(), Key: []interface{}{chainB64}},
+		Context:  map[string]interface{}{"blocked_aaguids": []string{aaguid.String()}},
+	})
+	if err != nil {
+		t.Fatalf("Evaluate returned error: %v", err)
+	}
+	if resp.Decision {
+		t.Error("expected Decision=false for an AAGUID on the policy blocklist, even though MDS3 certifies it")
+	}
+}
+
+func TestEvaluate_BlocklistAllowsUnlistedAAGUID(t *testing.T) {
+	aaguid := uuid.New()
+	entry, chainB64 := newSelfCertifiedEntry(t, aaguid)
+	r := &Registry{entries: map[uuid.UUID]*metadata.Entry{aaguid: entry}}
+
+	resp, err := r.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: aaguid.String()},
+		Resource: authzen.Resource{Type: "x5c", ID: aaguid.String(), Key: []interface{}{chainB64}},
+		Context:  map[string]interface{}{"blocked_aaguids": []string{uuid.New().String()}},
+	})
+	if err != nil {
+		t.Fatalf("Evaluate returned error: %v", err)
+	}
+	if !resp.Decision {
+		t.Error("expected Decision=true for an AAGUID not on the policy blocklist")
+	}
+}
+
+func TestEvaluate_AllowlistTakesPrecedenceOverBlocklist(t *testing.T) {
+	aaguid := uuid.New()
+	entry, chainB64 := newSelfCertifiedEntry(t, aaguid)
+	r := &Registry{entries: map[uuid.UUID]*metadata.Entry{aaguid: entry}}
+
+	resp, err := r.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: aaguid.String()},
+		Resource: authzen.Resource{Type: "x5c", ID: aaguid.String(), Key: []interface{}{chainB64}},
+		Context: map[string]interface{}{
+			"allowed_aaguids": []string{aaguid.String()},
+			"blocked_aaguids": []string{aaguid.String()},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Evaluate returned error: %v", err)
+	}
+	if !resp.Decision {
+		t.Error("expected Decision=true: allowlist takes precedence when both allowed_aaguids and blocked_aaguids are set")
+	}
+}
+
+func TestExtractAAGUIDList(t *testing.T) {
+	if got := extractAAGUIDList(map[string]interface{}{}, "allowed_aaguids"); got != nil {
+		t.Errorf("expected nil for missing key, got %v", got)
+	}
+	if got := extractAAGUIDList(map[string]interface{}{"allowed_aaguids": []string{"a", "b"}}, "allowed_aaguids"); len(got) != 2 {
+		t.Errorf("expected []string passthrough, got %v", got)
+	}
+	if got := extractAAGUIDList(map[string]interface{}{"allowed_aaguids": []interface{}{"a", "b"}}, "allowed_aaguids"); len(got) != 2 {
+		t.Errorf("expected []interface{} to convert to []string, got %v", got)
+	}
+}
+
 func TestRefreshInterval_ZeroDisablesLoop(t *testing.T) {
 	server := newTestServer(t, exampleMetadataBLOB, http.StatusOK)
 	defer server.Close()

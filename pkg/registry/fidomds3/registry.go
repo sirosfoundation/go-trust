@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -351,6 +352,14 @@ func (r *Registry) setHealthy(healthy bool) {
 // half of a name-to-key binding - here, the name is the authenticator
 // model's AAGUID (a UUID), and the key is the x5c chain an attestation
 // object claims was produced by that model.
+//
+// Policy constraints from req.Context (set by the policy mapper, see
+// pkg/registry.RegistryManager.applyPolicyToRequest) are also enforced, on
+// top of MDS3 status/chain verification, never instead of it:
+//   - allowed_aaguids: only these AAGUIDs are trusted, regardless of MDS3
+//     certification status
+//   - blocked_aaguids: these AAGUIDs are denied even if MDS3 certifies them
+//     (only checked when allowed_aaguids is absent/empty)
 func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	aaguid, err := uuid.Parse(req.Subject.ID)
 	if err != nil {
@@ -363,6 +372,18 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 
 	if !ok {
 		return r.denyWithReason(fmt.Sprintf("no FIDO MDS3 entry for AAGUID %s", aaguid)), nil
+	}
+
+	if req.Context != nil {
+		if allowed := extractAAGUIDList(req.Context, "allowed_aaguids"); len(allowed) > 0 {
+			if !slices.Contains(allowed, aaguid.String()) {
+				return r.denyWithReason(fmt.Sprintf("AAGUID %s is not on the policy allowlist for this profile", aaguid)), nil
+			}
+		} else if blocked := extractAAGUIDList(req.Context, "blocked_aaguids"); len(blocked) > 0 {
+			if slices.Contains(blocked, aaguid.String()) {
+				return r.denyWithReason(fmt.Sprintf("AAGUID %s is on the policy blocklist for this profile", aaguid)), nil
+			}
+		}
 	}
 
 	chain, err := parseX5CChain(req.Resource.Key)
@@ -400,17 +421,47 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		return r.denyWithReason(fmt.Sprintf("x5c chain does not verify against MDS3 attestation roots: %v", err)), nil
 	}
 
+	reason := map[string]interface{}{
+		"trust_anchor":         "fido_mds3",
+		"aaguid":               aaguid.String(),
+		"description":          entry.MetadataStatement.Description,
+		"attestation_root_cas": len(entry.MetadataStatement.AttestationRootCertificates),
+	}
+	if policyName, ok := req.Context["_policy"].(string); ok && policyName != "" {
+		reason["policy"] = policyName
+	}
+
 	return &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
-			Reason: map[string]interface{}{
-				"trust_anchor":         "fido_mds3",
-				"aaguid":               aaguid.String(),
-				"description":          entry.MetadataStatement.Description,
-				"attestation_root_cas": len(entry.MetadataStatement.AttestationRootCertificates),
-			},
+			Reason: reason,
 		},
 	}, nil
+}
+
+// extractAAGUIDList reads a policy-derived AAGUID list from a request's
+// context. Values may arrive as []string (set directly, e.g. from Go code
+// or tests) or []interface{} (typical after JSON unmarshaling), matching
+// how other registries in this package tree (e.g. mdociaca's
+// extractIssuerAllowlist) read policy constraints from req.Context.
+func extractAAGUIDList(ctx map[string]interface{}, key string) []string {
+	v, ok := ctx[key]
+	if !ok {
+		return nil
+	}
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []interface{}:
+		result := make([]string, 0, len(s))
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				result = append(result, str)
+			}
+		}
+		return result
+	}
+	return nil
 }
 
 // SupportedResourceTypes returns the resource types this registry handles.

@@ -355,6 +355,12 @@ policies:
         issuer_allowlist:
           - "https://mdl-issuer.example.com"
         require_iaca_endpoint: true
+
+    wscd-previewsign-provision:
+      description: "Trust requirements for WSCD previewSign provisioning"
+      fidomds3:
+        allowed_aaguids:
+          - "0132d110-bf4e-4208-a403-ab4f5f12efe5"
 `
 
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
@@ -372,8 +378,8 @@ policies:
 	}
 
 	// Verify policies count
-	if len(cfg.Policies.Policies) != 3 {
-		t.Errorf("Policies count = %v, want %v", len(cfg.Policies.Policies), 3)
+	if len(cfg.Policies.Policies) != 4 {
+		t.Errorf("Policies count = %v, want %v", len(cfg.Policies.Policies), 4)
 	}
 
 	// Verify credential-issuer policy
@@ -446,5 +452,17 @@ policies:
 	}
 	if !mdlPolicy.MDOCIACA.RequireIACAEndpoint {
 		t.Error("MDOCIACA RequireIACAEndpoint should be true")
+	}
+
+	// Verify wscd-previewsign-provision policy
+	wscdPolicy := cfg.Policies.Policies["wscd-previewsign-provision"]
+	if wscdPolicy == nil {
+		t.Fatal("wscd-previewsign-provision policy not found")
+	}
+	if wscdPolicy.FIDOMDS3 == nil {
+		t.Fatal("FIDOMDS3 constraints not found")
+	}
+	if len(wscdPolicy.FIDOMDS3.AllowedAAGUIDs) != 1 {
+		t.Errorf("FIDOMDS3 AllowedAAGUIDs count = %v, want %v", len(wscdPolicy.FIDOMDS3.AllowedAAGUIDs), 1)
 	}
 }

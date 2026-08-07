@@ -859,6 +859,14 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 			}
 		}
 
+		// Convert FIDO MDS3 constraints
+		if policyCfg.FIDOMDS3 != nil {
+			policy.FIDOMDS3 = &registry.FIDOMDS3PolicyConstraints{
+				AllowedAAGUIDs: policyCfg.FIDOMDS3.AllowedAAGUIDs,
+				BlockedAAGUIDs: policyCfg.FIDOMDS3.BlockedAAGUIDs,
+			}
+		}
+
 		policyMgr.RegisterPolicy(policy)
 		policyCount++
 

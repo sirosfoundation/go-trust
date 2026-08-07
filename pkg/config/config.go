@@ -222,6 +222,9 @@ type PolicyConfig struct {
 
 	// MDOCIACA contains mDOC IACA-specific constraints
 	MDOCIACA *MDOCIACAPolicyConfig `yaml:"mdociaca,omitempty"`
+
+	// FIDOMDS3 contains FIDO Alliance MDS3-specific constraints
+	FIDOMDS3 *FIDOMDS3PolicyConfig `yaml:"fidomds3,omitempty"`
 }
 
 // PolicyConstraintsConfig contains registry-agnostic trust constraints.
@@ -280,6 +283,17 @@ type MDOCIACAPolicyConfig struct {
 
 	// RequireIACAEndpoint requires the issuer to publish mdoc_iacas_uri.
 	RequireIACAEndpoint bool `yaml:"require_iaca_endpoint,omitempty"`
+}
+
+// FIDOMDS3PolicyConfig contains FIDO Alliance MDS3-specific policy constraints.
+type FIDOMDS3PolicyConfig struct {
+	// AllowedAAGUIDs restricts trust to specific AAGUIDs, regardless of MDS3
+	// certification status.
+	AllowedAAGUIDs []string `yaml:"allowed_aaguids,omitempty"`
+
+	// BlockedAAGUIDs denies specific AAGUIDs even if MDS3 certifies them.
+	// Only applied when AllowedAAGUIDs is empty.
+	BlockedAAGUIDs []string `yaml:"blocked_aaguids,omitempty"`
 }
 
 // ServerConfig contains HTTP server configuration settings.
