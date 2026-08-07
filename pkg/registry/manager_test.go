@@ -752,6 +752,52 @@ func TestRegistryManager_Evaluate_NormalizesSubjectID(t *testing.T) {
 	assert.Equal(t, "https://verifier.example.com", capturedSubjectID)
 }
 
+func TestRegistryManager_Evaluate_AppliesFIDOMDS3Policy(t *testing.T) {
+	var capturedContext map[string]interface{}
+	reg := &captureMockRegistry{
+		mockRegistry: &mockRegistry{
+			name:          "fido-mds3",
+			resourceTypes: []string{"x5c"},
+			healthy:       true,
+			evaluateResponse: &authzen.EvaluationResponse{
+				Decision: true,
+			},
+		},
+		onEvaluate: func(req *authzen.EvaluationRequest) {
+			capturedContext = req.Context
+		},
+	}
+
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+	mgr.Register(reg)
+
+	pm := NewPolicyManager()
+	pm.RegisterPolicy(&Policy{
+		Name: "wscd-previewsign-provision",
+		FIDOMDS3: &FIDOMDS3PolicyConstraints{
+			AllowedAAGUIDs: []string{"aaguid-1"},
+		},
+	})
+	mgr.SetPolicyManager(pm)
+
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "aaguid-1"},
+		Action:  &authzen.Action{Name: "wscd-previewsign-provision"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "aaguid-1",
+			Key:  []interface{}{"test"},
+		},
+	}
+
+	ctx := context.Background()
+	resp, err := mgr.Evaluate(ctx, req)
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+	assert.Equal(t, []string{"aaguid-1"}, capturedContext["allowed_aaguids"])
+	assert.Nil(t, capturedContext["blocked_aaguids"])
+}
+
 // logEntry records a single log call.
 type logEntry struct {
 	level  logging.LogLevel

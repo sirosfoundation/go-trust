@@ -251,3 +251,41 @@ func TestPolicyContext_MDOCIACAHelpers(t *testing.T) {
 		t.Error("GetMDOCIACAIssuerAllowlist returned wrong values")
 	}
 }
+
+func TestPolicyContext_FIDOMDS3Helpers(t *testing.T) {
+	// Test with nil policy
+	pc := &PolicyContext{}
+	if pc.HasFIDOMDS3Constraints() {
+		t.Error("HasFIDOMDS3Constraints should be false for nil policy")
+	}
+	if pc.GetFIDOMDS3AllowedAAGUIDs() != nil {
+		t.Error("GetFIDOMDS3AllowedAAGUIDs should return nil for nil policy")
+	}
+	if pc.GetFIDOMDS3BlockedAAGUIDs() != nil {
+		t.Error("GetFIDOMDS3BlockedAAGUIDs should return nil for nil policy")
+	}
+
+	// Test with FIDOMDS3 constraints
+	pc = &PolicyContext{
+		Policy: &Policy{
+			FIDOMDS3: &FIDOMDS3PolicyConstraints{
+				AllowedAAGUIDs: []string{"aaguid-1", "aaguid-2"},
+				BlockedAAGUIDs: []string{"aaguid-3"},
+			},
+		},
+	}
+
+	if !pc.HasFIDOMDS3Constraints() {
+		t.Error("HasFIDOMDS3Constraints should be true")
+	}
+
+	allowed := pc.GetFIDOMDS3AllowedAAGUIDs()
+	if len(allowed) != 2 || allowed[0] != "aaguid-1" {
+		t.Error("GetFIDOMDS3AllowedAAGUIDs returned wrong values")
+	}
+
+	blocked := pc.GetFIDOMDS3BlockedAAGUIDs()
+	if len(blocked) != 1 || blocked[0] != "aaguid-3" {
+		t.Error("GetFIDOMDS3BlockedAAGUIDs returned wrong values")
+	}
+}
