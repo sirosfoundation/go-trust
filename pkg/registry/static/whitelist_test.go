@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2215,4 +2216,175 @@ func TestWithHTTPClient(t *testing.T) {
 	if r.httpClient != custom {
 		t.Error("WithHTTPClient did not set httpClient on WhitelistRegistry")
 	}
+}
+
+// TestWhitelistRegistry_TrustX509ViaSystemCA covers the fallback trust path
+// for whitelisted entities identified by a non-HTTP(S) scheme (e.g.
+// OpenID4VP's x509_san_dns:example.com client_id_scheme), which have no JWKS
+// endpoint and would otherwise always be denied with "no keys cached for
+// entity" regardless of how legitimate their presented certificate is.
+func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
+	cert := generateSelfSignedCert(t)
+	certB64 := base64.StdEncoding.EncodeToString(cert.Raw)
+
+	t.Run("disabled_by_default_denies_non_jwks_entity", func(t *testing.T) {
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:   map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions: map[string]string{"credential-verifier": "verifiers"},
+		}))
+		// Refresh() returns an error whenever ANY entity's JWKS fetch fails -
+		// expected and benign here, since this entity was never JWKS-fetchable
+		// to begin with (mirrors what the real PDP deployment does: logs the
+		// warning, keeps running).
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false when TrustX509ViaSystemCA is disabled")
+		}
+		if resp.Context.Reason["error"] != "no keys cached for entity; call Refresh() to load keys" {
+			t.Errorf("expected the original JWKS-missing deny reason, got: %v", resp.Context.Reason["error"])
+		}
+	})
+
+	t.Run("enabled_attempts_chain_validation_for_whitelisted_entity", func(t *testing.T) {
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// A self-signed test cert does not chain to any real public CA, so
+		// this is expected to deny - but critically via chain validation,
+		// not the "no keys cached" reason, proving the fallback path ran.
+		if resp.Decision {
+			t.Error("expected decision=false for a self-signed cert (doesn't chain to a public CA)")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "x509 chain validation") {
+			t.Errorf("expected a chain-validation error proving the system-CA fallback ran, got: %v", errReason)
+		}
+	})
+
+	t.Run("enabled_attempts_chain_validation_for_x509_hash_scheme", func(t *testing.T) {
+		// The fallback is scheme-agnostic: it triggers on "any non-HTTP(S)
+		// scheme", not specifically x509_san_dns. Prove it also covers
+		// OpenID4VP's x509_hash:<hash-of-leaf-cert-der> client_id_scheme,
+		// which is a different non-fetchable scheme with the same problem
+		// (no JWKS endpoint), through the exact same code path.
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_hash:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_hash:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Same expectation as the x509_san_dns case: a self-signed test cert
+		// doesn't chain to a public CA, so this denies - but via chain
+		// validation, not "no keys cached", proving the fallback ran for
+		// this scheme too.
+		if resp.Decision {
+			t.Error("expected decision=false for a self-signed cert (doesn't chain to a public CA)")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "x509 chain validation") {
+			t.Errorf("expected a chain-validation error proving the system-CA fallback ran for x509_hash, got: %v", errReason)
+		}
+	})
+
+	t.Run("still_gated_by_whitelist_membership", func(t *testing.T) {
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		// A DIFFERENT x509_san_dns entity, not in the whitelist - must be
+		// denied on membership grounds, never even reaching the cert-chain
+		// fallback. TrustX509ViaSystemCA is not a blanket "trust any
+		// certificate" switch.
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:not-whitelisted.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false for an entity not in the whitelist")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "not in whitelist") {
+			t.Errorf("expected a whitelist-membership deny reason (not a cert-chain error), got: %v", errReason)
+		}
+	})
+
+	t.Run("http_scheme_entity_unaffected_by_flag", func(t *testing.T) {
+		// A normal https:// entity whose JWKS fetch genuinely failed must
+		// still be denied outright - TrustX509ViaSystemCA only applies to
+		// entities that were never JWKS-fetchable to begin with.
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"https://unreachable.invalid.example"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "https://unreachable.invalid.example"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false for an unreachable https entity")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "no keys cached") {
+			t.Errorf("expected the JWKS-missing deny reason (not the system-CA fallback), got: %v", errReason)
+		}
+	})
 }
