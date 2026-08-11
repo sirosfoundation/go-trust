@@ -5,14 +5,18 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2215,4 +2219,482 @@ func TestWithHTTPClient(t *testing.T) {
 	if r.httpClient != custom {
 		t.Error("WithHTTPClient did not set httpClient on WhitelistRegistry")
 	}
+}
+
+// TestWhitelistRegistry_TrustX509ViaSystemCA covers the fallback trust path
+// for whitelisted entities identified by a non-HTTP(S) scheme (e.g.
+// OpenID4VP's x509_san_dns:example.com client_id_scheme), which have no JWKS
+// endpoint and would otherwise always be denied with "no keys cached for
+// entity" regardless of how legitimate their presented certificate is.
+func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
+	cert := generateSelfSignedCert(t)
+	certB64 := base64.StdEncoding.EncodeToString(cert.Raw)
+
+	t.Run("disabled_by_default_denies_non_jwks_entity", func(t *testing.T) {
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:   map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions: map[string]string{"credential-verifier": "verifiers"},
+		}))
+		// Refresh() returns an error whenever ANY entity's JWKS fetch fails -
+		// expected and benign here, since this entity was never JWKS-fetchable
+		// to begin with (mirrors what the real PDP deployment does: logs the
+		// warning, keeps running).
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false when TrustX509ViaSystemCA is disabled")
+		}
+		if resp.Context.Reason["error"] != "no keys cached for entity; call Refresh() to load keys" {
+			t.Errorf("expected the original JWKS-missing deny reason, got: %v", resp.Context.Reason["error"])
+		}
+	})
+
+	t.Run("enabled_attempts_chain_validation_for_whitelisted_entity", func(t *testing.T) {
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// A self-signed test cert does not chain to any real public CA, so
+		// this is expected to deny - but critically via chain validation,
+		// not the "no keys cached" reason, proving the fallback path ran.
+		if resp.Decision {
+			t.Error("expected decision=false for a self-signed cert (doesn't chain to a public CA)")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "x509 chain validation") {
+			t.Errorf("expected a chain-validation error proving the system-CA fallback ran, got: %v", errReason)
+		}
+	})
+
+	t.Run("enabled_attempts_chain_validation_for_x509_hash_scheme", func(t *testing.T) {
+		// The fallback is scheme-agnostic: it triggers on "any non-HTTP(S)
+		// scheme", not specifically x509_san_dns. Prove it also covers
+		// OpenID4VP's x509_hash:<hash-of-leaf-cert-der> client_id_scheme,
+		// which is a different non-fetchable scheme with the same problem
+		// (no JWKS endpoint), through the exact same code path.
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_hash:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_hash:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Same expectation as the x509_san_dns case: a self-signed test cert
+		// doesn't chain to a public CA, so this denies - but via chain
+		// validation, not "no keys cached", proving the fallback ran for
+		// this scheme too.
+		if resp.Decision {
+			t.Error("expected decision=false for a self-signed cert (doesn't chain to a public CA)")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "x509 chain validation") {
+			t.Errorf("expected a chain-validation error proving the system-CA fallback ran for x509_hash, got: %v", errReason)
+		}
+	})
+
+	t.Run("still_gated_by_whitelist_membership", func(t *testing.T) {
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		// A DIFFERENT x509_san_dns entity, not in the whitelist - must be
+		// denied on membership grounds, never even reaching the cert-chain
+		// fallback. TrustX509ViaSystemCA is not a blanket "trust any
+		// certificate" switch.
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:not-whitelisted.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false for an entity not in the whitelist")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "not in whitelist") {
+			t.Errorf("expected a whitelist-membership deny reason (not a cert-chain error), got: %v", errReason)
+		}
+	})
+
+	t.Run("http_scheme_entity_unaffected_by_flag", func(t *testing.T) {
+		// A normal https:// entity whose JWKS fetch genuinely failed must
+		// still be denied outright - TrustX509ViaSystemCA only applies to
+		// entities that were never JWKS-fetchable to begin with.
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"https://unreachable.invalid.example"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "https://unreachable.invalid.example"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false for an unreachable https entity")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "no keys cached") {
+			t.Errorf("expected the JWKS-missing deny reason (not the system-CA fallback), got: %v", errReason)
+		}
+	})
+
+	t.Run("enabled_grants_trust_for_a_chain_that_validates", func(t *testing.T) {
+		// The previous "enabled" subtests only prove the fallback path *runs*
+		// (via a self-signed cert that can never chain to any pool). Prove it
+		// can also *succeed*: build a real CA + leaf chain, inject a cert
+		// pool containing just that CA directly into the registry (same
+		// package as production code, so private fields are reachable here
+		// without needing a public test-only constructor), and confirm a
+		// Decision=true with trust_path=system_ca in both the reason and
+		// trust metadata.
+		leafCert, caCert := generateCASignedLeafCert(t)
+		customPool := x509.NewCertPool()
+		customPool.AddCert(caCert)
+
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+		// Pre-seed the once-loaded system cert pool with our own test CA
+		// instead of the real OS trust store, so the outcome is deterministic
+		// and doesn't depend on any real public CA.
+		reg.systemCertPoolOnce.Do(func() {})
+		reg.systemCertPool = customPool
+		reg.systemCertPoolErr = nil
+
+		leafB64 := base64.StdEncoding.EncodeToString(leafCert.Raw)
+		// Also exercise the requested_credential_types branch of the success
+		// reason - a real OpenID4VP presentation request typically carries
+		// this in Context.
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{leafB64},
+			},
+			Context: map[string]interface{}{
+				"credential_types": []interface{}{"org.iso.18013.5.1.mDL"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Decision {
+			t.Fatalf("expected decision=true for a chain that validates against the injected pool, got deny: %v", resp.Context.Reason["error"])
+		}
+		trustMetadata, _ := resp.Context.TrustMetadata.(map[string]interface{})
+		if trustMetadata["trust_path"] != "system_ca" {
+			t.Errorf("expected trust_path=system_ca in trust metadata, got: %v", trustMetadata["trust_path"])
+		}
+		if resp.Context.Reason["trust_path"] != "system_ca" {
+			t.Errorf("expected trust_path=system_ca in reason, got: %v", resp.Context.Reason["trust_path"])
+		}
+		credTypes, _ := resp.Context.Reason["requested_credential_types"].([]string)
+		if len(credTypes) != 1 || credTypes[0] != "org.iso.18013.5.1.mDL" {
+			t.Errorf("expected requested_credential_types=[org.iso.18013.5.1.mDL] in reason, got: %v", resp.Context.Reason["requested_credential_types"])
+		}
+	})
+
+	t.Run("enabled_grants_trust_for_a_chain_with_an_intermediate", func(t *testing.T) {
+		// Exercise the multi-cert (leaf + intermediate) branch of
+		// evaluateViaSystemCA - the previous success subtest only presented a
+		// single leaf cert signed directly by a pool-trusted root.
+		leafCert, intermediateCert, rootCert := generateCASignedLeafCertWithIntermediate(t)
+		customPool := x509.NewCertPool()
+		customPool.AddCert(rootCert)
+
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+		reg.systemCertPoolOnce.Do(func() {})
+		reg.systemCertPool = customPool
+		reg.systemCertPoolErr = nil
+
+		leafB64 := base64.StdEncoding.EncodeToString(leafCert.Raw)
+		intermediateB64 := base64.StdEncoding.EncodeToString(intermediateCert.Raw)
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{leafB64, intermediateB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Decision {
+			t.Fatalf("expected decision=true for a leaf+intermediate chain that validates against the injected root pool, got deny: %v", resp.Context.Reason["error"])
+		}
+		if resp.Context.Reason["chain_length"] != 1 {
+			t.Errorf("expected a single resolved chain, got chain_length=%v", resp.Context.Reason["chain_length"])
+		}
+	})
+
+	t.Run("malformed_x5c_denies_with_parse_error", func(t *testing.T) {
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{"not-valid-base64!!!"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false for a malformed x5c entry")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "failed to parse x5c chain") {
+			t.Errorf("expected a parse-error deny reason, got: %v", errReason)
+		}
+	})
+
+	t.Run("system_cert_pool_unavailable_denies", func(t *testing.T) {
+		// Simulate loadSystemCertPool() itself failing (e.g. an unsupported
+		// platform) by pre-seeding the once-loaded state directly, since
+		// x509.SystemCertPool() can't be made to fail on demand in this test
+		// environment.
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+		reg.systemCertPoolOnce.Do(func() {})
+		reg.systemCertPool = nil
+		reg.systemCertPoolErr = fmt.Errorf("simulated: system cert pool unavailable")
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false when the system cert pool failed to load")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "system CA pool unavailable") {
+			t.Errorf("expected a pool-unavailable deny reason, got: %v", errReason)
+		}
+	})
+}
+
+// generateCASignedLeafCert creates a self-signed CA certificate and a leaf
+// certificate signed by it, for testing the TrustX509ViaSystemCA success path
+// with a deterministic, injectable pool instead of depending on any real
+// public CA.
+func generateCASignedLeafCert(t *testing.T) (leaf *x509.Certificate, ca *x509.Certificate) {
+	t.Helper()
+
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate CA key: %v", err)
+	}
+	caTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test CA Org"},
+			CommonName:   "Test Root CA",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("failed to create CA certificate: %v", err)
+	}
+	caCert, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatalf("failed to parse CA certificate: %v", err)
+	}
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate leaf key: %v", err)
+	}
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			Organization: []string{"Test Org"},
+			CommonName:   "verifier.example.com",
+		},
+		DNSNames:    []string{"verifier.example.com"},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("failed to create leaf certificate: %v", err)
+	}
+	leafCert, err := x509.ParseCertificate(leafDER)
+	if err != nil {
+		t.Fatalf("failed to parse leaf certificate: %v", err)
+	}
+
+	return leafCert, caCert
+}
+
+// generateCASignedLeafCertWithIntermediate builds a 3-tier root CA ->
+// intermediate CA -> leaf chain, for testing evaluateViaSystemCA's
+// multi-cert (len(certs) > 1) branch: the presented x5c array carries the
+// leaf and intermediate, while only the root is in the trusted pool.
+func generateCASignedLeafCertWithIntermediate(t *testing.T) (leaf, intermediate, root *x509.Certificate) {
+	t.Helper()
+
+	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate root key: %v", err)
+	}
+	rootTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test Root CA Org"},
+			CommonName:   "Test Root CA",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, &rootKey.PublicKey, rootKey)
+	if err != nil {
+		t.Fatalf("failed to create root certificate: %v", err)
+	}
+	rootCert, err := x509.ParseCertificate(rootDER)
+	if err != nil {
+		t.Fatalf("failed to parse root certificate: %v", err)
+	}
+
+	intermediateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate intermediate key: %v", err)
+	}
+	intermediateTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			Organization: []string{"Test Intermediate CA Org"},
+			CommonName:   "Test Intermediate CA",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	intermediateDER, err := x509.CreateCertificate(rand.Reader, intermediateTemplate, rootCert, &intermediateKey.PublicKey, rootKey)
+	if err != nil {
+		t.Fatalf("failed to create intermediate certificate: %v", err)
+	}
+	intermediateCert, err := x509.ParseCertificate(intermediateDER)
+	if err != nil {
+		t.Fatalf("failed to parse intermediate certificate: %v", err)
+	}
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate leaf key: %v", err)
+	}
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject: pkix.Name{
+			Organization: []string{"Test Org"},
+			CommonName:   "verifier.example.com",
+		},
+		DNSNames:    []string{"verifier.example.com"},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, intermediateCert, &leafKey.PublicKey, intermediateKey)
+	if err != nil {
+		t.Fatalf("failed to create leaf certificate: %v", err)
+	}
+	leafCert, err := x509.ParseCertificate(leafDER)
+	if err != nil {
+		t.Fatalf("failed to parse leaf certificate: %v", err)
+	}
+
+	return leafCert, intermediateCert, rootCert
 }

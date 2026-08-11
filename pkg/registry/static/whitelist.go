@@ -4,6 +4,7 @@ package static
 import (
 	"context"
 	"crypto"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"gopkg.in/yaml.v3"
 
+	"github.com/sirosfoundation/g119612/pkg/utils/x509util"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
 	"github.com/sirosfoundation/go-trust/pkg/resilience"
@@ -76,6 +78,13 @@ type WhitelistRegistry struct {
 
 	// jwksFetcher handles JWKS fetches with retry and stale-cache fallback.
 	jwksFetcher *resilience.Fetcher[[]crypto.PublicKey]
+
+	// systemCertPool backs the TrustX509ViaSystemCA fallback path. Lazily
+	// loaded once (loading the OS root pool is a real, non-trivial syscall
+	// on some platforms) and reused for the registry's lifetime.
+	systemCertPoolOnce sync.Once
+	systemCertPool     *x509.CertPool
+	systemCertPoolErr  error
 }
 
 // WhitelistConfig holds the whitelist configuration.
@@ -126,6 +135,22 @@ type WhitelistConfig struct {
 	// Default: 5m (5 minutes). Set to "0" to disable background refresh.
 	// Example: "5m", "1h", "30s"
 	RefreshInterval string `json:"refresh_interval,omitempty" yaml:"refresh_interval,omitempty"`
+
+	// TrustX509ViaSystemCA enables a fallback trust path for whitelisted
+	// entities identified by a non-HTTP(S) scheme (e.g. OpenID4VP's
+	// "x509_san_dns:example.com" or "x509_hash:<leaf-cert-der-hash>"
+	// client_id_schemes) that therefore have no JWKS endpoint to fetch keys
+	// from at all. When true, if an entity in
+	// this state is a member of the matched action's list (still gated by
+	// the same whitelist membership check every other entry goes through -
+	// this is NOT a blanket "trust any certificate" fallback), its presented
+	// x5c certificate chain is verified against the operating system's root
+	// CA pool instead of being denied outright for having no cached JWKS
+	// keys. This only applies to entities that were never JWKS-fetchable in
+	// the first place; a real https:// entity whose JWKS fetch failed
+	// (network error, misconfiguration) is still denied, not silently
+	// downgraded to cert-pool trust.
+	TrustX509ViaSystemCA bool `json:"trust_x509_via_system_ca,omitempty" yaml:"trust_x509_via_system_ca,omitempty"`
 }
 
 // WhitelistOption is a functional option for configuring WhitelistRegistry.
@@ -510,19 +535,35 @@ func (r *WhitelistRegistry) Evaluate(ctx context.Context, req *authzen.Evaluatio
 		return r.allowResolutionOnly(subjectID, role, matchedList, req)
 	}
 
-	// Verify key binding: extract the key from the request and check against cached hashes
-	keyFingerprint, err := r.extractKeyFingerprint(req)
-	if err != nil {
-		return r.deny(subjectID, fmt.Sprintf("failed to extract key: %s", err))
-	}
-
-	// Check if the key fingerprint matches any of the entity's registered keys.
+	// Check if we have any keys cached for this entity via JWKS before even
+	// trying to extract a key from the request - if there's nothing cached
+	// to compare against, there's no point parsing the presented key yet.
 	// Normalize the subject ID for lookup since keyHashes keys are normalized.
 	normSubjectID := normalizeEntityID(subjectID)
 	allowedKeys, hasKeys := r.keyHashes[normSubjectID]
 	if !hasKeys || len(allowedKeys) == 0 {
-		// No keys cached for this entity - need to refresh
+		// No keys cached for this entity via JWKS. If this entity was never
+		// JWKS-fetchable to begin with (a non-HTTP(S) scheme, e.g. OpenID4VP's
+		// x509_san_dns:example.com client_id_scheme) and the registry is
+		// configured to trust such entities via the system CA pool, fall
+		// back to validating the presented x5c chain directly - this is
+		// still gated by the whitelist-membership check above (subjectID
+		// had to match an entry in this action's list), it is not a blanket
+		// "trust any CA-signed cert" path. This must run before
+		// extractKeyFingerprint below: evaluateViaSystemCA does its own x5c
+		// parsing, and reaching it only after a successful fingerprint
+		// extraction (which parses the same x5c bytes) would make its parse
+		// error branch dead code.
+		if r.config.TrustX509ViaSystemCA && req.Resource.Type == "x5c" && !isHTTPScheme(subjectID) {
+			return r.evaluateViaSystemCA(subjectID, role, matchedList, req)
+		}
 		return r.deny(subjectID, "no keys cached for entity; call Refresh() to load keys")
+	}
+
+	// Verify key binding: extract the key from the request and check against cached hashes
+	keyFingerprint, err := r.extractKeyFingerprint(req)
+	if err != nil {
+		return r.deny(subjectID, fmt.Sprintf("failed to extract key: %s", err))
 	}
 
 	if allowedKeys[keyFingerprint] {
@@ -530,6 +571,100 @@ func (r *WhitelistRegistry) Evaluate(ctx context.Context, req *authzen.Evaluatio
 	}
 
 	return r.deny(subjectID, "key fingerprint does not match any registered keys for this entity")
+}
+
+// isHTTPScheme reports whether id parses as a URL with an http/https scheme -
+// i.e. whether it was ever a candidate for JWKS discovery at all. Entities
+// using a non-fetchable scheme (OpenID4VP's x509_san_dns:..., x509_hash:...,
+// did:..., etc.) never had keys loaded via Refresh() and are the only ones
+// eligible for the TrustX509ViaSystemCA fallback.
+func isHTTPScheme(id string) bool {
+	u, err := url.Parse(id)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http")
+}
+
+// loadSystemCertPool lazily loads and caches the OS root CA pool, used by
+// evaluateViaSystemCA. Loading is one-time for the registry's lifetime -
+// x509.SystemCertPool() re-reads the OS trust store on every call otherwise,
+// which is unnecessary work on the hot Evaluate() path.
+func (r *WhitelistRegistry) loadSystemCertPool() (*x509.CertPool, error) {
+	r.systemCertPoolOnce.Do(func() {
+		r.systemCertPool, r.systemCertPoolErr = x509.SystemCertPool()
+		if r.systemCertPoolErr == nil && r.systemCertPool == nil {
+			r.systemCertPoolErr = fmt.Errorf("system cert pool is nil (unsupported on this platform)")
+		}
+	})
+	return r.systemCertPool, r.systemCertPoolErr
+}
+
+// evaluateViaSystemCA validates the request's x5c certificate chain against
+// the OS root CA pool, for a whitelisted entity that has no JWKS to check
+// key fingerprints against (see the TrustX509ViaSystemCA doc comment). The
+// caller has already confirmed subjectID matched an entry in the relevant
+// action's list - this only decides whether the presented certificate chain
+// is itself valid, mirroring the same public-CA chain validation
+// static.SystemCertPoolRegistry performs, scoped here to whitelisted
+// entities only rather than any presented certificate.
+func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, role, matchedList string, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	pool, err := r.loadSystemCertPool()
+	if err != nil {
+		return r.deny(subjectID, fmt.Sprintf("system CA pool unavailable: %s", err))
+	}
+
+	// ParseX5CFromArray returns an error for an empty/malformed input and
+	// otherwise one *x509.Certificate per input entry, so certs is
+	// guaranteed non-empty here - no separate "no certificates" check needed.
+	certs, err := x509util.ParseX5CFromArray(req.Resource.Key)
+	if err != nil {
+		return r.deny(subjectID, fmt.Sprintf("failed to parse x5c chain: %s", err))
+	}
+
+	opts := x509.VerifyOptions{
+		Roots: pool,
+		// ExtKeyUsageAny: relying-party/verifier leaf certs commonly carry
+		// only id-kp-clientAuth (or no EKU at all); Go's zero-value
+		// KeyUsages defaults to ExtKeyUsageServerAuth, which would reject
+		// them even though the chain itself is otherwise valid.
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}
+	if len(certs) > 1 {
+		intermediates := x509.NewCertPool()
+		for _, cert := range certs[1:] {
+			intermediates.AddCert(cert)
+		}
+		opts.Intermediates = intermediates
+	}
+
+	chains, err := certs[0].Verify(opts)
+	if err != nil {
+		return r.deny(subjectID, fmt.Sprintf("x509 chain validation against system CA pool failed: %s", err))
+	}
+
+	reason := map[string]interface{}{
+		"user":         fmt.Sprintf("trusted via whitelist (%s, system CA chain validation)", matchedList),
+		"registry":     r.name,
+		"type":         "whitelist",
+		"role":         role,
+		"matched_list": matchedList,
+		"trust_path":   "system_ca",
+		"chain_length": len(chains),
+	}
+	if credTypes := r.extractCredentialTypes(req); len(credTypes) > 0 {
+		reason["requested_credential_types"] = credTypes
+	}
+
+	return &authzen.EvaluationResponse{
+		Decision: true,
+		Context: &authzen.EvaluationResponseContext{
+			Reason: reason,
+			TrustMetadata: map[string]interface{}{
+				"trust_framework": "whitelist",
+				"registry":        r.name,
+				"matched_list":    matchedList,
+				"trust_path":      "system_ca",
+			},
+		},
+	}, nil
 }
 
 // extractKeyFingerprint extracts and computes fingerprint of the key from the request.

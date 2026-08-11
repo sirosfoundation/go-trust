@@ -85,6 +85,11 @@ type WhitelistRegistryConfig struct {
 	// AllowHTTP permits JWKS auto-discovery over plain HTTP instead of
 	// requiring HTTPS. Testing only - see pkg/registry/static.WhitelistConfig.
 	AllowHTTP bool `yaml:"allow_http,omitempty"`
+	// TrustX509ViaSystemCA enables the system-CA-pool fallback for whitelisted
+	// entities with no JWKS endpoint (e.g. OpenID4VP x509_san_dns or x509_hash
+	// client_id_scheme verifiers) - see
+	// pkg/registry/static.WhitelistConfig.TrustX509ViaSystemCA.
+	TrustX509ViaSystemCA bool `yaml:"trust_x509_via_system_ca,omitempty"`
 }
 
 // StaticRegistryConfig contains static (always/never trusted) registry configuration.
