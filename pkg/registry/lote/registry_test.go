@@ -1176,6 +1176,101 @@ func TestEvaluate_X5C_CAAnchored_SubjectIDNotListed(t *testing.T) {
 	}
 }
 
+// TestEvaluate_X5C_CAAnchored_ClientIDSchemeBindingMismatch proves the CA-anchored
+// fallback no longer grants trust on chain-validity alone when the caller uses
+// an OpenID4VP certificate-binding client_id_scheme: chaining to a listed CA is
+// necessary but not sufficient - the leaf must also be bound to the claimed
+// identity. Without this check, any certificate issued by a listed CA could
+// impersonate ANY x509_san_dns/x509_san_uri/x509_hash identity, regardless of
+// what the certificate itself actually says.
+func TestEvaluate_X5C_CAAnchored_ClientIDSchemeBindingMismatch(t *testing.T) {
+	caCert, caKey := generateTestCA(t)
+
+	// Leaf legitimately issued by the listed CA, but for a DIFFERENT DNS name
+	// than the one the caller claims via the x509_san_dns client_id_scheme.
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(43),
+		Subject:      pkix.Name{CommonName: "unrelated.example.com"},
+		DNSNames:     []string{"unrelated.example.com"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+	leafCert, err := x509.ParseCertificate(leafDER)
+	require.NoError(t, err)
+
+	caEntityID := "https://access-ca-binding.example.com"
+	lote := minimalLoTE("SE", x509Entity(caEntityID, caCert))
+	path := writeLoTE(t, t.TempDir(), "lote.json", lote)
+
+	reg, err := New(Config{Name: "ca-anchored-binding-test", Sources: []string{path}})
+	require.NoError(t, err)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x509_san_dns:rp.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "x509_san_dns:rp.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(leafCert.Raw),
+				base64.StdEncoding.EncodeToString(caCert.Raw),
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.Decision, "leaf chains to a listed CA but is not bound to the claimed x509_san_dns identity - must be denied")
+	admin, _ := resp.Context.Reason["admin"].(string)
+	assert.Contains(t, admin, "certificate binding check failed", "expected a certificate-binding deny reason, got: %s", admin)
+}
+
+// TestEvaluate_X5C_CAAnchored_ClientIDSchemeBindingSuccess proves the CA-anchored
+// fallback still grants trust when the leaf IS bound to the claimed identity.
+func TestEvaluate_X5C_CAAnchored_ClientIDSchemeBindingSuccess(t *testing.T) {
+	caCert, caKey := generateTestCA(t)
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(44),
+		Subject:      pkix.Name{CommonName: "rp.example.com"},
+		DNSNames:     []string{"rp.example.com"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+	leafCert, err := x509.ParseCertificate(leafDER)
+	require.NoError(t, err)
+
+	caEntityID := "https://access-ca-binding-ok.example.com"
+	lote := minimalLoTE("SE", x509Entity(caEntityID, caCert))
+	path := writeLoTE(t, t.TempDir(), "lote.json", lote)
+
+	reg, err := New(Config{Name: "ca-anchored-binding-ok-test", Sources: []string{path}})
+	require.NoError(t, err)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x509_san_dns:rp.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "x509_san_dns:rp.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(leafCert.Raw),
+				base64.StdEncoding.EncodeToString(caCert.Raw),
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Decision, "leaf chains to a listed CA and is bound to the claimed x509_san_dns identity - should be trusted, got reason: %v", resp.Context.Reason)
+}
+
 // TestEvaluate_X5C_CAAnchored_UntrustedLeafRejected ensures that the global CA
 // pool fallback does not grant access to a leaf issued by an unknown CA.
 func TestEvaluate_X5C_CAAnchored_UntrustedLeafRejected(t *testing.T) {

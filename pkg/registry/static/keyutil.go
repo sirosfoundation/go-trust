@@ -114,7 +114,7 @@ func PublicKeyToCanonicalJWK(pubKey crypto.PublicKey) (map[string]string, error)
 // Supports both x5c (X.509 certificate chain) and jwk resource types.
 func ExtractPublicKeyFromRequest(resourceType string, resourceKey []interface{}) (crypto.PublicKey, error) {
 	switch resourceType {
-	case "x5c", "x509_san_dns":
+	case "x5c", "x509_san_dns", "x509_san_uri":
 		certs, err := x509util.ParseX5CFromArray(resourceKey)
 		if err != nil {
 			return nil, fmt.Errorf("parsing x5c: %w", err)

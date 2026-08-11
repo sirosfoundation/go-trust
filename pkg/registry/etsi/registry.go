@@ -889,31 +889,8 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	if req.Resource.Type == "x509_san_dns" {
 		clientID := req.Subject.ID
 		leafCert := certs[0]
-		sanMatched := false
 
-		for _, dnsName := range leafCert.DNSNames {
-			if dnsName == clientID {
-				sanMatched = true
-				break
-			}
-			// Support wildcard certificates (e.g., *.example.com)
-			// Per RFC 6125, wildcards match only a single label
-			if strings.HasPrefix(dnsName, "*.") {
-				// *.example.com matches sub.example.com but NOT example.com or deep.sub.example.com
-				suffix := dnsName[1:]     // *.example.com -> .example.com
-				baseDomain := dnsName[2:] // *.example.com -> example.com
-				if strings.HasSuffix(clientID, suffix) && clientID != baseDomain {
-					// Ensure only a single label before the suffix (no nested subdomains)
-					prefix := strings.TrimSuffix(clientID, suffix)
-					if !strings.Contains(prefix, ".") {
-						sanMatched = true
-						break
-					}
-				}
-			}
-		}
-
-		if !sanMatched {
+		if !registry.DNSSANMatches(clientID, leafCert.DNSNames) {
 			reason := map[string]interface{}{
 				"error":           fmt.Sprintf("subject.id '%s' not found in certificate DNS SANs", clientID),
 				"dns_sans":        leafCert.DNSNames,
@@ -935,16 +912,8 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	if req.Resource.Type == "x509_san_uri" {
 		clientID := req.Subject.ID
 		leafCert := certs[0]
-		sanMatched := false
 
-		for _, uri := range leafCert.URIs {
-			if uri != nil && uri.String() == clientID {
-				sanMatched = true
-				break
-			}
-		}
-
-		if !sanMatched {
+		if !registry.URISANMatches(clientID, leafCert.URIs) {
 			// Extract URI strings for error response
 			uriSANs := make([]string, 0, len(leafCert.URIs))
 			for _, uri := range leafCert.URIs {
@@ -965,6 +934,36 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 					Reason: reason,
 				},
 			}, nil
+		}
+	}
+
+	// The two blocks above only run when the caller signals the
+	// client_id_scheme via Resource.Type ("x509_san_dns"/"x509_san_uri"). The
+	// real-world OpenID4VP convention used by go-wallet-backend never does
+	// that - it always sends Resource.Type="x5c" and encodes the
+	// client_id_scheme in Subject.ID itself (e.g. "x509_san_dns:example.com"),
+	// which RegistryManager.Evaluate may have already rewritten to
+	// "https://example.com" for whitelist-style matching elsewhere. Recover
+	// the original claim and, if it names one of the certificate-binding
+	// schemes, verify it here too - otherwise the checks above are
+	// unreachable for any real caller and a verifier would be trusted on
+	// chain-validity to a listed CA alone, regardless of which identity it
+	// actually claims.
+	if req.Resource.Type == "x5c" {
+		if scheme, value, ok := registry.ParseClientIDScheme(registry.OriginalSubjectID(req)); ok {
+			if bindErr := registry.VerifyLeafBinding(scheme, value, certs[0]); bindErr != nil {
+				reason := map[string]interface{}{
+					"error":         fmt.Sprintf("certificate binding check failed: %s", bindErr),
+					"validation_ms": validationDuration.Milliseconds(),
+				}
+				addCredentialTypesToReason(reason, credentialTypes)
+				return &authzen.EvaluationResponse{
+					Decision: false,
+					Context: &authzen.EvaluationResponseContext{
+						Reason: reason,
+					},
+				}, nil
+			}
 		}
 	}
 

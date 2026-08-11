@@ -1527,6 +1527,68 @@ func TestTSLRegistry_Evaluate_X509SanDNS(t *testing.T) {
 	}
 }
 
+// TestTSLRegistry_Evaluate_X5C_ClientIDSchemeBinding proves the certificate
+// binding check is reachable via the resource type real callers actually
+// send. go-wallet-backend (the real production caller of go-trust) never
+// sets Resource.Type to "x509_san_dns"/"x509_san_uri" - it always sends
+// Resource.Type="x5c" and encodes the client_id_scheme in Subject.ID itself
+// (e.g. "x509_san_dns:example.com"). Before this fix, the DNS-SAN check above
+// only ran for Resource.Type=="x509_san_dns", making it dead code for any
+// real caller: an x5c request would chain-validate and be trusted regardless
+// of what Subject.ID claimed.
+func TestTSLRegistry_Evaluate_X5C_ClientIDSchemeBinding(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "tsl-x5c-scheme-binding-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cert, pemData := generateTestCertificateWithDNSSAN(t, "Test CA", []string{"example.com"})
+	certPath := writeTestCertFile(t, tmpDir, "test-ca.pem", pemData)
+
+	reg, err := NewTSLRegistry(TSLConfig{
+		Name:       "x5c-scheme-binding-test",
+		CertBundle: certPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	certB64 := base64.StdEncoding.EncodeToString(cert.Raw)
+
+	t.Run("matching x509_san_dns claim in Subject.ID is trusted", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{Type: "key", ID: "x509_san_dns:example.com"},
+			Resource: authzen.Resource{Type: "x5c", ID: "x509_san_dns:example.com", Key: []interface{}{certB64}},
+		}
+		resp, err := reg.Evaluate(context.Background(), req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Decision {
+			t.Errorf("expected decision=true for a matching x509_san_dns claim, got deny: %v", resp.Context.Reason)
+		}
+	})
+
+	t.Run("mismatched x509_san_dns claim in Subject.ID is denied even though the chain validates", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{Type: "key", ID: "x509_san_dns:attacker.com"},
+			Resource: authzen.Resource{Type: "x5c", ID: "x509_san_dns:attacker.com", Key: []interface{}{certB64}},
+		}
+		resp, err := reg.Evaluate(context.Background(), req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false: certificate has no DNS SAN for the claimed identity")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "certificate binding check failed") {
+			t.Errorf("expected a certificate-binding deny reason, got: %v", errReason)
+		}
+	})
+}
+
 // TestTSLRegistry_Evaluate_X509SanDNS_NoDNSSANs tests x509_san_dns with certificate without DNS SANs
 func TestTSLRegistry_Evaluate_X509SanDNS_NoDNSSANs(t *testing.T) {
 	// Create temp directory
