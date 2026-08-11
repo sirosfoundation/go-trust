@@ -5,10 +5,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -2387,4 +2390,177 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 			t.Errorf("expected the JWKS-missing deny reason (not the system-CA fallback), got: %v", errReason)
 		}
 	})
+
+	t.Run("enabled_grants_trust_for_a_chain_that_validates", func(t *testing.T) {
+		// The previous "enabled" subtests only prove the fallback path *runs*
+		// (via a self-signed cert that can never chain to any pool). Prove it
+		// can also *succeed*: build a real CA + leaf chain, inject a cert
+		// pool containing just that CA directly into the registry (same
+		// package as production code, so private fields are reachable here
+		// without needing a public test-only constructor), and confirm a
+		// Decision=true with trust_path=system_ca in both the reason and
+		// trust metadata.
+		leafCert, caCert := generateCASignedLeafCert(t)
+		customPool := x509.NewCertPool()
+		customPool.AddCert(caCert)
+
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+		// Pre-seed the once-loaded system cert pool with our own test CA
+		// instead of the real OS trust store, so the outcome is deterministic
+		// and doesn't depend on any real public CA.
+		reg.systemCertPoolOnce.Do(func() {})
+		reg.systemCertPool = customPool
+		reg.systemCertPoolErr = nil
+
+		leafB64 := base64.StdEncoding.EncodeToString(leafCert.Raw)
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{leafB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Decision {
+			t.Fatalf("expected decision=true for a chain that validates against the injected pool, got deny: %v", resp.Context.Reason["error"])
+		}
+		trustMetadata, _ := resp.Context.TrustMetadata.(map[string]interface{})
+		if trustMetadata["trust_path"] != "system_ca" {
+			t.Errorf("expected trust_path=system_ca in trust metadata, got: %v", trustMetadata["trust_path"])
+		}
+		if resp.Context.Reason["trust_path"] != "system_ca" {
+			t.Errorf("expected trust_path=system_ca in reason, got: %v", resp.Context.Reason["trust_path"])
+		}
+	})
+
+	t.Run("malformed_x5c_denies_with_parse_error", func(t *testing.T) {
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{"not-valid-base64!!!"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false for a malformed x5c entry")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "failed to parse x5c chain") {
+			t.Errorf("expected a parse-error deny reason, got: %v", errReason)
+		}
+	})
+
+	t.Run("system_cert_pool_unavailable_denies", func(t *testing.T) {
+		// Simulate loadSystemCertPool() itself failing (e.g. an unsupported
+		// platform) by pre-seeding the once-loaded state directly, since
+		// x509.SystemCertPool() can't be made to fail on demand in this test
+		// environment.
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+		reg.systemCertPoolOnce.Do(func() {})
+		reg.systemCertPool = nil
+		reg.systemCertPoolErr = fmt.Errorf("simulated: system cert pool unavailable")
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false when the system cert pool failed to load")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "system CA pool unavailable") {
+			t.Errorf("expected a pool-unavailable deny reason, got: %v", errReason)
+		}
+	})
+}
+
+// generateCASignedLeafCert creates a self-signed CA certificate and a leaf
+// certificate signed by it, for testing the TrustX509ViaSystemCA success path
+// with a deterministic, injectable pool instead of depending on any real
+// public CA.
+func generateCASignedLeafCert(t *testing.T) (leaf *x509.Certificate, ca *x509.Certificate) {
+	t.Helper()
+
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate CA key: %v", err)
+	}
+	caTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test CA Org"},
+			CommonName:   "Test Root CA",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("failed to create CA certificate: %v", err)
+	}
+	caCert, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatalf("failed to parse CA certificate: %v", err)
+	}
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate leaf key: %v", err)
+	}
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			Organization: []string{"Test Org"},
+			CommonName:   "verifier.example.com",
+		},
+		DNSNames:    []string{"verifier.example.com"},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("failed to create leaf certificate: %v", err)
+	}
+	leafCert, err := x509.ParseCertificate(leafDER)
+	if err != nil {
+		t.Fatalf("failed to parse leaf certificate: %v", err)
+	}
+
+	return leafCert, caCert
 }

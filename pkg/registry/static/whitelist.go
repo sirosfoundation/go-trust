@@ -535,13 +535,9 @@ func (r *WhitelistRegistry) Evaluate(ctx context.Context, req *authzen.Evaluatio
 		return r.allowResolutionOnly(subjectID, role, matchedList, req)
 	}
 
-	// Verify key binding: extract the key from the request and check against cached hashes
-	keyFingerprint, err := r.extractKeyFingerprint(req)
-	if err != nil {
-		return r.deny(subjectID, fmt.Sprintf("failed to extract key: %s", err))
-	}
-
-	// Check if the key fingerprint matches any of the entity's registered keys.
+	// Check if we have any keys cached for this entity via JWKS before even
+	// trying to extract a key from the request - if there's nothing cached
+	// to compare against, there's no point parsing the presented key yet.
 	// Normalize the subject ID for lookup since keyHashes keys are normalized.
 	normSubjectID := normalizeEntityID(subjectID)
 	allowedKeys, hasKeys := r.keyHashes[normSubjectID]
@@ -553,11 +549,21 @@ func (r *WhitelistRegistry) Evaluate(ctx context.Context, req *authzen.Evaluatio
 		// back to validating the presented x5c chain directly - this is
 		// still gated by the whitelist-membership check above (subjectID
 		// had to match an entry in this action's list), it is not a blanket
-		// "trust any CA-signed cert" path.
+		// "trust any CA-signed cert" path. This must run before
+		// extractKeyFingerprint below: evaluateViaSystemCA does its own x5c
+		// parsing, and reaching it only after a successful fingerprint
+		// extraction (which parses the same x5c bytes) would make its parse
+		// error branch dead code.
 		if r.config.TrustX509ViaSystemCA && req.Resource.Type == "x5c" && !isHTTPScheme(subjectID) {
 			return r.evaluateViaSystemCA(subjectID, role, matchedList, req)
 		}
 		return r.deny(subjectID, "no keys cached for entity; call Refresh() to load keys")
+	}
+
+	// Verify key binding: extract the key from the request and check against cached hashes
+	keyFingerprint, err := r.extractKeyFingerprint(req)
+	if err != nil {
+		return r.deny(subjectID, fmt.Sprintf("failed to extract key: %s", err))
 	}
 
 	if allowedKeys[keyFingerprint] {
@@ -605,12 +611,12 @@ func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, role, matchedList str
 		return r.deny(subjectID, fmt.Sprintf("system CA pool unavailable: %s", err))
 	}
 
+	// ParseX5CFromArray returns an error for an empty/malformed input and
+	// otherwise one *x509.Certificate per input entry, so certs is
+	// guaranteed non-empty here - no separate "no certificates" check needed.
 	certs, err := x509util.ParseX5CFromArray(req.Resource.Key)
 	if err != nil {
 		return r.deny(subjectID, fmt.Sprintf("failed to parse x5c chain: %s", err))
-	}
-	if len(certs) == 0 {
-		return r.deny(subjectID, "no certificates found in resource.key")
 	}
 
 	opts := x509.VerifyOptions{
