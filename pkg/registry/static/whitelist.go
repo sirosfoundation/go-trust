@@ -144,9 +144,15 @@ type WhitelistConfig struct {
 	// this state is a member of the matched action's list (still gated by
 	// the same whitelist membership check every other entry goes through -
 	// this is NOT a blanket "trust any certificate" fallback), its presented
-	// x5c certificate chain is verified against the operating system's root
-	// CA pool instead of being denied outright for having no cached JWKS
-	// keys. This only applies to entities that were never JWKS-fetchable in
+	// x5c certificate chain must (a) be bound to the claimed identity per
+	// the client_id_scheme's own semantics - a DNS/URI SAN match for
+	// x509_san_dns/x509_san_uri, or a cert-hash match for x509_hash, see
+	// registry.VerifyLeafBinding - and (b) verify against the operating
+	// system's root CA pool, instead of being denied outright for having no
+	// cached JWKS keys. Only entities using one of these three recognized
+	// schemes are eligible; any other non-fetchable scheme (e.g. "did:...")
+	// is denied outright since there is no defined way to bind it to an x5c
+	// chain. This only applies to entities that were never JWKS-fetchable in
 	// the first place; a real https:// entity whose JWKS fetch failed
 	// (network error, misconfiguration) is still denied, not silently
 	// downgraded to cert-pool trust.
@@ -554,8 +560,16 @@ func (r *WhitelistRegistry) Evaluate(ctx context.Context, req *authzen.Evaluatio
 		// parsing, and reaching it only after a successful fingerprint
 		// extraction (which parses the same x5c bytes) would make its parse
 		// error branch dead code.
-		if r.config.TrustX509ViaSystemCA && req.Resource.Type == "x5c" && !isHTTPScheme(subjectID) {
-			return r.evaluateViaSystemCA(subjectID, role, matchedList, req)
+		// isHTTPScheme (and the certificate-binding check inside
+		// evaluateViaSystemCA) must see the claim as the client actually
+		// asserted it - e.g. "x509_san_dns:host" - not the https://-rewritten
+		// form RegistryManager.Evaluate produces for whitelist-matching
+		// purposes. Recover it via OriginalSubjectID; this is a no-op (falls
+		// back to subjectID) when Evaluate is called directly, as all of this
+		// package's own tests do.
+		originalSubjectID := registry.OriginalSubjectID(req)
+		if r.config.TrustX509ViaSystemCA && isCertificateArrayResourceType(req.Resource.Type) && !isHTTPScheme(originalSubjectID) {
+			return r.evaluateViaSystemCA(subjectID, originalSubjectID, role, matchedList, req)
 		}
 		return r.deny(subjectID, "no keys cached for entity; call Refresh() to load keys")
 	}
@@ -583,6 +597,27 @@ func isHTTPScheme(id string) bool {
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http")
 }
 
+// isCertificateArrayResourceType reports whether resourceType carries an x5c
+// certificate array as its payload, whichever of the equivalent resource
+// type names is used for it. "x5c" is what real callers (e.g.
+// go-wallet-backend) always send, encoding the client_id_scheme in
+// Subject.ID instead (see registry.ParseClientIDScheme); "x509_san_dns" /
+// "x509_san_uri" are an alternative convention - used by
+// ExtractPublicKeyFromRequest and SupportedResourceTypes below - where the
+// scheme is signaled via Resource.Type instead. Both must be accepted here:
+// previously this gate only matched "x5c" while SupportedResourceTypes
+// advertised "x509_san_dns" as routable, so a request legitimately arriving
+// with that resource type and no cached JWKS was denied even with
+// TrustX509ViaSystemCA enabled.
+func isCertificateArrayResourceType(resourceType string) bool {
+	switch resourceType {
+	case "x5c", "x509_san_dns", "x509_san_uri":
+		return true
+	default:
+		return false
+	}
+}
+
 // loadSystemCertPool lazily loads and caches the OS root CA pool, used by
 // evaluateViaSystemCA. Loading is one-time for the registry's lifetime -
 // x509.SystemCertPool() re-reads the OS trust store on every call otherwise,
@@ -601,11 +636,16 @@ func (r *WhitelistRegistry) loadSystemCertPool() (*x509.CertPool, error) {
 // the OS root CA pool, for a whitelisted entity that has no JWKS to check
 // key fingerprints against (see the TrustX509ViaSystemCA doc comment). The
 // caller has already confirmed subjectID matched an entry in the relevant
-// action's list - this only decides whether the presented certificate chain
-// is itself valid, mirroring the same public-CA chain validation
-// static.SystemCertPoolRegistry performs, scoped here to whitelisted
-// entities only rather than any presented certificate.
-func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, role, matchedList string, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+// action's list, but that only proves the CLAIMED identity string is
+// allowed - not that the PRESENTED certificate actually belongs to it.
+// Chaining to a public CA is trivial for anyone to obtain for any domain, so
+// before trusting the chain at all, evaluateViaSystemCA verifies the
+// certificate is bound to the claimed identity per the OpenID4VP
+// client_id_scheme semantics (DNS/URI SAN match, or cert hash match - see
+// registry.VerifyLeafBinding). Without this check, any whitelisted
+// x509_san_dns/x509_san_uri/x509_hash identity could be impersonated by
+// anyone holding an unrelated, publicly-issued certificate.
+func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, originalSubjectID, role, matchedList string, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	pool, err := r.loadSystemCertPool()
 	if err != nil {
 		return r.deny(subjectID, fmt.Sprintf("system CA pool unavailable: %s", err))
@@ -617,6 +657,21 @@ func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, role, matchedList str
 	certs, err := x509util.ParseX5CFromArray(req.Resource.Key)
 	if err != nil {
 		return r.deny(subjectID, fmt.Sprintf("failed to parse x5c chain: %s", err))
+	}
+
+	// Only the three OpenID4VP schemes below have defined certificate-binding
+	// semantics. Anything else (e.g. a "did:..." identity reaching this
+	// fallback because it's a non-http(s) scheme) cannot be verified against
+	// an x5c chain at all, so it is denied rather than silently accepted on
+	// chain-validity alone.
+	scheme, value, ok := registry.ParseClientIDScheme(originalSubjectID)
+	if !ok {
+		return r.deny(subjectID, fmt.Sprintf(
+			"cannot verify certificate binding for %q: not a recognized x509 client_id_scheme (x509_san_dns/x509_san_uri/x509_hash)",
+			originalSubjectID))
+	}
+	if bindErr := registry.VerifyLeafBinding(scheme, value, certs[0]); bindErr != nil {
+		return r.deny(subjectID, fmt.Sprintf("certificate binding check failed: %s", bindErr))
 	}
 
 	opts := x509.VerifyOptions{
@@ -831,7 +886,7 @@ func (r *WhitelistRegistry) deny(subject, reason string) (*authzen.EvaluationRes
 
 // SupportedResourceTypes returns the resource types this registry can validate.
 func (r *WhitelistRegistry) SupportedResourceTypes() []string {
-	return []string{"jwk", "x5c", "x509_san_dns"}
+	return []string{"jwk", "x5c", "x509_san_dns", "x509_san_uri"}
 }
 
 // SupportsResolutionOnly returns true since whitelist supports resolution-only requests
@@ -846,11 +901,13 @@ func (r *WhitelistRegistry) Info() registry.RegistryInfo {
 	defer r.mu.RUnlock()
 
 	info := registry.RegistryInfo{
-		Name:           r.name,
-		Type:           "static_whitelist",
-		Description:    r.description,
-		Version:        "2.0.0",
-		ResourceTypes:  []string{"jwk", "x5c"},
+		Name:        r.name,
+		Type:        "static_whitelist",
+		Description: r.description,
+		Version:     "2.0.0",
+		// Reuse SupportedResourceTypes() instead of a second hardcoded list -
+		// the two had drifted (this list was missing "x509_san_dns").
+		ResourceTypes:  r.SupportedResourceTypes(),
 		ResolutionOnly: true,
 		Healthy:        r.keysLoaded,
 	}

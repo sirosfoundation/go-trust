@@ -520,6 +520,29 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 		return nil // chain does not validate against any listed CA
 	}
 
+	// Chaining to a listed CA proves the certificate was validly issued by
+	// one of the LoTE's own trust anchors; it says nothing about whether it
+	// belongs to the identity req.Subject.ID is claiming. When the caller
+	// used one of OpenID4VP's certificate-binding client_id_schemes
+	// (x509_san_dns/x509_san_uri/x509_hash - recovered via OriginalSubjectID
+	// since RegistryManager may have rewritten Subject.ID), verify the
+	// binding before trusting the chain. Requests that don't use one of
+	// these schemes (e.g. a plain RP identifier under an Access Certificate
+	// list, issue #90) are unaffected - there is no additional claim to bind
+	// in that model, so behavior is unchanged for them.
+	if scheme, value, ok := registry.ParseClientIDScheme(registry.OriginalSubjectID(req)); ok {
+		if bindErr := registry.VerifyLeafBinding(scheme, value, certs[0]); bindErr != nil {
+			reason := map[string]interface{}{
+				"admin": fmt.Sprintf("x5c chain validates against a listed CA but certificate binding check failed: %s", bindErr),
+			}
+			addCredentialTypesToReason(reason, credentialTypes)
+			return &authzen.EvaluationResponse{
+				Decision: false,
+				Context:  &authzen.EvaluationResponseContext{Reason: reason},
+			}
+		}
+	}
+
 	// Find which listed entity's CA pool the chain validates against (for metadata
 	// and profile-aware status checking).
 	matchedEnt := r.findMatchingEntityForChain(certs)

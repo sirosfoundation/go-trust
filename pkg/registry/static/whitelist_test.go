@@ -5,9 +5,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -414,7 +416,7 @@ func TestWhitelistRegistry_InterfaceMethods(t *testing.T) {
 
 	// Test SupportedResourceTypes - now returns specific types for key validation
 	types := reg.SupportedResourceTypes()
-	expected := map[string]bool{"jwk": true, "x5c": true, "x509_san_dns": true}
+	expected := map[string]bool{"jwk": true, "x5c": true, "x509_san_dns": true, "x509_san_uri": true}
 	if len(types) != len(expected) {
 		t.Errorf("expected %d resource types, got %v", len(expected), types)
 	}
@@ -2260,7 +2262,15 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		}
 	})
 
-	t.Run("enabled_attempts_chain_validation_for_whitelisted_entity", func(t *testing.T) {
+	t.Run("enabled_denies_on_certificate_binding_mismatch", func(t *testing.T) {
+		// certB64 (generateSelfSignedCert) carries no DNS SAN at all, so it
+		// can never be bound to the claimed "verifier.example.com" identity -
+		// this must be denied on the binding check, before chain validation
+		// is even attempted (and regardless of whether the cert would
+		// otherwise chain to a public CA). This is the exact case the
+		// binding check exists to close: without it, ANY certificate the
+		// caller holds - chaining to any public CA, for any domain - would
+		// have been accepted for this claimed identity.
 		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
 			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
 			Actions:              map[string]string{"credential-verifier": "verifiers"},
@@ -2279,24 +2289,104 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// A self-signed test cert does not chain to any real public CA, so
-		// this is expected to deny - but critically via chain validation,
-		// not the "no keys cached" reason, proving the fallback path ran.
 		if resp.Decision {
-			t.Error("expected decision=false for a self-signed cert (doesn't chain to a public CA)")
+			t.Error("expected decision=false for a certificate with no matching DNS SAN")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "certificate binding check failed") {
+			t.Errorf("expected a certificate-binding deny reason, got: %v", errReason)
+		}
+	})
+
+	t.Run("enabled_attempts_chain_validation_once_binding_matches", func(t *testing.T) {
+		// Prove the fallback still reaches chain validation (and denies
+		// there) once the binding check itself passes: use a cert whose DNS
+		// SAN matches the claimed identity, but deliberately don't trust its
+		// issuing CA - so the binding check passes and the deny comes from
+		// chain validation, proving both checks run in the right order.
+		leafCert, _ := generateCASignedLeafCert(t)
+
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+		// Force the pool to one that does NOT contain this leaf's issuer, so
+		// the binding check (which matches) passes but chain validation
+		// still fails - proving both checks run, in the right order.
+		reg.systemCertPoolOnce.Do(func() {})
+		reg.systemCertPoolErr = nil
+		reg.systemCertPool = x509.NewCertPool()
+
+		leafB64 := base64.StdEncoding.EncodeToString(leafCert.Raw)
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{leafB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false: leaf's issuing CA is not in the (deliberately empty) pool")
 		}
 		errReason, _ := resp.Context.Reason["error"].(string)
 		if !strings.Contains(errReason, "x509 chain validation") {
-			t.Errorf("expected a chain-validation error proving the system-CA fallback ran, got: %v", errReason)
+			t.Errorf("expected a chain-validation error (binding check should have already passed), got: %v", errReason)
 		}
 	})
 
 	t.Run("enabled_attempts_chain_validation_for_x509_hash_scheme", func(t *testing.T) {
-		// The fallback is scheme-agnostic: it triggers on "any non-HTTP(S)
-		// scheme", not specifically x509_san_dns. Prove it also covers
-		// OpenID4VP's x509_hash:<hash-of-leaf-cert-der> client_id_scheme,
-		// which is a different non-fetchable scheme with the same problem
-		// (no JWKS endpoint), through the exact same code path.
+		// The fallback is scheme-agnostic across the three recognized
+		// certificate-binding schemes. Prove it also covers OpenID4VP's
+		// x509_hash:<hash-of-leaf-cert-der> client_id_scheme, using a claimed
+		// hash that actually matches this leaf's digest so the binding check
+		// passes and the deny comes from chain validation, same as the
+		// x509_san_dns case above.
+		leafCert, _ := generateCASignedLeafCert(t)
+		digest := sha256.Sum256(leafCert.Raw)
+		hashHex := hex.EncodeToString(digest[:])
+
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_hash:" + hashHex}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+		reg.systemCertPoolOnce.Do(func() {})
+		reg.systemCertPoolErr = nil
+		reg.systemCertPool = x509.NewCertPool()
+
+		leafB64 := base64.StdEncoding.EncodeToString(leafCert.Raw)
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_hash:" + hashHex},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{leafB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false: leaf's issuing CA is not in the (deliberately empty) pool")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "x509 chain validation") {
+			t.Errorf("expected a chain-validation error (binding check should have already passed for x509_hash), got: %v", errReason)
+		}
+	})
+
+	t.Run("enabled_denies_x509_hash_mismatch", func(t *testing.T) {
+		// The mirror image of the DNS SAN mismatch case above: a whitelisted
+		// x509_hash entity whose claimed hash does NOT match the presented
+		// certificate's actual digest must be denied on the binding check,
+		// never reaching (and so never benefiting from) chain validation.
 		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
 			Lists:                map[string][]string{"verifiers": {"x509_hash:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}},
 			Actions:              map[string]string{"credential-verifier": "verifiers"},
@@ -2315,16 +2405,45 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// Same expectation as the x509_san_dns case: a self-signed test cert
-		// doesn't chain to a public CA, so this denies - but via chain
-		// validation, not "no keys cached", proving the fallback ran for
-		// this scheme too.
 		if resp.Decision {
-			t.Error("expected decision=false for a self-signed cert (doesn't chain to a public CA)")
+			t.Error("expected decision=false for a certificate whose hash doesn't match the claimed x509_hash identity")
 		}
 		errReason, _ := resp.Context.Reason["error"].(string)
-		if !strings.Contains(errReason, "x509 chain validation") {
-			t.Errorf("expected a chain-validation error proving the system-CA fallback ran for x509_hash, got: %v", errReason)
+		if !strings.Contains(errReason, "certificate binding check failed") {
+			t.Errorf("expected a certificate-binding deny reason, got: %v", errReason)
+		}
+	})
+
+	t.Run("enabled_denies_unrecognized_client_id_scheme", func(t *testing.T) {
+		// A whitelisted entity using a non-HTTP(S) scheme this package has no
+		// certificate-binding rule for (e.g. "did:web:...") must be denied
+		// outright rather than falling back to chain-validity-only trust -
+		// there's no defined way to verify such an identity is bound to a
+		// presented x5c chain at all.
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"did:web:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "did:web:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{certB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false: did: has no defined certificate-binding rule")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "not a recognized x509 client_id_scheme") {
+			t.Errorf("expected an unrecognized-scheme deny reason, got: %v", errReason)
 		}
 	})
 

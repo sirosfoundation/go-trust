@@ -752,6 +752,52 @@ func TestRegistryManager_Evaluate_NormalizesSubjectID(t *testing.T) {
 	assert.Equal(t, "https://verifier.example.com", capturedSubjectID)
 }
 
+func TestRegistryManager_Evaluate_PreservesOriginalSubjectIDForDownstreamRegistries(t *testing.T) {
+	// RegistryManager.Evaluate rewrites Subject.ID for whitelist-style
+	// matching (see TestRegistryManager_Evaluate_NormalizesSubjectID above),
+	// but registries that need to verify a presented certificate is actually
+	// bound to the claimed identity (WhitelistRegistry's
+	// TrustX509ViaSystemCA fallback, the ETSI TSL registry, LoTE's
+	// CA-anchored fallback) need the ORIGINAL, pre-normalization claim to do
+	// so. Prove OriginalSubjectID recovers it even after the manager has
+	// rewritten req.Subject.ID.
+	var capturedOriginal string
+	reg := &captureMockRegistry{
+		mockRegistry: &mockRegistry{
+			name:          "capture-registry",
+			resourceTypes: []string{"x5c"},
+			healthy:       true,
+			evaluateResponse: &authzen.EvaluationResponse{
+				Decision: true,
+			},
+		},
+		onEvaluate: func(req *authzen.EvaluationRequest) {
+			capturedOriginal = OriginalSubjectID(req)
+		},
+	}
+
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+	mgr.Register(reg)
+
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{
+			Type: "key",
+			ID:   "x509_san_dns:verifier.example.com",
+		},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "x509_san_dns:verifier.example.com",
+			Key:  []interface{}{"test"},
+		},
+	}
+
+	resp, err := mgr.Evaluate(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+	assert.Equal(t, "https://verifier.example.com", req.Subject.ID, "Subject.ID should still be rewritten for whitelist matching")
+	assert.Equal(t, "x509_san_dns:verifier.example.com", capturedOriginal, "OriginalSubjectID should recover the pre-normalization claim")
+}
+
 func TestRegistryManager_Evaluate_AppliesFIDOMDS3Policy(t *testing.T) {
 	var capturedContext map[string]interface{}
 	reg := &captureMockRegistry{
