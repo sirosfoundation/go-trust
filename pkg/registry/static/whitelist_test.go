@@ -2418,12 +2418,18 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		reg.systemCertPoolErr = nil
 
 		leafB64 := base64.StdEncoding.EncodeToString(leafCert.Raw)
+		// Also exercise the requested_credential_types branch of the success
+		// reason - a real OpenID4VP presentation request typically carries
+		// this in Context.
 		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
 			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
 			Action:  &authzen.Action{Name: "credential-verifier"},
 			Resource: authzen.Resource{
 				Type: "x5c",
 				Key:  []interface{}{leafB64},
+			},
+			Context: map[string]interface{}{
+				"credential_types": []interface{}{"org.iso.18013.5.1.mDL"},
 			},
 		})
 		if err != nil {
@@ -2438,6 +2444,49 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		}
 		if resp.Context.Reason["trust_path"] != "system_ca" {
 			t.Errorf("expected trust_path=system_ca in reason, got: %v", resp.Context.Reason["trust_path"])
+		}
+		credTypes, _ := resp.Context.Reason["requested_credential_types"].([]string)
+		if len(credTypes) != 1 || credTypes[0] != "org.iso.18013.5.1.mDL" {
+			t.Errorf("expected requested_credential_types=[org.iso.18013.5.1.mDL] in reason, got: %v", resp.Context.Reason["requested_credential_types"])
+		}
+	})
+
+	t.Run("enabled_grants_trust_for_a_chain_with_an_intermediate", func(t *testing.T) {
+		// Exercise the multi-cert (leaf + intermediate) branch of
+		// evaluateViaSystemCA - the previous success subtest only presented a
+		// single leaf cert signed directly by a pool-trusted root.
+		leafCert, intermediateCert, rootCert := generateCASignedLeafCertWithIntermediate(t)
+		customPool := x509.NewCertPool()
+		customPool.AddCert(rootCert)
+
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:              map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA: true,
+		}))
+		_ = reg.Refresh(context.Background())
+		reg.systemCertPoolOnce.Do(func() {})
+		reg.systemCertPool = customPool
+		reg.systemCertPoolErr = nil
+
+		leafB64 := base64.StdEncoding.EncodeToString(leafCert.Raw)
+		intermediateB64 := base64.StdEncoding.EncodeToString(intermediateCert.Raw)
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{leafB64, intermediateB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Decision {
+			t.Fatalf("expected decision=true for a leaf+intermediate chain that validates against the injected root pool, got deny: %v", resp.Context.Reason["error"])
+		}
+		if resp.Context.Reason["chain_length"] != 1 {
+			t.Errorf("expected a single resolved chain, got chain_length=%v", resp.Context.Reason["chain_length"])
 		}
 	})
 
@@ -2563,4 +2612,89 @@ func generateCASignedLeafCert(t *testing.T) (leaf *x509.Certificate, ca *x509.Ce
 	}
 
 	return leafCert, caCert
+}
+
+// generateCASignedLeafCertWithIntermediate builds a 3-tier root CA ->
+// intermediate CA -> leaf chain, for testing evaluateViaSystemCA's
+// multi-cert (len(certs) > 1) branch: the presented x5c array carries the
+// leaf and intermediate, while only the root is in the trusted pool.
+func generateCASignedLeafCertWithIntermediate(t *testing.T) (leaf, intermediate, root *x509.Certificate) {
+	t.Helper()
+
+	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate root key: %v", err)
+	}
+	rootTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test Root CA Org"},
+			CommonName:   "Test Root CA",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, &rootKey.PublicKey, rootKey)
+	if err != nil {
+		t.Fatalf("failed to create root certificate: %v", err)
+	}
+	rootCert, err := x509.ParseCertificate(rootDER)
+	if err != nil {
+		t.Fatalf("failed to parse root certificate: %v", err)
+	}
+
+	intermediateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate intermediate key: %v", err)
+	}
+	intermediateTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			Organization: []string{"Test Intermediate CA Org"},
+			CommonName:   "Test Intermediate CA",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	intermediateDER, err := x509.CreateCertificate(rand.Reader, intermediateTemplate, rootCert, &intermediateKey.PublicKey, rootKey)
+	if err != nil {
+		t.Fatalf("failed to create intermediate certificate: %v", err)
+	}
+	intermediateCert, err := x509.ParseCertificate(intermediateDER)
+	if err != nil {
+		t.Fatalf("failed to parse intermediate certificate: %v", err)
+	}
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate leaf key: %v", err)
+	}
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject: pkix.Name{
+			Organization: []string{"Test Org"},
+			CommonName:   "verifier.example.com",
+		},
+		DNSNames:    []string{"verifier.example.com"},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, intermediateCert, &leafKey.PublicKey, intermediateKey)
+	if err != nil {
+		t.Fatalf("failed to create leaf certificate: %v", err)
+	}
+	leafCert, err := x509.ParseCertificate(leafDER)
+	if err != nil {
+		t.Fatalf("failed to parse leaf certificate: %v", err)
+	}
+
+	return leafCert, intermediateCert, rootCert
 }
