@@ -2340,13 +2340,16 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		}
 	})
 
-	t.Run("enabled_attempts_chain_validation_for_x509_hash_scheme", func(t *testing.T) {
-		// The fallback is scheme-agnostic across the three recognized
-		// certificate-binding schemes. Prove it also covers OpenID4VP's
-		// x509_hash:<hash-of-leaf-cert-der> client_id_scheme, using a claimed
-		// hash that actually matches this leaf's digest so the binding check
-		// passes and the deny comes from chain validation, same as the
-		// x509_san_dns case above.
+	t.Run("enabled_skips_chain_validation_for_x509_hash_scheme", func(t *testing.T) {
+		// Unlike x509_san_dns/x509_san_uri (which need a real CA-validated
+		// chain to prove a SAN claim isn't just self-asserted), x509_hash
+		// pins the exact leaf certificate's bytes - a successful binding
+		// (hash) match IS the whole trust decision, so chain validation
+		// must be skipped entirely for this scheme. Prove this with a
+		// deliberately empty (and so, if consulted, always-failing) CA
+		// pool: a self-signed/non-CA-chained certificate (the common case
+		// for a conformance/demo verifier, e.g. digital-credentials.dev)
+		// must still be granted trust once its hash matches.
 		leafCert, _ := generateCASignedLeafCert(t)
 		digest := sha256.Sum256(leafCert.Raw)
 		hashHex := hex.EncodeToString(digest[:])
@@ -2373,12 +2376,12 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if resp.Decision {
-			t.Error("expected decision=false: leaf's issuing CA is not in the (deliberately empty) pool")
+		if !resp.Decision {
+			t.Errorf("expected decision=true: hash-pinned trust must not depend on the (deliberately empty) CA pool, got reason: %v", resp.Context.Reason)
 		}
-		errReason, _ := resp.Context.Reason["error"].(string)
-		if !strings.Contains(errReason, "x509 chain validation") {
-			t.Errorf("expected a chain-validation error (binding check should have already passed for x509_hash), got: %v", errReason)
+		trustPath, _ := resp.Context.Reason["trust_path"].(string)
+		if trustPath != "system_ca_pinned_hash" {
+			t.Errorf("expected trust_path=system_ca_pinned_hash, got: %v", trustPath)
 		}
 	})
 
