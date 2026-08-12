@@ -144,18 +144,34 @@ type WhitelistConfig struct {
 	// this state is a member of the matched action's list (still gated by
 	// the same whitelist membership check every other entry goes through -
 	// this is NOT a blanket "trust any certificate" fallback), its presented
-	// x5c certificate chain must (a) be bound to the claimed identity per
-	// the client_id_scheme's own semantics - a DNS/URI SAN match for
+	// x5c certificate must be bound to the claimed identity per the
+	// client_id_scheme's own semantics - a DNS/URI SAN match for
 	// x509_san_dns/x509_san_uri, or a cert-hash match for x509_hash, see
-	// registry.VerifyLeafBinding - and (b) verify against the operating
-	// system's root CA pool, instead of being denied outright for having no
-	// cached JWKS keys. Only entities using one of these three recognized
-	// schemes are eligible; any other non-fetchable scheme (e.g. "did:...")
-	// is denied outright since there is no defined way to bind it to an x5c
-	// chain. This only applies to entities that were never JWKS-fetchable in
-	// the first place; a real https:// entity whose JWKS fetch failed
-	// (network error, misconfiguration) is still denied, not silently
-	// downgraded to cert-pool trust.
+	// registry.VerifyLeafBinding - instead of being denied outright for
+	// having no cached JWKS keys.
+	//
+	// For x509_san_dns/x509_san_uri, that binding check alone isn't enough:
+	// a SAN claim is forgeable by any self-signed certificate, so the chain
+	// must ALSO verify against the operating system's root CA pool to
+	// establish the claimed DNS name/URI is genuine.
+	//
+	// For x509_hash, the binding check IS the whole trust decision: it pins
+	// the exact leaf certificate's bytes, so which CA (if any) issued it
+	// adds no further information once the hash matches - chain validation
+	// is skipped unconditionally for this scheme. This is what makes
+	// x509_hash usable for whitelisting a self-signed or otherwise
+	// non-publicly-CA-chained certificate (e.g. a conformance/demo test
+	// site) - confirmed a real, common case live against
+	// digital-credentials.dev and verifier.multipaz.org, both of which
+	// present certificates that don't chain to any public root CA.
+	//
+	// Only entities using one of these three recognized schemes are
+	// eligible; any other non-fetchable scheme (e.g. "did:...") is denied
+	// outright since there is no defined way to bind it to an x5c chain.
+	// This only applies to entities that were never JWKS-fetchable in the
+	// first place; a real https:// entity whose JWKS fetch failed (network
+	// error, misconfiguration) is still denied, not silently downgraded to
+	// cert-pool trust.
 	TrustX509ViaSystemCA bool `json:"trust_x509_via_system_ca,omitempty" yaml:"trust_x509_via_system_ca,omitempty"`
 }
 
@@ -632,19 +648,22 @@ func (r *WhitelistRegistry) loadSystemCertPool() (*x509.CertPool, error) {
 	return r.systemCertPool, r.systemCertPoolErr
 }
 
-// evaluateViaSystemCA validates the request's x5c certificate chain against
-// the OS root CA pool, for a whitelisted entity that has no JWKS to check
-// key fingerprints against (see the TrustX509ViaSystemCA doc comment). The
-// caller has already confirmed subjectID matched an entry in the relevant
-// action's list, but that only proves the CLAIMED identity string is
-// allowed - not that the PRESENTED certificate actually belongs to it.
-// Chaining to a public CA is trivial for anyone to obtain for any domain, so
-// before trusting the chain at all, evaluateViaSystemCA verifies the
-// certificate is bound to the claimed identity per the OpenID4VP
-// client_id_scheme semantics (DNS/URI SAN match, or cert hash match - see
-// registry.VerifyLeafBinding). Without this check, any whitelisted
-// x509_san_dns/x509_san_uri/x509_hash identity could be impersonated by
-// anyone holding an unrelated, publicly-issued certificate.
+// evaluateViaSystemCA validates the request's presented certificate for a
+// whitelisted entity that has no JWKS to check key fingerprints against
+// (see the TrustX509ViaSystemCA doc comment). The caller has already
+// confirmed subjectID matched an entry in the relevant action's list, but
+// that only proves the CLAIMED identity string is allowed - not that the
+// PRESENTED certificate actually belongs to it. Chaining to a public CA is
+// trivial for anyone to obtain for any domain, so before trusting anything
+// else, evaluateViaSystemCA first verifies the certificate is bound to the
+// claimed identity per the OpenID4VP client_id_scheme semantics (DNS/URI
+// SAN match, or cert hash match - see registry.VerifyLeafBinding). Without
+// this check, any whitelisted x509_san_dns/x509_san_uri/x509_hash identity
+// could be impersonated by anyone holding an unrelated, publicly-issued
+// certificate. For x509_san_dns/x509_san_uri, that binding check is then
+// followed by full chain validation against the OS root CA pool (a SAN
+// claim alone is forgeable); for x509_hash the binding check alone is
+// treated as sufficient (see allowViaPinnedHash).
 func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, originalSubjectID, role, matchedList string, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	pool, err := r.loadSystemCertPool()
 	if err != nil {
@@ -672,6 +691,18 @@ func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, originalSubjectID, ro
 	}
 	if bindErr := registry.VerifyLeafBinding(scheme, value, certs[0]); bindErr != nil {
 		return r.deny(subjectID, fmt.Sprintf("certificate binding check failed: %s", bindErr))
+	}
+
+	// x509_hash pins the exact leaf certificate's bytes, so a successful
+	// binding check above already proves the presented certificate IS the
+	// one the whitelist entry names - which CA (if any) issued it adds no
+	// further trust information once that's established, so chain
+	// validation is skipped unconditionally for this scheme. x509_san_dns/
+	// x509_san_uri claims, by contrast, are forgeable by any self-signed
+	// certificate (anyone can mint a cert claiming any SAN), so those two
+	// schemes always fall through to full chain validation below.
+	if scheme == "x509_hash" {
+		return r.allowViaPinnedHash(subjectID, role, matchedList, req)
 	}
 
 	opts := x509.VerifyOptions{
@@ -717,6 +748,41 @@ func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, originalSubjectID, ro
 				"registry":        r.name,
 				"matched_list":    matchedList,
 				"trust_path":      "system_ca",
+			},
+		},
+	}, nil
+}
+
+// allowViaPinnedHash builds the allow response for an x509_hash-identified
+// entity once the caller has already confirmed the certificate-binding
+// (hash) check passed - see
+// evaluateViaSystemCA's call site for the security reasoning on why this is
+// sufficient trust evidence for x509_hash specifically, unlike
+// x509_san_dns/x509_san_uri. trust_path is deliberately distinct from the
+// full-chain-validation path's "system_ca" so downstream consumers (audit
+// logs, TrustMetadata readers) can tell the two apart.
+func (r *WhitelistRegistry) allowViaPinnedHash(subjectID, role, matchedList string, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	reason := map[string]interface{}{
+		"user":         fmt.Sprintf("trusted via whitelist (%s, pinned certificate hash, no chain validation)", matchedList),
+		"registry":     r.name,
+		"type":         "whitelist",
+		"role":         role,
+		"matched_list": matchedList,
+		"trust_path":   "system_ca_pinned_hash",
+	}
+	if credTypes := r.extractCredentialTypes(req); len(credTypes) > 0 {
+		reason["requested_credential_types"] = credTypes
+	}
+
+	return &authzen.EvaluationResponse{
+		Decision: true,
+		Context: &authzen.EvaluationResponseContext{
+			Reason: reason,
+			TrustMetadata: map[string]interface{}{
+				"trust_framework": "whitelist",
+				"registry":        r.name,
+				"matched_list":    matchedList,
+				"trust_path":      "system_ca_pinned_hash",
 			},
 		},
 	}, nil
