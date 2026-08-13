@@ -90,6 +90,10 @@ type WhitelistRegistryConfig struct {
 	// client_id_scheme verifiers) - see
 	// pkg/registry/static.WhitelistConfig.TrustX509ViaSystemCA.
 	TrustX509ViaSystemCA bool `yaml:"trust_x509_via_system_ca,omitempty"`
+	// AdditionalTrustedRoots is a list of PEM-encoded CA certificates merged
+	// into TrustX509ViaSystemCA's chain-validation pool - see
+	// pkg/registry/static.WhitelistConfig.AdditionalTrustedRoots.
+	AdditionalTrustedRoots []string `yaml:"additional_trusted_roots,omitempty"`
 }
 
 // StaticRegistryConfig contains static (always/never trusted) registry configuration.

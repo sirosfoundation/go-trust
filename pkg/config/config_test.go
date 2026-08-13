@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -105,6 +106,65 @@ security:
 	}
 	if len(cfg.Security.AllowedOrigins) != 2 {
 		t.Errorf("Allowed origins count = %v, want %v", len(cfg.Security.AllowedOrigins), 2)
+	}
+}
+
+func TestLoadConfigWhitelistAdditionalTrustedRoots(t *testing.T) {
+	// Regression test: pkg/registry/static.WhitelistConfig.AdditionalTrustedRoots
+	// (go-trust#123) was never mirrored onto this package's YAML-facing
+	// WhitelistRegistryConfig struct, so the field was silently dropped for
+	// every YAML-config-based deployment - unit tests never caught this
+	// because they construct static.WhitelistConfig directly in Go,
+	// bypassing YAML entirely. Confirmed live: verifier.multipaz.org's
+	// trusted root was never actually reaching the whitelist registry
+	// despite correct-looking config.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  host: "0.0.0.0"
+  port: "8080"
+
+registries:
+  whitelist:
+    enabled: true
+    name: test
+    lists:
+      verifiers:
+        - x509_san_dns:verifier.example.com
+    actions:
+      credential-verifier: verifiers
+    trust_x509_via_system_ca: true
+    additional_trusted_roots:
+      - |
+        -----BEGIN CERTIFICATE-----
+        MIIBXXXXfakeXXXXXXcertXXXX
+        -----END CERTIFICATE-----
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if cfg.Registries.Whitelist == nil {
+		t.Fatal("expected whitelist registry config to be present")
+	}
+	if !cfg.Registries.Whitelist.TrustX509ViaSystemCA {
+		t.Error("expected TrustX509ViaSystemCA to be true")
+	}
+	if len(cfg.Registries.Whitelist.AdditionalTrustedRoots) != 1 {
+		t.Fatalf("AdditionalTrustedRoots count = %d, want 1 - the field was dropped during YAML parsing",
+			len(cfg.Registries.Whitelist.AdditionalTrustedRoots))
+	}
+	if !strings.Contains(cfg.Registries.Whitelist.AdditionalTrustedRoots[0], "BEGIN CERTIFICATE") {
+		t.Errorf("AdditionalTrustedRoots[0] doesn't look like a PEM cert: %q",
+			cfg.Registries.Whitelist.AdditionalTrustedRoots[0])
 	}
 }
 
