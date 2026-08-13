@@ -964,6 +964,14 @@ func (r *WhitelistRegistry) extractCredentialTypes(req *authzen.EvaluationReques
 }
 
 func (r *WhitelistRegistry) deny(subject, reason string) (*authzen.EvaluationResponse, error) {
+	// The detailed reason is only ever returned in the AuthZEN response
+	// body's Context.Reason today - callers (go-wallet-backend included)
+	// don't currently log it, so a denial's specific cause (not-in-list vs.
+	// certificate-binding-check failure vs. chain-validation failure) was
+	// otherwise unobservable from server-side logs alone. Log it here once,
+	// at the single choke point every denial in this registry passes
+	// through, rather than at each call site.
+	r.logger.Info("whitelist denied request", "registry", r.name, "subject", subject, "reason", reason)
 	return &authzen.EvaluationResponse{
 		Decision: false,
 		Context: &authzen.EvaluationResponseContext{
