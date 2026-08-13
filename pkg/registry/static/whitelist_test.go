@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -2609,6 +2610,77 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		}
 		if resp.Context.Reason["chain_length"] != 1 {
 			t.Errorf("expected a single resolved chain, got chain_length=%v", resp.Context.Reason["chain_length"])
+		}
+	})
+
+	t.Run("additional_trusted_roots_extends_chain_validation", func(t *testing.T) {
+		// Proves the AdditionalTrustedRoots config field itself - not the
+		// registry-internal systemCertPool test seam the subtests above use.
+		// This is the real-world shape: a verifier's request-signing leaf is
+		// issued by a long-lived, self-signed "reader CA" root (the ISO
+		// 18013-5 convention this field exists for - see its doc comment)
+		// that will never appear in any OS system CA pool, so chain
+		// validation must succeed via ONLY the configured additional root,
+		// not the real system pool this test also loads alongside it.
+		leafCert, caCert := generateCASignedLeafCert(t)
+		caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert.Raw})
+
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                  map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:                map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA:   true,
+			AdditionalTrustedRoots: []string{string(caPEM)},
+		}))
+		_ = reg.Refresh(context.Background())
+
+		leafB64 := base64.StdEncoding.EncodeToString(leafCert.Raw)
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{leafB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Decision {
+			t.Fatalf("expected decision=true: leaf is signed by a root supplied via AdditionalTrustedRoots, got deny: %v", resp.Context.Reason["error"])
+		}
+		if resp.Context.Reason["trust_path"] != "system_ca" {
+			t.Errorf("expected trust_path=system_ca, got: %v", resp.Context.Reason["trust_path"])
+		}
+	})
+
+	t.Run("malformed_additional_trusted_root_denies_with_pool_error", func(t *testing.T) {
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                  map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
+			Actions:                map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA:   true,
+			AdditionalTrustedRoots: []string{"not a real PEM certificate"},
+		}))
+		_ = reg.Refresh(context.Background())
+
+		leafCert, _ := generateCASignedLeafCert(t)
+		leafB64 := base64.StdEncoding.EncodeToString(leafCert.Raw)
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:verifier.example.com"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{leafB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Decision {
+			t.Error("expected decision=false: a malformed additional_trusted_roots entry should fail the pool, not be silently ignored")
+		}
+		errReason, _ := resp.Context.Reason["error"].(string)
+		if !strings.Contains(errReason, "additional_trusted_roots") {
+			t.Errorf("expected error to name additional_trusted_roots as the cause, got: %v", errReason)
 		}
 	})
 
