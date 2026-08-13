@@ -31,6 +31,15 @@ WORKDIR /app
 # Add wget for healthchecks and ca-certificates for TLS
 RUN apk add --no-cache ca-certificates wget
 
+# Go 1.23+ rejects x509 certificates with a negative serial number by default
+# (RFC 5280 recommends non-negative, but doesn't forbid it, and real-world CA
+# tooling - e.g. verifier.multipaz.org's self-generated reader-CA root -
+# still produces them; openssl and every other major TLS stack accept them
+# without complaint). Without this, AdditionalTrustedRoots/system-CA chain
+# validation silently can't parse such a root at all, denying every
+# certificate it issues regardless of whitelist membership.
+ENV GODEBUG=x509negativeserial=1
+
 # Copy binary from builder
 COPY --from=builder /app/gt /app/gt
 

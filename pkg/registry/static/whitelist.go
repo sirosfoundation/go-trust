@@ -195,6 +195,17 @@ type WhitelistConfig struct {
 	// pattern this package's sibling mdociaca registry already uses for
 	// credential issuers (IACA cert validation) - this is the equivalent
 	// for verifiers.
+	//
+	// Gotcha confirmed live against verifier.multipaz.org's actual root:
+	// Go's x509 parser rejects certificates with a negative serial number
+	// by default (since Go 1.23; RFC 5280 recommends non-negative but
+	// doesn't forbid it, and real-world CA tooling still produces them -
+	// openssl and every other major TLS stack accept such certs without
+	// complaint). If a root supplied here has one, AppendCertsFromPEM
+	// silently fails to add it and this field becomes a no-op for that
+	// root. The binary this package ships (see this repo's Dockerfile)
+	// sets GODEBUG=x509negativeserial=1 to accommodate this; anything
+	// embedding this package directly must set the same.
 	AdditionalTrustedRoots []string `json:"additional_trusted_roots,omitempty" yaml:"additional_trusted_roots,omitempty"`
 }
 

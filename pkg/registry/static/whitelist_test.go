@@ -2653,6 +2653,40 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		}
 	})
 
+	t.Run("additional_trusted_root_with_negative_serial_number", func(t *testing.T) {
+		// Go's x509 parser rejects certificates with a negative serial
+		// number by default since Go 1.23 (RFC 5280 recommends non-negative
+		// but doesn't forbid it, and x509.CreateCertificate itself refuses
+		// to mint one - this is a real-world-artifact test, not a synthetic
+		// one, for that reason). Real-world CA tooling still produces such
+		// certs: this is verifier.multipaz.org's actual self-generated
+		// reader-CA root (fetched from its /verifier/readerRootCert
+		// endpoint), which openssl - and every other major TLS stack -
+		// accepts without complaint, but a stock Go binary silently fails
+		// to even parse via AppendCertsFromPEM, denying every certificate
+		// it issues regardless of whitelist membership. See this package's
+		// Dockerfile's GODEBUG=x509negativeserial=1 setting, which callers
+		// embedding this package (rather than running the packaged binary)
+		// must also set for AdditionalTrustedRoots to work with such roots.
+		t.Setenv("GODEBUG", "x509negativeserial=1")
+
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                  map[string][]string{"verifiers": {"x509_san_dns:verifier.multipaz.org"}},
+			Actions:                map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA:   true,
+			AdditionalTrustedRoots: []string{multipazReaderCAPEMWithNegativeSerial},
+		}))
+		_ = reg.Refresh(context.Background())
+
+		pool, err := reg.loadSystemCertPool()
+		if err != nil {
+			t.Fatalf("expected the negative-serial root to load successfully with GODEBUG=x509negativeserial=1, got: %v", err)
+		}
+		if pool == nil {
+			t.Fatal("expected a non-nil cert pool")
+		}
+	})
+
 	t.Run("malformed_additional_trusted_root_denies_with_pool_error", func(t *testing.T) {
 		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
 			Lists:                  map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
@@ -2807,6 +2841,28 @@ func generateCASignedLeafCert(t *testing.T) (leaf *x509.Certificate, ca *x509.Ce
 
 	return leafCert, caCert
 }
+
+// multipazReaderCAPEMWithNegativeSerial is verifier.multipaz.org's actual
+// self-generated OpenID4VP request-signing reader-CA root, fetched from its
+// /verifier/readerRootCert endpoint on 2026-08-13. Its serial number is
+// negative (openssl explicitly flags this: "Serial Number: (Negative)
+// 48:ca:d0:...") - x509.CreateCertificate refuses to mint a certificate
+// like this at all, so this real-world artifact is embedded verbatim rather
+// than synthesized, for additional_trusted_root_with_negative_serial_number.
+const multipazReaderCAPEMWithNegativeSerial = `-----BEGIN CERTIFICATE-----
+MIICaTCCAe+gAwIBAgIQtzUvFDCKLUBWQAZ4UnCw5zAKBggqhkjOPQQDAzA3MQswCQYDVQQGDAJV
+UzEoMCYGA1UEAwwfdmVyaWZpZXIubXVsdGlwYXoub3JnIFJlYWRlciBDQTAeFw0yNTA2MTkyMjE2
+MzJaFw0zMDA2MTkyMjE2MzJaMDcxCzAJBgNVBAYMAlVTMSgwJgYDVQQDDB92ZXJpZmllci5tdWx0
+aXBhei5vcmcgUmVhZGVyIENBMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEa6oCzC8rfHfwVOmQf83W
+yHEQFE8HrLK+NxsufJDrSFgMXjhRvPt3fIjlMyRAaf94Y25Ux9tXg+28EzzB/xG7q8P/FQ9nOSJk
+w4cQJVdD/ufN599uVdfp1URdG95Vncuoo4G/MIG8MA4GA1UdDwEB/wQEAwIBBjASBgNVHRMBAf8E
+CDAGAQH/AgEAMFYGA1UdHwRPME0wS6BJoEeGRWh0dHBzOi8vZ2l0aHViLmNvbS9vcGVud2FsbGV0
+LWZvdW5kYXRpb24tbGFicy9pZGVudGl0eS1jcmVkZW50aWFsL2NybDAdBgNVHQ4EFgQUsYQ5hS9K
+buq/6mKtvFHQgfdIhykwHwYDVR0jBBgwFoAUsYQ5hS9Kbuq/6mKtvFHQgfdIhykwCgYIKoZIzj0E
+AwMDaAAwZQIwKh87sK/cMbzuc9PFvyiSRedr2RoP0fuFK0X8ddOpi6hEMOapHL/Gs/QByROCpDpk
+AjEA2yLSJDZEu1GI8uChAsDBZwJPtv5KHUjq1Vpok69SNn+zzb1mNpqmiey+tchPBjZm
+-----END CERTIFICATE-----
+`
 
 // generateCASignedLeafCertWithIntermediate builds a 3-tier root CA ->
 // intermediate CA -> leaf chain, for testing evaluateViaSystemCA's
