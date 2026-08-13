@@ -461,13 +461,14 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 				static.WithWhitelistName(name),
 				static.WithWhitelistDescription(desc),
 				static.WithWhitelistConfig(static.WhitelistConfig{
-					Lists:                wlCfg.Lists,
-					Actions:              wlCfg.Actions,
-					Issuers:              wlCfg.Issuers,
-					Verifiers:            wlCfg.Verifiers,
-					TrustedSubjects:      wlCfg.TrustedSubjects,
-					AllowHTTP:            wlCfg.AllowHTTP,
-					TrustX509ViaSystemCA: wlCfg.TrustX509ViaSystemCA,
+					Lists:                  wlCfg.Lists,
+					Actions:                wlCfg.Actions,
+					Issuers:                wlCfg.Issuers,
+					Verifiers:              wlCfg.Verifiers,
+					TrustedSubjects:        wlCfg.TrustedSubjects,
+					AllowHTTP:              wlCfg.AllowHTTP,
+					TrustX509ViaSystemCA:   wlCfg.TrustX509ViaSystemCA,
+					AdditionalTrustedRoots: wlCfg.AdditionalTrustedRoots,
 				}),
 			)
 		}
