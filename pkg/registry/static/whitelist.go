@@ -173,6 +173,29 @@ type WhitelistConfig struct {
 	// error, misconfiguration) is still denied, not silently downgraded to
 	// cert-pool trust.
 	TrustX509ViaSystemCA bool `json:"trust_x509_via_system_ca,omitempty" yaml:"trust_x509_via_system_ca,omitempty"`
+
+	// AdditionalTrustedRoots is a list of PEM-encoded CA certificates merged
+	// into the OS root pool used by TrustX509ViaSystemCA's chain-validation
+	// step (x509_san_dns/x509_san_uri only - x509_hash skips chain
+	// validation entirely, see allowViaPinnedHash, so this has no effect on
+	// that scheme).
+	//
+	// This exists for verifiers whose request-signing certificate is issued
+	// by a long-lived, self-signed "reader CA" root that is meant to be
+	// trusted out-of-band per ISO 18013-5 convention, rather than chaining
+	// to a public root - confirmed live: verifier.multipaz.org's
+	// request-signing leaf is issued by exactly such a root (published at
+	// https://verifier.multipaz.org/verifier/readerRootCert), distinct from
+	// its ordinary publicly-CA-issued HTTPS/TLS certificate. Trusting the
+	// root here is preferable to x509_hash-pinning the leaf: the root is
+	// long-lived and covers future leaf rotations, whereas a pinned leaf
+	// hash breaks the moment the verifier rotates its signing certificate.
+	//
+	// Mirrors the same "trust a specific root for a specific purpose"
+	// pattern this package's sibling mdociaca registry already uses for
+	// credential issuers (IACA cert validation) - this is the equivalent
+	// for verifiers.
+	AdditionalTrustedRoots []string `json:"additional_trusted_roots,omitempty" yaml:"additional_trusted_roots,omitempty"`
 }
 
 // WhitelistOption is a functional option for configuring WhitelistRegistry.
@@ -634,15 +657,24 @@ func isCertificateArrayResourceType(resourceType string) bool {
 	}
 }
 
-// loadSystemCertPool lazily loads and caches the OS root CA pool, used by
-// evaluateViaSystemCA. Loading is one-time for the registry's lifetime -
-// x509.SystemCertPool() re-reads the OS trust store on every call otherwise,
-// which is unnecessary work on the hot Evaluate() path.
+// loadSystemCertPool lazily loads and caches the OS root CA pool merged with
+// any AdditionalTrustedRoots, used by evaluateViaSystemCA. Loading is
+// one-time for the registry's lifetime - x509.SystemCertPool() re-reads the
+// OS trust store on every call otherwise, which is unnecessary work on the
+// hot Evaluate() path.
 func (r *WhitelistRegistry) loadSystemCertPool() (*x509.CertPool, error) {
 	r.systemCertPoolOnce.Do(func() {
 		r.systemCertPool, r.systemCertPoolErr = x509.SystemCertPool()
 		if r.systemCertPoolErr == nil && r.systemCertPool == nil {
 			r.systemCertPoolErr = fmt.Errorf("system cert pool is nil (unsupported on this platform)")
+		}
+		if r.systemCertPoolErr == nil {
+			for i, pemCert := range r.config.AdditionalTrustedRoots {
+				if !r.systemCertPool.AppendCertsFromPEM([]byte(pemCert)) {
+					r.systemCertPoolErr = fmt.Errorf("additional_trusted_roots[%d]: failed to parse PEM certificate", i)
+					return
+				}
+			}
 		}
 	})
 	return r.systemCertPool, r.systemCertPoolErr
