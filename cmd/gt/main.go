@@ -12,6 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	oidfedjwx "github.com/go-oidfed/lib/jwx"
 	"github.com/sirosfoundation/g119612/pkg/logging"
+	gocryptoutil "github.com/sirosfoundation/go-cryptoutil"
+	"github.com/sirosfoundation/go-cryptoutil/brainpool"
 	_ "github.com/sirosfoundation/go-trust/docs/swagger" // Import generated docs
 	"github.com/sirosfoundation/go-trust/pkg/api"
 	"github.com/sirosfoundation/go-trust/pkg/config"
@@ -395,6 +397,15 @@ func main() {
 
 // configureRegistriesFromConfig configures registries from the loaded config file.
 func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) {
+	// cryptoExt extends certificate parsing/signature verification beyond
+	// what crypto/x509 supports natively - currently brainpool curves, used
+	// by real-world root CAs (e.g. the Geneva 2026 interop event's RICAL/
+	// VICAL root) that stdlib's x509.ParseCertificate rejects outright with
+	// "unsupported elliptic curve". Shared across every registry below that
+	// accepts a CryptoExt field.
+	cryptoExt := gocryptoutil.New()
+	brainpool.Register(cryptoExt)
+
 	// Configure ETSI TSL registry from config
 	if cfg.Registries.ETSI != nil && cfg.Registries.ETSI.Enabled {
 		logger.Info("Configuring ETSI TSL registry from config file")
@@ -403,6 +414,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		tslConfig := etsi.TSLConfig{
 			Name:             etsiCfg.Name,
 			Description:      etsiCfg.Description,
+			CryptoExt:        cryptoExt,
 			CertBundle:       etsiCfg.CertBundle,
 			TSLFiles:         etsiCfg.TSLFiles,
 			LOTLSignerBundle: etsiCfg.LOTLSignerBundle,
@@ -541,6 +553,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			Description:        oidfedCfg.Description,
 			MaxCacheSize:       oidfedCfg.MaxCacheSize,
 			MaxChainDepth:      oidfedCfg.MaxChainDepth,
+			CryptoExt:          cryptoExt,
 		}
 
 		// Parse CacheTTL if provided
@@ -675,6 +688,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			MaxDereferenceDepth: loteCfg.MaxDereferenceDepth,
 			VerifyJWS:           loteCfg.VerifyJWS,
 			Logger:              slog.Default(),
+			CryptoExt:           cryptoExt,
 		}
 
 		if loteCfg.FetchTimeout != "" {
@@ -722,6 +736,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			Name:            mdocCfg.Name,
 			Description:     mdocCfg.Description,
 			IssuerAllowlist: mdocCfg.IssuerAllowlist,
+			CryptoExt:       cryptoExt,
 		}
 
 		// Parse CacheTTL if provided
@@ -767,6 +782,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			Description:             ricalCfg.Description,
 			RicalProviderURL:        ricalCfg.RicalProviderURL,
 			RicalRootCertificatePEM: ricalCfg.RicalRootCertificatePEM,
+			CryptoExt:               cryptoExt,
 		}
 
 		if ricalCfg.CacheTTL != "" {
@@ -810,6 +826,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			Description:             vicalCfg.Description,
 			VicalProviderURL:        vicalCfg.VicalProviderURL,
 			VicalRootCertificatePEM: vicalCfg.VicalRootCertificatePEM,
+			CryptoExt:               cryptoExt,
 		}
 
 		if vicalCfg.CacheTTL != "" {
