@@ -37,6 +37,10 @@ type RegistriesConfig struct {
 	LoTE *LoTERegistryConfig `yaml:"lote,omitempty"`
 	// mDOC IACA registry
 	MDOCIACA *MDOCIACARegistryConfig `yaml:"mdociaca,omitempty"`
+	// mDOC RICAL registry (reader authentication trust)
+	MDOCRICAL *MDOCRICALRegistryConfig `yaml:"mdocrical,omitempty"`
+	// VICAL registry (issuer authentication trust)
+	VICAL *VICALRegistryConfig `yaml:"vical,omitempty"`
 	// FIDO Alliance MDS3 registry (FIDO2/CTAP2 hardware-key attestation trust)
 	FIDOMDS3 *FIDOMDS3RegistryConfig `yaml:"fidomds3,omitempty"`
 	// Static test registries
@@ -163,6 +167,34 @@ type MDOCIACARegistryConfig struct {
 	IssuerAllowlist []string `yaml:"issuer_allowlist,omitempty"`
 	CacheTTL        string   `yaml:"cache_ttl,omitempty"`
 	HTTPTimeout     string   `yaml:"http_timeout,omitempty"`
+}
+
+// MDOCRICALRegistryConfig contains mDOC RICAL (Reader Identity Certificate
+// Authority List) registry configuration - authenticates mdoc readers per
+// ISO/IEC 18013-5 second-edition Annex F, the reader-side mirror of
+// MDOCIACARegistryConfig's issuer trust.
+type MDOCRICALRegistryConfig struct {
+	Enabled                 bool   `yaml:"enabled"`
+	Name                    string `yaml:"name,omitempty"`
+	Description             string `yaml:"description,omitempty"`
+	RicalProviderURL        string `yaml:"rical_provider_url,omitempty"`
+	RicalRootCertificatePEM string `yaml:"rical_root_certificate_pem,omitempty"`
+	CacheTTL                string `yaml:"cache_ttl,omitempty"`
+	HTTPTimeout             string `yaml:"http_timeout,omitempty"`
+}
+
+// VICALRegistryConfig contains VICAL (Verified Issuer Certificate Authority
+// List) registry configuration - authenticates mdoc issuers per ISO/IEC
+// 18013-5 Annex C, the issuer-trust counterpart to MDOCRICALRegistryConfig's
+// reader trust.
+type VICALRegistryConfig struct {
+	Enabled                 bool   `yaml:"enabled"`
+	Name                    string `yaml:"name,omitempty"`
+	Description             string `yaml:"description,omitempty"`
+	VicalProviderURL        string `yaml:"vical_provider_url,omitempty"`
+	VicalRootCertificatePEM string `yaml:"vical_root_certificate_pem,omitempty"`
+	CacheTTL                string `yaml:"cache_ttl,omitempty"`
+	HTTPTimeout             string `yaml:"http_timeout,omitempty"`
 }
 
 // FIDOMDS3RegistryConfig contains FIDO Alliance Metadata Service v3

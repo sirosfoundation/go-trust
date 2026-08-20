@@ -23,8 +23,10 @@ import (
 	"github.com/sirosfoundation/go-trust/pkg/registry/fidomds3"
 	"github.com/sirosfoundation/go-trust/pkg/registry/lote"
 	"github.com/sirosfoundation/go-trust/pkg/registry/mdociaca"
+	"github.com/sirosfoundation/go-trust/pkg/registry/mdocrical"
 	"github.com/sirosfoundation/go-trust/pkg/registry/oidfed"
 	"github.com/sirosfoundation/go-trust/pkg/registry/static"
+	"github.com/sirosfoundation/go-trust/pkg/registry/vical"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -753,6 +755,92 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		registryMgr.Register(mdocReg)
 		logger.Info("mDOC IACA registry registered from config",
 			logging.F("issuer_allowlist", len(mdocCfg.IssuerAllowlist)))
+	}
+
+	// Configure mDOC RICAL registry from config
+	if cfg.Registries.MDOCRICAL != nil && cfg.Registries.MDOCRICAL.Enabled {
+		logger.Info("Configuring mDOC RICAL registry from config file")
+		ricalCfg := cfg.Registries.MDOCRICAL
+
+		ricalConfig := &mdocrical.Config{
+			Name:                    ricalCfg.Name,
+			Description:             ricalCfg.Description,
+			RicalProviderURL:        ricalCfg.RicalProviderURL,
+			RicalRootCertificatePEM: ricalCfg.RicalRootCertificatePEM,
+		}
+
+		if ricalCfg.CacheTTL != "" {
+			if ttl, err := time.ParseDuration(ricalCfg.CacheTTL); err == nil {
+				ricalConfig.CacheTTL = ttl
+			} else {
+				logger.Warn("Invalid cache_ttl for mdocrical registry, using default",
+					logging.F("value", ricalCfg.CacheTTL),
+					logging.F("error", err.Error()))
+			}
+		}
+
+		if ricalCfg.HTTPTimeout != "" {
+			if timeout, err := time.ParseDuration(ricalCfg.HTTPTimeout); err == nil {
+				ricalConfig.HTTPTimeout = timeout
+			} else {
+				logger.Warn("Invalid http_timeout for mdocrical registry, using default",
+					logging.F("value", ricalCfg.HTTPTimeout),
+					logging.F("error", err.Error()))
+			}
+		}
+
+		ricalReg, err := mdocrical.New(ricalConfig)
+		if err != nil {
+			logger.Fatal("Failed to create mDOC RICAL registry from config",
+				logging.F("error", err.Error()))
+		}
+
+		registryMgr.Register(ricalReg)
+		logger.Info("mDOC RICAL registry registered from config",
+			logging.F("provider_url", ricalCfg.RicalProviderURL))
+	}
+
+	// Configure VICAL registry from config
+	if cfg.Registries.VICAL != nil && cfg.Registries.VICAL.Enabled {
+		logger.Info("Configuring VICAL registry from config file")
+		vicalCfg := cfg.Registries.VICAL
+
+		vicalConfig := &vical.Config{
+			Name:                    vicalCfg.Name,
+			Description:             vicalCfg.Description,
+			VicalProviderURL:        vicalCfg.VicalProviderURL,
+			VicalRootCertificatePEM: vicalCfg.VicalRootCertificatePEM,
+		}
+
+		if vicalCfg.CacheTTL != "" {
+			if ttl, err := time.ParseDuration(vicalCfg.CacheTTL); err == nil {
+				vicalConfig.CacheTTL = ttl
+			} else {
+				logger.Warn("Invalid cache_ttl for vical registry, using default",
+					logging.F("value", vicalCfg.CacheTTL),
+					logging.F("error", err.Error()))
+			}
+		}
+
+		if vicalCfg.HTTPTimeout != "" {
+			if timeout, err := time.ParseDuration(vicalCfg.HTTPTimeout); err == nil {
+				vicalConfig.HTTPTimeout = timeout
+			} else {
+				logger.Warn("Invalid http_timeout for vical registry, using default",
+					logging.F("value", vicalCfg.HTTPTimeout),
+					logging.F("error", err.Error()))
+			}
+		}
+
+		vicalReg, err := vical.New(vicalConfig)
+		if err != nil {
+			logger.Fatal("Failed to create VICAL registry from config",
+				logging.F("error", err.Error()))
+		}
+
+		registryMgr.Register(vicalReg)
+		logger.Info("VICAL registry registered from config",
+			logging.F("provider_url", vicalCfg.VicalProviderURL))
 	}
 
 	// Configure FIDO MDS3 registry from config
