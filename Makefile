@@ -69,6 +69,10 @@ swagger: install-swag ## Generate OpenAPI/Swagger documentation
 install-swag: ## Install swag tool for generating Swagger docs
 	@which swag > /dev/null || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
 
+.PHONY: gen-config-docs
+gen-config-docs: ## Generate docs/CONFIGURATION.md from the config structs
+	go run developer_tools/scripts/gen_config_docs/main.go
+
 .PHONY: clean
 clean: ## remove temporary files
 	go clean
