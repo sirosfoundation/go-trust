@@ -21,6 +21,8 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 - [registries.didjwks](#registriesdidjwks)
 - [registries.lote](#registrieslote)
 - [registries.mdociaca](#registriesmdociaca)
+- [registries.mdocrical](#registriesmdocrical)
+- [registries.vical](#registriesvical)
 - [registries.fidomds3](#registriesfidomds3)
 - [registries.always_trusted](#registriesalways_trusted)
 - [registries.never_trusted](#registriesnever_trusted)
@@ -180,6 +182,34 @@ mDOC IACA registry
 | `mdociaca.issuer_allowlist` | — | string list |  |
 | `mdociaca.cache_ttl` | — | string |  |
 | `mdociaca.http_timeout` | — | string |  |
+
+## registries.mdocrical
+
+mDOC RICAL registry (reader authentication trust)
+
+| YAML Key | Env Variable | Type | Description |
+|----------|-------------|------|-------------|
+| `mdocrical.enabled` | — | boolean |  |
+| `mdocrical.name` | — | string |  |
+| `mdocrical.description` | — | string |  |
+| `mdocrical.rical_provider_url` | — | string |  |
+| `mdocrical.rical_root_certificate_pem` | — | string |  |
+| `mdocrical.cache_ttl` | — | string |  |
+| `mdocrical.http_timeout` | — | string |  |
+
+## registries.vical
+
+VICAL registry (issuer authentication trust)
+
+| YAML Key | Env Variable | Type | Description |
+|----------|-------------|------|-------------|
+| `vical.enabled` | — | boolean |  |
+| `vical.name` | — | string |  |
+| `vical.description` | — | string |  |
+| `vical.vical_provider_url` | — | string |  |
+| `vical.vical_root_certificate_pem` | — | string |  |
+| `vical.cache_ttl` | — | string |  |
+| `vical.http_timeout` | — | string |  |
 
 ## registries.fidomds3
 
