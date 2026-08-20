@@ -346,8 +346,16 @@ func (r *Registry) fetchAndVerifyRical(ctx context.Context) (*RICAL, error) {
 		return nil, fmt.Errorf("RICAL signer certificate does not chain to configured root: %w", err)
 	}
 
-	// external_aad shall be a zero-length bstr, per F.3.2.
-	if err := mdoc.Verify1(sign1, sign1.Payload, signerCert.PublicKey, nil); err != nil {
+	// external_aad shall be a zero-length bstr, per F.3.2 - passed as []byte{}
+	// rather than nil: fxamacker/cbor encodes a nil []byte boxed in an `any`
+	// as CBOR null (0xf6), not an empty byte string (0x40), so a nil here
+	// would hash a different Sig_structure than what a spec-conformant
+	// signer (using an actual zero-length bstr) signed over, making
+	// verification always fail. Confirmed against the pinned vc v0.6.5
+	// (this module's go.sum version) - a real, CI-only failure this
+	// workspace's go.work masked locally by resolving vc to a newer local
+	// checkout that happens to normalize nil to empty internally.
+	if err := mdoc.Verify1(sign1, sign1.Payload, signerCert.PublicKey, []byte{}); err != nil {
 		return nil, fmt.Errorf("RICAL signature verification failed: %w", err)
 	}
 

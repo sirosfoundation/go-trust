@@ -307,9 +307,14 @@ func (r *Registry) fetchAndVerifyVical(ctx context.Context) (*VICAL, error) {
 	// C.1.7.1: the VICAL signer certificate (x5chain) is in the
 	// UNPROTECTED header - matching this codebase's own issuerAuth/
 	// deviceAuth convention (opposite of RICAL's protected-header
-	// placement, see mdocrical). GetCertificateChainFromSign1 checks
-	// unprotected first, so it's directly reusable here.
-	signerChain, err := mdoc.GetCertificateChainFromSign1(sign1, r.config.CryptoExt)
+	// placement, see mdocrical). Extracted locally rather than via
+	// mdoc.GetCertificateChainFromSign1: the pinned vc v0.6.5 version of
+	// that helper only ever reads sign1.Protected, never Unprotected (this
+	// workspace's go.work masked that locally by resolving vc to a newer
+	// checkout where it does check both) - always returning "no x5chain in
+	// headers" for any real, spec-conformant VICAL against the released
+	// dependency version.
+	signerChain, err := extractX5ChainFromUnprotectedHeader(sign1.Unprotected, r.config.CryptoExt)
 	if err != nil {
 		return nil, fmt.Errorf("extract VICAL signer x5chain: %w", err)
 	}
@@ -333,8 +338,11 @@ func (r *Registry) fetchAndVerifyVical(ctx context.Context) (*VICAL, error) {
 		return nil, fmt.Errorf("VICAL signer certificate does not chain to configured root: %w", err)
 	}
 
-	// external_aad shall be a zero-length bstr, per C.1.7.1.
-	if err := mdoc.Verify1(sign1, sign1.Payload, signerCert.PublicKey, nil); err != nil {
+	// external_aad shall be a zero-length bstr, per C.1.7.1 - passed as
+	// []byte{} rather than nil: see mdocrical/registry.go's identical
+	// Verify1 call for why nil silently breaks verification against the
+	// pinned vc v0.6.5 (CBOR-encodes as null, not an empty bstr).
+	if err := mdoc.Verify1(sign1, sign1.Payload, signerCert.PublicKey, []byte{}); err != nil {
 		return nil, fmt.Errorf("VICAL signature verification failed: %w", err)
 	}
 
@@ -347,6 +355,51 @@ func (r *Registry) fetchAndVerifyVical(ctx context.Context) (*VICAL, error) {
 	}
 
 	return &vical, nil
+}
+
+// extractX5ChainFromUnprotectedHeader reads the x5chain element (COSE
+// header label 33, per RFC 9360) from a COSE_Sign1's decoded unprotected
+// header map. Label lookup checks both uint64 and int64 key forms since the
+// map was decoded from CBOR into map[any]any (no fixed key type forced by
+// the destination, unlike mdocrical's protected-header map[int64]any) -
+// fxamacker/cbor decodes a positive CBOR integer key into uint64 for such a
+// map, but checking both defensively costs nothing. The value is either a
+// single bstr (one certificate) or an array of bstr (a chain, leaf first).
+func extractX5ChainFromUnprotectedHeader(unprotected map[any]any, ext *gocryptoutil.Extensions) ([]*x509.Certificate, error) {
+	const x5chainLabel = 33
+	raw, ok := unprotected[uint64(x5chainLabel)]
+	if !ok {
+		raw, ok = unprotected[int64(x5chainLabel)]
+	}
+	if !ok {
+		return nil, fmt.Errorf("no x5chain (label 33) in header")
+	}
+
+	var derList [][]byte
+	switch v := raw.(type) {
+	case []byte:
+		derList = [][]byte{v}
+	case []any:
+		for _, item := range v {
+			b, ok := item.([]byte)
+			if !ok {
+				return nil, fmt.Errorf("x5chain element is not a byte string")
+			}
+			derList = append(derList, b)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported x5chain encoding: %T", raw)
+	}
+
+	certs := make([]*x509.Certificate, 0, len(derList))
+	for i, der := range derList {
+		cert, err := registry.ParseCertificate(der, ext)
+		if err != nil {
+			return nil, fmt.Errorf("x5chain certificate %d: %w", i, err)
+		}
+		certs = append(certs, cert)
+	}
+	return certs, nil
 }
 
 func parseX5CChain(key interface{}, ext *gocryptoutil.Extensions) ([]*x509.Certificate, error) {
