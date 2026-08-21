@@ -1,0 +1,53 @@
+# Opt a repo into AI-generated release notes.
+#
+# Copy to .github/workflows/release-notes.yml in the repo, and make sure the
+# siros-release-notes-bot GitHub App is installed on it.
+#
+# Carries no secrets: the OIDC token is minted per-run by GitHub, and every
+# real credential lives on the service.
+name: Release Notes
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to (re)generate. Required for mode=single, ignored for mode=all.'
+        required: false
+      mode:
+        description: 'single = one tag; all = bootstrap the whole file (refuses if it already exists)'
+        type: choice
+        options: [single, all]
+        default: single
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  request:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request release notes
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          MODE: ${{ inputs.mode || 'single' }}
+        run: |
+          set -euo pipefail
+
+          OIDC_TOKEN=$(curl -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=release-notes-bot" \
+            | jq -r '.value')
+
+          curl -sS --fail-with-body -X POST \
+            https://release-notes-bot.fly.dev/generate \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -nc \
+                  --arg repo "$GITHUB_REPOSITORY" \
+                  --arg tag "$TAG" \
+                  --arg mode "$MODE" \
+                  '{repo: $repo, tag: $tag, mode: $mode}')" \
+            | tee /dev/stderr | jq -r '.pull_request // .detail // .'
