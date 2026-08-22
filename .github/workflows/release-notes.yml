@@ -60,6 +60,17 @@ jobs:
             exit 1
           fi
 
+          # Validate before writing to $GITHUB_OUTPUT. This is what makes the
+          # plain `echo` below safe: bash anchors `$` at end-of-string, and the
+          # character class excludes newlines, so anything reaching $GITHUB_OUTPUT
+          # provably can't smuggle in extra `key=value` lines or a `<<EOF`
+          # delimiter. Escaping would only encode around that risk; rejecting
+          # removes it, and catches typo'd tags with a clearer message besides.
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9._+-]*$ ]]; then
+            echo "::error::'$TAG' is not a semver tag (expected vX.Y.Z, optionally with a suffix)."
+            exit 1
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Request release notes
@@ -69,13 +80,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          OIDC_TOKEN=$(curl -sS --fail-with-body \
+          # Status and body are captured separately rather than piping curl
+          # straight into jq: inside a command substitution, --fail-with-body's
+          # diagnostic body gets swallowed by the substitution and thrown away
+          # when set -e fires, leaving only curl's terse exit code and a jq
+          # parse error. Writing the body to a file keeps it printable.
+          OIDC_RESPONSE="$RUNNER_TEMP/oidc-response.json"
+          OIDC_STATUS=$(curl -sS -o "$OIDC_RESPONSE" -w '%{http_code}' \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=release-notes-bot" \
-            | jq -r '.value // empty')
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=release-notes-bot" || echo 000)
 
+          if [ "$OIDC_STATUS" != "200" ]; then
+            echo "::error::OIDC token request failed (HTTP $OIDC_STATUS): $(cat "$OIDC_RESPONSE" 2>/dev/null || true)"
+            exit 1
+          fi
+
+          # Read the token out of the file; never echoed, on success or failure.
+          OIDC_TOKEN=$(jq -r '.value // empty' "$OIDC_RESPONSE")
           if [ -z "$OIDC_TOKEN" ]; then
-            echo "::error::could not mint an OIDC token — check that this job has 'id-token: write'."
+            echo "::error::OIDC response contained no token — check that this job has 'id-token: write'."
             exit 1
           fi
 
@@ -85,9 +108,16 @@ jobs:
             --arg tag "$TAG" \
             '{repo: $repo, mode: $mode} + (if $tag == "" then {} else {tag: $tag} end)')
 
-          curl -sS --fail-with-body -X POST \
+          RESPONSE="$RUNNER_TEMP/response.json"
+          STATUS=$(curl -sS -o "$RESPONSE" -w '%{http_code}' -X POST \
             https://release-notes-bot.fly.dev/generate \
             -H "Authorization: Bearer $OIDC_TOKEN" \
             -H 'Content-Type: application/json' \
-            -d "$BODY" \
-            | tee /dev/stderr | jq -r '.pull_request // .detail // .'
+            -d "$BODY" || echo 000)
+
+          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
+            echo "::error::release-notes-bot returned HTTP $STATUS: $(cat "$RESPONSE" 2>/dev/null || true)"
+            exit 1
+          fi
+
+          jq -r '.pull_request // .detail // .' "$RESPONSE"
