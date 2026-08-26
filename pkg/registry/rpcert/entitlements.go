@@ -7,9 +7,13 @@
 //
 // Sub-entitlement URIs for Payment Service Providers are defined in Annex A.3.1
 // and are in the /SubEntitlement/ path.
+
 package rpcert
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // Entitlement role URIs (Annex A.2, id-etsi-wrpa-entitlement 1–10).
 const (
@@ -113,6 +117,87 @@ func (e *RPEntitlements) IsEAAProvider() bool {
 		e.HasEntitlement(EntitlementPUBEAAProvider)
 }
 
+// IsAttestationProvider returns true when the RP holds an entitlement to
+// issue attestations to wallets - any of the three EAA roles, or PID.
+//
+// This is the issuer-side question: under CIR (EU) 2025/848 a PID or
+// attestation provider is a registered wallet-relying party in its own
+// right, so a wallet asked to accept a credential checks that the issuer is
+// entitled to provide one. IsEAAProvider deliberately excludes PID, since
+// PID is not an EAA; use this when the distinction does not matter.
+func (e *RPEntitlements) IsAttestationProvider() bool {
+	return e.IsEAAProvider() || e.HasEntitlement(EntitlementPIDProvider)
+}
+
+// ProvidesAttestation reports whether the RP is registered to provide an
+// attestation of the given format and type, per the provides_attestations
+// claim (Table 8, GEN-5.2.4-05).
+//
+// format is a credential format identifier such as "mso_mdoc" or
+// "dc+sd-jwt". typeValue is the format's type discriminator - the doctype
+// for mdoc, the vct for SD-JWT VC. An empty typeValue asks only whether the
+// format is covered at all.
+//
+// A registered query that names a format but constrains no type covers
+// every type in that format: the Registrar entitled the RP to the format
+// without narrowing it, and reading that as "no types" would invert the
+// meaning.
+func (e *RPEntitlements) ProvidesAttestation(format, typeValue string) bool {
+	for _, q := range e.ProvidedAttestations {
+		if q.Format != format {
+			continue
+		}
+		if typeValue == "" || queryCoversType(q, typeValue) {
+			return true
+		}
+	}
+	return false
+}
+
+// queryCoversType reports whether a credential query's meta constrains the
+// credential type to, or permits, typeValue.
+//
+// DCQL defines the constraint per format: mso_mdoc uses a single
+// `doctype_value`, SD-JWT VC uses a `vct_values` list. Anything else is
+// treated as unconstrained rather than as non-matching, so a format this
+// code does not know about is not silently rejected.
+func queryCoversType(q CredentialQuery, typeValue string) bool {
+	constrained := false
+	for _, key := range []string{"doctype_value", "vct_values", "doctype_values"} {
+		raw, ok := q.Meta[key]
+		if !ok {
+			continue
+		}
+		constrained = true
+		if metaValueMatches(raw, typeValue) {
+			return true
+		}
+	}
+	return !constrained
+}
+
+// metaValueMatches reports whether a DCQL meta value - a bare string or a
+// list of them - contains typeValue.
+func metaValueMatches(raw any, typeValue string) bool {
+	switch v := raw.(type) {
+	case string:
+		return v == typeValue
+	case []string:
+		for _, s := range v {
+			if s == typeValue {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok && s == typeValue {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // BindingError is returned when WRPAC and WRPRC subject identifiers do not match.
 type BindingError struct {
 	WRPACOrgID string
@@ -191,6 +276,30 @@ func CheckWRPACWRPRCServiceBinding(wrpacServiceID string, wrprc *RPEntitlements)
 			WRPACServiceID: wrpacServiceID,
 			WRPRCServiceID: wrprc.ServiceIdentifier,
 		}
+	}
+	return nil
+}
+
+// CheckWRPRCValidityPeriod enforces GEN-5.2.4-08: a WRPRC must not be valid
+// for more than 12 months from issuance.
+//
+// This is a conformance rule about the document, not a check of whether it
+// is currently within its validity window - use RPEntitlements.IsValid for
+// that. Kept out of ParseWRPRCClaims so that parsing stays free of any
+// notion of time, and because a caller may want to report a non-conformant
+// certificate rather than refuse to read it.
+//
+// A certificate missing either timestamp is passed: absence is not evidence
+// of an over-long validity period, and treating it as a violation would
+// reject documents the rule does not speak to.
+func CheckWRPRCValidityPeriod(ent *RPEntitlements) error {
+	if ent == nil || ent.ValidFrom == nil || ent.ValidUntil == nil {
+		return nil
+	}
+	maxExp := ent.ValidFrom.AddDate(0, 12, 0)
+	if ent.ValidUntil.After(maxExp) {
+		return fmt.Errorf("wrprc: validity ends %s, more than 12 months after issuance %s (GEN-5.2.4-08 allows at most %s)",
+			ent.ValidUntil.Format(time.RFC3339), ent.ValidFrom.Format(time.RFC3339), maxExp.Format(time.RFC3339))
 	}
 	return nil
 }
