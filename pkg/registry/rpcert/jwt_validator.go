@@ -100,6 +100,15 @@ type wrprcPayload struct {
 
 	// Table 10: intermediary delegation (GEN-5.2.4-09)
 	Act *wrprcAct `json:"act,omitempty"`
+
+	// ServiceIdentifier is a URI identifying the specific service this WRPRC
+	// was issued for. Not in ETSI TS 119 475 v1.1.1; proposed by Stefan
+	// Santesson (PTS Sweden) as a de-facto interoperability convention for
+	// service-level WRPAC↔WRPRC binding (see OIDWRPACServiceIdentifier in
+	// wrpac.go). When present in both WRPRC and WRPAC, the values MUST match.
+	//
+	// TODO(etsi): standardise the claim name once ETSI TS 119 475 is updated.
+	ServiceIdentifier string `json:"service_identifier,omitempty"`
 }
 
 // wrprcSub is the structured `sub` claim in the WRPRC payload (Table 7).
@@ -226,6 +235,7 @@ func (v *JWTRegistrationCertValidator) Validate(_ context.Context, certData []by
 		PrivacyPolicyURI:   payload.PrivacyPolicy,
 		InfoURI:            payload.InfoURI,
 		RegistryURI:        payload.RegistryURI,
+		ServiceIdentifier:  payload.ServiceIdentifier,
 		PolicyIDs:          payload.PolicyIDs,
 		Purpose:            payload.Purpose,
 		IsPublicBody:       payload.PublicBody,

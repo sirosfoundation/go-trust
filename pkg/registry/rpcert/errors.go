@@ -30,6 +30,14 @@ const (
 	// does not match the WRPRC sub.id (ARF RPRC_16, TS 119 475 §5.1).
 	ErrCodeBindingFailed TrustEvaluationErrorCode = "BINDING_FAILED"
 
+	// ErrCodeServiceBindingFailed is returned when the WRPAC service_identifier
+	// (Subject attribute OID 0.4.0.19475.99.1) does not match the WRPRC
+	// "service_identifier" claim. This is a service-level check that complements
+	// the organisation-level ErrCodeBindingFailed check.
+	//
+	// TODO(etsi): rename/re-document once ETSI standardises the OID and claim name.
+	ErrCodeServiceBindingFailed TrustEvaluationErrorCode = "SERVICE_BINDING_FAILED"
+
 	// ErrCodeWrongEntitlement is returned when the RP's entitlements array does
 	// not include the role required for the requested operation.
 	ErrCodeWrongEntitlement TrustEvaluationErrorCode = "WRONG_ENTITLEMENT"

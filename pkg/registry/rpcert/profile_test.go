@@ -444,3 +444,119 @@ func TestWRPACProfile_Description(t *testing.T) {
 		}
 	}
 }
+
+// ─── Service identifier attribute (Stefan Santesson convention) ──────────────
+
+// TestWRPACProfile_ExtractIdentity_WithServiceIdentifier verifies that when a
+// WRPAC Subject DN carries the service identifier attribute
+// (OIDWRPACServiceIdentifier = 0.4.0.19475.99.1), it is extracted into the
+// identity map under "service_identifier".
+//
+// This models Stefan Santesson's (PTS Sweden) de-facto convention for
+// service-level WRPAC↔WRPRC binding. The OID is not in ETSI TS 119 411-8
+// v1.1.1; see wrpac.go for the full rationale and TODO(etsi) marker.
+func TestWRPACProfile_ExtractIdentity_WithServiceIdentifier(t *testing.T) {
+	svcURI := "https://pts.se/service/registry"
+	phoneNum := "+46-8 678 55 00"
+
+	// Build a cert that has:
+	//   - organizationIdentifier = NTRSE-202100-4359  (standard ETSI)
+	//   - OIDWRPACServiceIdentifier = svcURI          (Stefan's convention)
+	//   - telephoneNumber = phoneNum                   (X.520-correct placement)
+	subject := pkix.Name{
+		Country:      []string{"SE"},
+		Organization: []string{"PTS"},
+		SerialNumber: "NTRSE-202100-4359",
+		CommonName:   "PTS RP Registry",
+		ExtraNames: []pkix.AttributeTypeAndValue{
+			{
+				Type:  oidWRPACServiceIdentifierASN1,
+				Value: svcURI,
+			},
+			{
+				Type:  oidTelephoneNumberASN1,
+				Value: phoneNum,
+			},
+		},
+	}
+
+	u, _ := url.Parse("https://pts.se")
+	cert := makeCert(t, certOpts{
+		subject:  subject,
+		keyUsage: x509.KeyUsageContentCommitment,
+		policyOIDs: []asn1.ObjectIdentifier{
+			parseOID(OIDNCPLegalPerson),
+		},
+		uris:   []*url.URL{u},
+		emails: []string{"info@pts.se"},
+	})
+
+	profile := NewWRPACProfile()
+	identity, err := profile.ExtractIdentity(cert)
+	if err != nil {
+		t.Fatalf("ExtractIdentity: %v", err)
+	}
+
+	// Standard ETSI fields still present
+	if identity["organization_identifier"] != "NTRSE-202100-4359" {
+		t.Errorf("organization_identifier = %v, want NTRSE-202100-4359", identity["organization_identifier"])
+	}
+	if identity["subject_type"] != "legal_person" {
+		t.Errorf("subject_type = %v, want legal_person", identity["subject_type"])
+	}
+	if identity["policy_level"] != "normalised" {
+		t.Errorf("policy_level = %v, want normalised", identity["policy_level"])
+	}
+
+	// Stefan's service identifier should be present
+	if identity["service_identifier"] != svcURI {
+		t.Errorf("service_identifier = %v, want %v", identity["service_identifier"], svcURI)
+	}
+
+	// telephoneNumber extracted from Subject DN (ASN.1-correct placement)
+	if identity["telephone_number"] != phoneNum {
+		t.Errorf("telephone_number = %v, want %v", identity["telephone_number"], phoneNum)
+	}
+}
+
+// TestWRPACProfile_ExtractIdentity_WithoutServiceIdentifier verifies that the
+// service_identifier field is absent for strict ETSI TS 119 411-8 certs that
+// do not carry OIDWRPACServiceIdentifier (Anna's/ETSI-conformant case).
+// The profile must still work correctly — no regression from the new code.
+func TestWRPACProfile_ExtractIdentity_WithoutServiceIdentifier(t *testing.T) {
+	subject := pkix.Name{
+		Country:      []string{"NO"},
+		Organization: []string{"Sikt"},
+		SerialNumber: "NTRNO-919477822",
+		CommonName:   "Sikt - Kunnskapssektorens tjenesteleverandør",
+	}
+
+	u, _ := url.Parse("https://wallet-pilot.feide.no")
+	cert := makeCert(t, certOpts{
+		subject:  subject,
+		keyUsage: x509.KeyUsageContentCommitment,
+		policyOIDs: []asn1.ObjectIdentifier{
+			parseOID(OIDNCPLegalPerson),
+		},
+		uris:   []*url.URL{u},
+		emails: []string{"info@sikt.no"},
+	})
+
+	profile := NewWRPACProfile()
+	identity, err := profile.ExtractIdentity(cert)
+	if err != nil {
+		t.Fatalf("ExtractIdentity: %v", err)
+	}
+
+	if identity["organization_identifier"] != "NTRNO-919477822" {
+		t.Errorf("organization_identifier = %v, want NTRNO-919477822", identity["organization_identifier"])
+	}
+	// service_identifier must be absent — not present in strict ETSI cert
+	if _, ok := identity["service_identifier"]; ok {
+		t.Errorf("service_identifier present but should be absent for strict ETSI cert")
+	}
+	// telephone_number must be absent — not in this cert
+	if _, ok := identity["telephone_number"]; ok {
+		t.Errorf("telephone_number present but should be absent")
+	}
+}

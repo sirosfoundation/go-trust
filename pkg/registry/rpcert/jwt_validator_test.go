@@ -55,13 +55,13 @@ func generateWRPRCProviderCert(t *testing.T) (*x509.Certificate, *ecdsa.PrivateK
 	require.NoError(t, err)
 
 	template := &x509.Certificate{
-		SerialNumber: big.NewInt(42),
-		Subject:      pkix.Name{Organization: []string{"WRPRC Provider TSP"}, CommonName: "wrprc-ca.example.com"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-		IsCA:         true,
+		SerialNumber:          big.NewInt(42),
+		Subject:               pkix.Name{Organization: []string{"WRPRC Provider TSP"}, CommonName: "wrprc-ca.example.com"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
 		BasicConstraintsValid: true,
-		KeyUsage:     x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	require.NoError(t, err)
@@ -84,12 +84,12 @@ func annexCPayload() wrprcPayload {
 			LegalName: "Example GmbH",
 			ID:        "LEIXG-529900T8BM49AURSDO55",
 		},
-		Entitlements: []string{EntitlementNonQEAAProvider},
-		Country:      "DE",
+		Entitlements:  []string{EntitlementNonQEAAProvider},
+		Country:       "DE",
 		PrivacyPolicy: "https://example-company.com/en/privacy-policy",
-		PolicyIDs:    []string{OIDWRPRCPolicy},
-		Iat:          iat,
-		Exp:          exp,
+		PolicyIDs:     []string{OIDWRPRCPolicy},
+		Iat:           iat,
+		Exp:           exp,
 		Purpose: []MultiLangString{
 			{Lang: "en-US", Value: "Required for checking the minimum age"},
 			{Lang: "de-DE", Value: "Benötigt für die Überprüfung des Mindestalters"},

@@ -168,3 +168,64 @@ func TestBindingError_ErrorString(t *testing.T) {
 	assert.Contains(t, e.Error(), "B")
 	assert.Contains(t, e.Error(), "ARF RPRC_16")
 }
+
+// ─── Service-level binding (Stefan Santesson convention) ─────────────────────
+
+func TestCheckWRPACWRPRCServiceBinding_Match(t *testing.T) {
+	// Both sides carry the same service_identifier — should pass.
+	ent := &RPEntitlements{ServiceIdentifier: "https://pts.se/service/registry"}
+	err := CheckWRPACWRPRCServiceBinding("https://pts.se/service/registry", ent)
+	assert.NoError(t, err)
+}
+
+func TestCheckWRPACWRPRCServiceBinding_Mismatch(t *testing.T) {
+	// Service identifiers differ — should fail with ServiceBindingError.
+	ent := &RPEntitlements{ServiceIdentifier: "https://pts.se/service/payment"}
+	err := CheckWRPACWRPRCServiceBinding("https://pts.se/service/registry", ent)
+	require.Error(t, err)
+	var svcErr *ServiceBindingError
+	require.True(t, errors.As(err, &svcErr))
+	assert.Equal(t, "https://pts.se/service/registry", svcErr.WRPACServiceID)
+	assert.Equal(t, "https://pts.se/service/payment", svcErr.WRPRCServiceID)
+	assert.Contains(t, svcErr.Error(), "0.4.0.19475.99.1")
+}
+
+func TestCheckWRPACWRPRCServiceBinding_WRPACAbsent(t *testing.T) {
+	// WRPAC has no service_identifier (strict ETSI cert, Anna's case) — skip check.
+	ent := &RPEntitlements{ServiceIdentifier: "https://pts.se/service/registry"}
+	assert.NoError(t, CheckWRPACWRPRCServiceBinding("", ent))
+}
+
+func TestCheckWRPACWRPRCServiceBinding_WRPRCAbsent(t *testing.T) {
+	// WRPRC has no service_identifier (pre-convention WRPRC) — skip check.
+	ent := &RPEntitlements{ServiceIdentifier: ""}
+	assert.NoError(t, CheckWRPACWRPRCServiceBinding("https://pts.se/service/registry", ent))
+}
+
+func TestCheckWRPACWRPRCServiceBinding_BothAbsent(t *testing.T) {
+	// Neither side carries service_identifier — check not applicable.
+	ent := &RPEntitlements{}
+	assert.NoError(t, CheckWRPACWRPRCServiceBinding("", ent))
+}
+
+func TestCheckWRPACWRPRCServiceBinding_NilWRPRC(t *testing.T) {
+	assert.NoError(t, CheckWRPACWRPRCServiceBinding("https://pts.se/service/registry", nil))
+}
+
+func TestServiceBindingError_ErrorString(t *testing.T) {
+	e := &ServiceBindingError{
+		WRPACServiceID: "https://pts.se/service/a",
+		WRPRCServiceID: "https://pts.se/service/b",
+	}
+	msg := e.Error()
+	assert.Contains(t, msg, "https://pts.se/service/a")
+	assert.Contains(t, msg, "https://pts.se/service/b")
+	assert.Contains(t, msg, "0.4.0.19475.99.1")
+	assert.Contains(t, msg, "pending ETSI standardisation")
+}
+
+func TestErrCodeServiceBindingFailed(t *testing.T) {
+	e := NewTrustEvaluationError(ErrCodeServiceBindingFailed, "service mismatch", nil)
+	assert.Equal(t, ErrCodeServiceBindingFailed, e.Code)
+	assert.Contains(t, e.Error(), "SERVICE_BINDING_FAILED")
+}
