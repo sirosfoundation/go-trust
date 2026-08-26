@@ -64,6 +64,7 @@
 //   - CIR (EU) 2025/848 — Implementing regulation for EUDI Wallet RPs
 //   - X.520 / ITU-T — Information technology - Open Systems Interconnection -
 //     The Directory: Selected attribute types (defines telephoneNumber as 2.5.4.20)
+
 package rpcert
 
 import (

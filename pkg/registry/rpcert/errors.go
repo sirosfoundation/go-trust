@@ -1,4 +1,4 @@
-// Package rpcert — structured trust evaluation error codes.
+// structured trust evaluation error codes.
 //
 // TrustEvaluationError wraps a machine-readable code with a human message so
 // callers can switch on the code to produce protocol-specific responses (AuthZen
@@ -9,6 +9,7 @@
 // type lives in the general rpcert package — it is not APTITUDE-specific.
 // Any caller mapping to a different protocol (e.g. OpenID4VP error codes)
 // can switch on the Code field and produce its own representation.
+
 package rpcert
 
 import "fmt"
