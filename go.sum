@@ -313,8 +313,6 @@ github.com/redis/go-redis/v9 v9.21.0 h1:FPBE4hhbAke+TLmcY3WkpbDffJEomdqPn3HYiqAt
 github.com/redis/go-redis/v9 v9.21.0/go.mod h1:v/M13XI1PVCDcm01VtPFOADfZtHf8YW3baQf57KlIkA=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
-github.com/russellhaering/goxmldsig v1.6.0 h1:8fdWXEPh2k/NZNQBPFNoVfS3JmzS4ZprY/sAOpKQLks=
-github.com/russellhaering/goxmldsig v1.6.0/go.mod h1:TrnaquDcYxWXfJrOjeMBTX4mLBeYAqaHEyUeWPxZlBM=
 github.com/scylladb/go-set v1.0.3-0.20200225121959-cc7b2070d91e h1:7q6NSFZDeGfvvtIRwBrU/aegEYJYmvev0cHAwo17zZQ=
 github.com/scylladb/go-set v1.0.3-0.20200225121959-cc7b2070d91e/go.mod h1:DkpGd78rljTxKAnTDPFqXSGxvETQnJyuSOQwsHycqfs=
 github.com/segmentio/asm v1.2.1 h1:DTNbBqs57ioxAD4PrArqftgypG4/qNpXoJx8TVXxPR0=
@@ -332,6 +330,8 @@ github.com/sirosfoundation/go-cryptoutil/brainpool v0.2.0 h1:tLBZFdBAloNDwP2j87M
 github.com/sirosfoundation/go-cryptoutil/brainpool v0.2.0/go.mod h1:h5sFbD8z/TLv+MziA97+UOXwDEN3drSYheRM5X9yaBE=
 github.com/sirosfoundation/go-spocp v0.1.0 h1:fH/jrSHS8vc+KfAzJmq3fE9OH69ShRgL7G1ihb9FCPs=
 github.com/sirosfoundation/go-spocp v0.1.0/go.mod h1:a6WtxG5hnsUzcqUt5iHmSMvyX4PLUPMDFK7FLoDMSMs=
+github.com/sirosfoundation/goxmldsig v1.6.1-siros1 h1:iQadRZy/iwj0E/hXlfKrEDqA94Ey1ozIdLtATKGpGH8=
+github.com/sirosfoundation/goxmldsig v1.6.1-siros1/go.mod h1:tGmeKRnyDp6EcdMP5U6hJotJ++bdpwFNuExwyJGUUM4=
 github.com/sirosfoundation/signedxml v1.4.0-siros1 h1:+d+j6AQxu9CNylGkmPbUAUdEYny6gvXZxFnuvrPViHk=
 github.com/sirosfoundation/signedxml v1.4.0-siros1/go.mod h1:qXhLkLQ7B8fg9YSTqBmWSynY9tkkEx2QsIBjMeJTGcM=
 github.com/sirupsen/logrus v1.9.4 h1:TsZE7l11zFCLZnZ+teH4Umoq5BhEIfIzfRDZ1Uzql2w=
