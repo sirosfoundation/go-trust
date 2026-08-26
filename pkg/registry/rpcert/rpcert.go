@@ -2,6 +2,7 @@
 // format-agnostic validator interfaces.
 //
 // See doc.go for the package overview and the three-step model.
+
 package rpcert
 
 import (
