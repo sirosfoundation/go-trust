@@ -89,12 +89,21 @@
 //
 // # What is not here
 //
-// No signature verification, no network access, and no revocation fetching.
-// Revocation of these certificates is real and currently unimplemented
-// everywhere in the stack - a WRPAC is revoked through a CRL or OCSP, a
-// WRPRC through the Token Status List referenced by
-// RPEntitlements.StatusListURI and StatusListIndex. This package surfaces
-// those references so a caller can act on them; it does not fetch them.
+// No signature verification and no network access.
+//
+// Revocation follows the same split. A WRPAC is revoked through a CRL or
+// OCSP; a WRPRC through the Token Status List named in its own status
+// claim. This package says where to look - CRLDistributionPoints,
+// OCSPResponders, RPEntitlements.StatusReference - and decides what an
+// answer means, through RevocationMode.Evaluate. It does not fetch: the
+// caller supplies a StatusListChecker or CertRevocationChecker, the same
+// way key resolvers are injected elsewhere here.
+//
+// The distinction that matters in that decision is between "revoked" and
+// "could not determine". An unreachable list is not evidence that a
+// certificate is valid, and collapsing the two is how a fetch failure
+// quietly becomes a pass - so RevocationUndetermined is its own state, and
+// RevocationWarn reports it while still proceeding.
 //
 // # References
 //
