@@ -181,14 +181,23 @@ func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]inter
 	// Start with the shared base identity (org, CN, country, SANs, policy_oids, validity, etc.)
 	identity := ExtractBaseCertIdentity(cert)
 
-	// WRPAC-specific: rename serial_number to organization_identifier
-	if cert.Subject.SerialNumber != "" {
-		identity["organization_identifier"] = cert.Subject.SerialNumber
+	// WRPAC-specific: surface the organisation identifier.
+	//
+	// EN 319 412-3 clause 4.2.1 puts it in organizationIdentifier
+	// (2.5.4.97), which Go does not model on pkix.Name - it only appears in
+	// Subject.Names, so it has to be read out by OID. Fall back to
+	// serialNumber (2.5.4.5), which earlier certificates and test fixtures
+	// used, so both continue to resolve.
+	if orgID := SubjectOrganizationIdentifier(cert); orgID != "" {
+		identity["organization_identifier"] = orgID
 		delete(identity, "serial_number")
 	}
 
-	// Determine subject type (natural vs legal person)
-	if len(cert.Subject.Organization) > 0 && cert.Subject.SerialNumber != "" {
+	// Determine subject type (natural vs legal person). Keyed off the same
+	// organisation identifier as above - reading Subject.SerialNumber
+	// directly classified a conformant legal-person certificate, which
+	// carries the value in 2.5.4.97, as a natural person.
+	if len(cert.Subject.Organization) > 0 && SubjectOrganizationIdentifier(cert) != "" {
 		identity["subject_type"] = "legal_person"
 	} else {
 		identity["subject_type"] = "natural_person"
@@ -294,4 +303,33 @@ func (p *WRPACProfile) ValidateCredential(credential interface{}) error {
 	}
 
 	return nil
+}
+
+// oidOrganizationIdentifier is organizationIdentifier per EN 319 412-1
+// clause 5.1.4, the attribute EN 319 412-3 clause 4.2.1 requires in the
+// subject DN of a legal-person certificate.
+var oidOrganizationIdentifier = asn1.ObjectIdentifier{2, 5, 4, 97}
+
+// SubjectOrganizationIdentifier returns the certificate's
+// organizationIdentifier (2.5.4.97), falling back to serialNumber (2.5.4.5)
+// when the former is absent.
+//
+// Go's pkix.Name has no field for organizationIdentifier, so a certificate
+// that carries it correctly exposes it only through Subject.Names. Reading
+// Subject.SerialNumber alone therefore reports nothing for a conformant
+// WRPAC while appearing to work against fixtures that put the value in
+// serialNumber instead - which is why the fallback stays.
+func SubjectOrganizationIdentifier(cert *x509.Certificate) string {
+	if cert == nil {
+		return ""
+	}
+	for _, atv := range cert.Subject.Names {
+		if !atv.Type.Equal(oidOrganizationIdentifier) {
+			continue
+		}
+		if v, ok := atv.Value.(string); ok && v != "" {
+			return v
+		}
+	}
+	return cert.Subject.SerialNumber
 }
