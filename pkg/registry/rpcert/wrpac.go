@@ -295,4 +295,3 @@ func (p *WRPACProfile) ValidateCredential(credential interface{}) error {
 
 	return nil
 }
-
