@@ -188,7 +188,8 @@ func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]inter
 	// Subject.Names, so it has to be read out by OID. Fall back to
 	// serialNumber (2.5.4.5), which earlier certificates and test fixtures
 	// used, so both continue to resolve.
-	if orgID := SubjectOrganizationIdentifier(cert); orgID != "" {
+	orgID := SubjectOrganizationIdentifier(cert)
+	if orgID != "" {
 		identity["organization_identifier"] = orgID
 		delete(identity, "serial_number")
 	}
@@ -196,8 +197,9 @@ func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]inter
 	// Determine subject type (natural vs legal person). Keyed off the same
 	// organisation identifier as above - reading Subject.SerialNumber
 	// directly classified a conformant legal-person certificate, which
-	// carries the value in 2.5.4.97, as a natural person.
-	if len(cert.Subject.Organization) > 0 && SubjectOrganizationIdentifier(cert) != "" {
+	// carries the value in 2.5.4.97, as a natural person. Reusing the one
+	// value keeps the two decisions from ever disagreeing.
+	if len(cert.Subject.Organization) > 0 && orgID != "" {
 		identity["subject_type"] = "legal_person"
 	} else {
 		identity["subject_type"] = "natural_person"
