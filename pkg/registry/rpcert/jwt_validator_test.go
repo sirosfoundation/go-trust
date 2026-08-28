@@ -98,9 +98,7 @@ func annexCPayload() wrprcPayload {
 			{
 				Format: "dc+sd-jwt",
 				Meta:   map[string]interface{}{"vct_values": []interface{}{"https://credentials.example.com/identity_credential"}},
-				Claims: []struct {
-					Path []string `json:"path"`
-				}{
+				Claims: []wrprcClaim{
 					{Path: []string{"given_name"}},
 					{Path: []string{"family_name"}},
 					{Path: []string{"address", "street_address"}},
@@ -215,7 +213,7 @@ func TestJWTValidator_MissingSub(t *testing.T) {
 	v := NewJWTRegistrationCertValidator(pool)
 	_, err := v.Validate(context.Background(), []byte(token))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing required sub claim")
+	assert.Contains(t, err.Error(), "no usable sub claim")
 }
 
 func TestJWTValidator_ExpExceeds12Months(t *testing.T) {
@@ -282,9 +280,14 @@ func TestJWTValidator_AnnexCExample(t *testing.T) {
 	// Privacy policy
 	assert.Equal(t, "https://example-company.com/en/privacy-policy", ent.PrivacyPolicyURI)
 
-	// Registration state
-	assert.Equal(t, StatusRegistered, ent.RegistrationStatus)
-	assert.True(t, ent.IsValid())
+	// Registration state. Validate never verifies the JWT signature - it
+	// only evaluates the x5c chain - so the entitlements come back
+	// StatusUnknown and IsValid reports false. This assertion previously
+	// required the opposite, which is what made the missing signature check
+	// look intentional: a payload swapped under an authentic header would
+	// have been reported as a valid registration.
+	assert.Equal(t, StatusUnknown, ent.RegistrationStatus)
+	assert.False(t, ent.IsValid())
 }
 
 func TestJWTValidator_OverRequestDetection(t *testing.T) {
@@ -383,36 +386,32 @@ func TestWRPRCSubject_NaturalPerson(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// extractAllowedAttributes
+// topLevelClaimNames
 // ---------------------------------------------------------------------------
 
-func TestExtractAllowedAttributes(t *testing.T) {
+func TestTopLevelClaimNames(t *testing.T) {
 	creds := []wrprcCredential{
 		{
-			Claims: []struct {
-				Path []string `json:"path"`
-			}{
+			Claims: []wrprcClaim{
 				{Path: []string{"given_name"}},
 				{Path: []string{"family_name"}},
 				{Path: []string{"address", "street_address"}},
 			},
 		},
 		{
-			Claims: []struct {
-				Path []string `json:"path"`
-			}{
+			Claims: []wrprcClaim{
 				{Path: []string{"given_name"}}, // duplicate — should be deduplicated
 				{Path: []string{"age_over_18"}},
 			},
 		},
 	}
-	attrs := extractAllowedAttributes(creds)
+	attrs := topLevelClaimNames(creds)
 	assert.ElementsMatch(t, []string{"given_name", "family_name", "address", "age_over_18"}, attrs)
 }
 
-func TestExtractAllowedAttributes_Empty(t *testing.T) {
-	assert.Nil(t, extractAllowedAttributes(nil))
-	assert.Nil(t, extractAllowedAttributes([]wrprcCredential{}))
+func TestTopLevelClaimNames_Empty(t *testing.T) {
+	assert.Nil(t, topLevelClaimNames(nil))
+	assert.Nil(t, topLevelClaimNames([]wrprcCredential{}))
 }
 
 // ---------------------------------------------------------------------------
@@ -472,4 +471,29 @@ func TestWRPRCPayload_LegalNameFieldIsCanonical(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(rawTypo), &subTypo))
 	assert.Empty(t, subTypo.LegalName, "spec typo 'leagal_name' is not parsed — use canonical 'legal_name'")
 	_ = fmt.Sprintf("TODO: file a corrigendum to TS 119 475 v1.1.1 Annex C: 'leagal_name' should be 'legal_name'")
+}
+
+// TestJWTValidator_TypIsComparedExactly pins the strict reading. A JWT typ
+// is nominally a media type and so case-insensitive, which makes this the
+// kind of check that gets softened back by a well-meaning edit.
+func TestJWTValidator_TypIsComparedExactly(t *testing.T) {
+	cert, key, pool := generateWRPRCProviderCert(t)
+	token := buildWRPRCJWT(t, annexCPayload(), cert, key)
+
+	// Re-encode the header with a case variant of the media type.
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3)
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	require.NoError(t, err)
+	var header map[string]any
+	require.NoError(t, json.Unmarshal(headerBytes, &header))
+	header["typ"] = strings.ToUpper(WRPRCTyp)
+	reencoded, err := json.Marshal(header)
+	require.NoError(t, err)
+	parts[0] = base64.RawURLEncoding.EncodeToString(reencoded)
+
+	v := NewJWTRegistrationCertValidator(pool)
+	_, err = v.Validate(context.Background(), []byte(strings.Join(parts, ".")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unexpected JWT typ")
 }
