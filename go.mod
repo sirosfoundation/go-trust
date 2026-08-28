@@ -9,9 +9,9 @@ replace github.com/russellhaering/goxmldsig => github.com/sirosfoundation/goxmld
 require (
 	github.com/SUNET/vc v0.7.0
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/fxamacker/cbor/v2 v2.9.2
+	github.com/fxamacker/cbor/v2 v2.9.3
 	github.com/gin-gonic/gin v1.12.0
-	github.com/go-oidfed/lib v0.10.12
+	github.com/go-oidfed/lib v0.11.1
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/go-webauthn/webauthn v0.17.4
 	github.com/google/uuid v1.6.0
@@ -19,7 +19,7 @@ require (
 	github.com/lestrrat-go/jwx/v3 v3.2.0
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.24.1
-	github.com/sirosfoundation/g119612 v0.5.0
+	github.com/sirosfoundation/g119612 v0.7.0
 	github.com/sirosfoundation/go-cryptoutil v0.6.0
 	github.com/sirosfoundation/go-cryptoutil/brainpool v0.2.0
 	github.com/stretchr/testify v1.12.1
@@ -31,6 +31,7 @@ require (
 )
 
 require (
+	filippo.io/mldsa v0.0.0-20260711112038-ff3f469cee29 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/PaesslerAG/gval v1.2.4 // indirect
 	github.com/PaesslerAG/jsonpath v0.1.1 // indirect
@@ -45,9 +46,11 @@ require (
 	github.com/cayleygraph/quad v1.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
+	github.com/cloudflare/circl v1.6.4 // indirect
 	github.com/cloudwego/base64x v0.1.7 // indirect
 	github.com/coreos/go-oidc/v3 v3.20.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
+	github.com/eclipse-keypont/crypto11 v1.6.8 // indirect
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
 	github.com/gematik/zero-lab/go/brainpool v0.0.0-20260309133150-5b2b80ad6517 // indirect
@@ -80,15 +83,22 @@ require (
 	github.com/jellydator/ttlcache/v3 v3.4.1 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/jwx-go/compsig/v4 v4.0.4 // indirect
+	github.com/jwx-go/ed448/v4 v4.0.4 // indirect
+	github.com/jwx-go/es256k/v4 v4.0.4 // indirect
+	github.com/jwx-go/mldsa/v4 v4.0.4 // indirect
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/dsig v1.3.0 // indirect
+	github.com/lestrrat-go/dsig-circl-ed448 v1.0.0 // indirect
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/httprc/v3 v3.0.6 // indirect
+	github.com/lestrrat-go/jwx/v4 v4.2.0 // indirect
 	github.com/lestrrat-go/option/v2 v2.0.0 // indirect
+	github.com/lestrrat-go/option/v3 v3.0.0-alpha1 // indirect
 	github.com/lithammer/fuzzysearch v1.1.8 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -111,6 +121,7 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.61.0 // indirect
 	github.com/redis/go-redis/v9 v9.21.0 // indirect
+	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/russellhaering/goxmldsig v1.6.0 // indirect
 	github.com/scylladb/go-set v1.0.3-0.20200225121959-cc7b2070d91e // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
@@ -118,6 +129,7 @@ require (
 	github.com/sirosfoundation/go-spocp v0.1.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
+	github.com/thales-e-security/pool v0.0.2 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
