@@ -472,3 +472,28 @@ func TestWRPRCPayload_LegalNameFieldIsCanonical(t *testing.T) {
 	assert.Empty(t, subTypo.LegalName, "spec typo 'leagal_name' is not parsed — use canonical 'legal_name'")
 	_ = fmt.Sprintf("TODO: file a corrigendum to TS 119 475 v1.1.1 Annex C: 'leagal_name' should be 'legal_name'")
 }
+
+// TestJWTValidator_TypIsComparedExactly pins the strict reading. A JWT typ
+// is nominally a media type and so case-insensitive, which makes this the
+// kind of check that gets softened back by a well-meaning edit.
+func TestJWTValidator_TypIsComparedExactly(t *testing.T) {
+	cert, key, pool := generateWRPRCProviderCert(t)
+	token := buildWRPRCJWT(t, annexCPayload(), cert, key)
+
+	// Re-encode the header with a case variant of the media type.
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3)
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	require.NoError(t, err)
+	var header map[string]any
+	require.NoError(t, json.Unmarshal(headerBytes, &header))
+	header["typ"] = strings.ToUpper(WRPRCTyp)
+	reencoded, err := json.Marshal(header)
+	require.NoError(t, err)
+	parts[0] = base64.RawURLEncoding.EncodeToString(reencoded)
+
+	v := NewJWTRegistrationCertValidator(pool)
+	_, err = v.Validate(context.Background(), []byte(strings.Join(parts, ".")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unexpected JWT typ")
+}
