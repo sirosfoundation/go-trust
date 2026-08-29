@@ -25,3 +25,380 @@
 
 **Consolidated package documentation.** Eight files each had package comments, causing godoc to concatenate them and bury the actual overview. Now consolidated in `doc.go` with coverage of the three-step model (verify signature, extract trust information, evaluate) and scope boundaries. A guard test prevents future documentation fragmentation. (#139)
 <!-- release-notes:v0.20.0:end -->
+<!-- release-notes:v0.19.0:start -->
+## [v0.19.0] - 2026-08-26
+
+### Added
+- Service-level WRPAC–WRPRC binding and `telephoneNumber` Subject DN attribute support (#110). Services can now bind wallet-relying-party attestation credentials to wallet-relying-party registration credentials at the service level, and certificate subjects can include telephone numbers as distinguished name attributes.
+
+### Fixed
+- Pinned `go-oidfed/lib` to v0.10.12 to restore a working build (#136). The v0.11.1 dependency introduced in the weekly bump was a breaking change that pulled in Go 1.27 experimental JSON packages and changed public API signatures, breaking compilation on Go 1.26. The pin removes `jwx/v4` from the dependency graph entirely until Go 1.27 makes the required packages stable.
+- Hardened release-notes workflow to prevent branch names from being written as release sections and to fail explicitly when OIDC token minting fails (#135). Manual workflow dispatches from branches without an explicit tag parameter now error cleanly instead of generating bogus release note sections.
+
+### Changed
+- Updated Go runtime to 1.26.6-alpine and bumped seven routine dependency patches (#128, #129).
+<!-- release-notes:v0.19.0:end -->
+<!-- release-notes:v0.18.0:start -->
+## [v0.18.0] - 2026-08-20
+
+### Fixed
+- Brainpool elliptic curve support is now properly wired into the server binary's cryptographic registry, enabling use of brainpool curves in production deployments (#132)
+<!-- release-notes:v0.18.0:end -->
+
+<!-- release-notes:v0.17.0:start -->
+## [v0.17.0] - 2026-08-20
+
+### Added
+- Support for RICAL (mdocrical) and VICAL (vical) trust registries, enabling verification of mobile document (mdoc) issuers and verifiers against these ISO/IEC 18013-5 trust lists (#131)
+
+### Security
+- Updated transitive dependencies from pkg/mdoc (grpc, golang.org/x/text) to address vulnerability findings
+<!-- release-notes:v0.17.0:end -->
+
+<!-- release-notes:v0.16.0:start -->
+## [v0.16.0] - 2026-08-20
+
+### Added
+- Generated configuration reference documentation at `docs/CONFIGURATION.md` with automated CI drift checking (#130). The generator parses `applyEnvOverrides()` directly to document only the 14 environment variables that actually exist (`GT_HOST`, `GT_TLS_ENABLED`, etc.), avoiding the false documentation that would result from mechanically inventing names for the many config fields (particularly in `Registries` and `Policies`) that have no environment variable support. Registry configuration is broken out into per-registry sections for clarity.
+<!-- release-notes:v0.16.0:end -->
+
+<!-- release-notes:v0.15.1:start -->
+## [v0.15.1] - 2026-08-13
+
+### Fixed
+
+- Fixed `AdditionalTrustedRoots` being silently ignored when loaded from YAML configuration. The field was defined in the internal whitelist config struct but never mapped to the YAML-facing config struct, causing all YAML-based deployments to drop custom trusted roots at parse time. The field now correctly propagates through the configuration loading path. (#127)
+<!-- release-notes:v0.15.1:end -->
+
+<!-- release-notes:v0.15.0:start -->
+## [v0.15.0] - 2026-08-13
+
+### Fixed
+- Accept CA certificates with negative serial numbers by setting `GODEBUG=x509negativeserial=1` in the Docker image (#126). Go 1.23+ rejects these by default, but real-world CA tooling (including OpenSSL) still produces them. This fix ensures `AdditionalTrustedRoots` works with verifiers like verifier.multipaz.org whose self-signed reader-CA root has a negative serial number—previously their chains were silently rejected despite being RFC 5280 compliant.
+<!-- release-notes:v0.15.0:end -->
+
+<!-- release-notes:v0.14.1:start -->
+## [v0.14.1] - 2026-08-13
+
+### Changed
+- Whitelist registry now logs the specific reason for denying a verifier (not-in-list, certificate binding failure, chain validation failure, etc.) at INFO level, making it possible to diagnose trust denials from server logs without needing to inspect response bodies (#124)
+<!-- release-notes:v0.14.1:end -->
+
+<!-- release-notes:v0.14.0:start -->
+## [v0.14.0] - 2026-08-13
+
+### Added
+- **Additional trusted roots for whitelist validation**: `WhitelistConfig.AdditionalTrustedRoots` now accepts PEM-encoded CA certificates that extend the system CA pool during chain validation for `x509_san_dns` and `x509_san_uri` whitelist entries. This enables trust of long-lived, self-signed roots published out-of-band (e.g., ISO 18013-5 reader CAs) without pinning short-lived leaf certificates that break on rotation. Addresses real-world deployments like `verifier.multipaz.org` where the OpenID4VP request-signing certificate chains to a dedicated reader root distinct from the site's HTTPS certificate. (#123)
+<!-- release-notes:v0.14.0:end -->
+
+<!-- release-notes:v0.13.0:start -->
+## [v0.13.0] - 2026-08-12
+
+### Changed
+- **Whitelist trust evaluation now skips system-CA chain validation for `x509_hash` scheme** (#122). When a certificate is pinned by its exact hash, chain validation adds no additional trust information—the pinned hash already represents the trust decision. This allows self-signed certificates whitelisted via `x509_hash` to be accepted without requiring a valid CA chain. The `x509_san_dns` and `x509_san_uri` schemes are unaffected and continue to require full chain validation. Trust metadata now distinguishes between `trust_path: "system_ca_pinned_hash"` (hash-pinned) and `trust_path: "system_ca"` (full chain) for audit purposes.
+<!-- release-notes:v0.13.0:end -->
+
+<!-- release-notes:v0.12.1:start -->
+## [v0.12.1] - 2026-08-11
+
+### Security
+
+- Fixed a certificate-to-client_id binding vulnerability in OpenID4VP `x509_san_dns`, `x509_san_uri`, and `x509_hash` client_id_scheme paths. Previously, the whitelist's `TrustX509ViaSystemCA` fallback and LoTE's CA-anchored fallback verified only that a presented `x5c` chain was issued by a trusted CA, but never checked that the certificate actually belonged to the claimed identity. This allowed any certificate chaining to a trusted root to impersonate any whitelisted identity by simply asserting its subject string. The fix adds DNS/URI SAN matching and certificate hash verification before granting trust. (#121)
+
+### Fixed
+
+- `pkg/registry/static`: `evaluateViaSystemCA` now verifies the presented certificate is bound to the claimed identity (DNS/URI SAN match or cert hash match) before granting trust via the system CA pool. Unrecognized non-fetchable schemes now fail closed instead of being silently trusted. (#121)
+- `pkg/registry`: `RegistryManager.Evaluate` now preserves the pre-normalization `client_id_scheme` claim via `Context`, fixing a case where the `x509_san_dns` fallback was unreachable in production due to the rewrite from `x509_san_dns:host` to `https://host` flipping the scheme gate. (#121)
+- `pkg/registry/static`: fixed the `TrustX509ViaSystemCA` gate's resource-type check to align with `SupportedResourceTypes()` and `Info()`. (#121)
+- `pkg/registry/etsi`: SAN-matching check is now reachable via the real `x5c` resource-type wire convention used by production callers (previously only reachable via a convention no real caller uses). (#121)
+- `pkg/registry/lote`: CA-anchored fallback (`validateX5CChainCA`) now performs the same binding check when the caller uses a certificate-binding client_id_scheme; existing plain-RP-identifier Access Certificate List model is unaffected. (#121)
+
+### Added
+
+- `pkg/registry/clientid.go`: shared `ParseClientIDScheme` and `VerifyLeafBinding` helpers for DNS SAN matching (exact and RFC 6125 wildcard), URI SAN matching, and SHA-256 hash matching (hex or base64url), reused across whitelist, LoTE, and ETSI registries. (#121)
+<!-- release-notes:v0.12.1:end -->
+
+<!-- release-notes:v0.12.0:start -->
+## [v0.12.0] - 2026-08-11
+
+### Added
+- Opt-in `TrustX509ViaSystemCA` flag for `WhitelistRegistry` to validate OpenID4VP verifiers presenting certificate chains (e.g., `x509_san_dns:example.com`, `x509_hash:<leaf-cert-hash>`) against the system CA pool when they have no JWKS endpoint. Previously, whitelisted verifiers using non-HTTP(S) `client_id_scheme` values were unconditionally denied for "no keys cached for entity" even when explicitly listed in the whitelist. This change enables interoperability with real-world verifiers that authenticate via X.509 certificates rather than JWKS, while maintaining whitelist-gating to prevent blanket trust of any CA-signed certificate. Defaults to `false` for backward compatibility. (#120)
+<!-- release-notes:v0.12.0:end -->
+
+<!-- release-notes:v0.11.0:start -->
+## [v0.11.0] - 2026-08-07
+
+### Added
+
+- **FIDO MDS3 Registry with profile-scoped AAGUID policy**: New `fidomds3` registry validates FIDO authenticator attestations against the FIDO Alliance Metadata Service v3, with per-profile allow/blocklist constraints for AAGUIDs. This enables use cases like denying specific AAGUIDs despite MDS3 certification (e.g., known-broken PRF implementations) or restricting to a curated subset tighter than "not revoked" (e.g., WSCD previewSign provisioning). Policy constraints (`AllowedAAGUIDs`/`BlockedAAGUIDs`) layer on top of MDS3 status verification via the existing `Policy`/`PolicyManager` system, with allowlist taking precedence when both are set. (#118, #116)
+
+### Changed
+
+- Updated GitHub Actions dependencies: `actions/setup-go` v6→v7 (ESM migration, cache improvements) and `ossf/scorecard-action` to latest. (#113)
+- Updated `github.com/gofiber/fiber/v2` from 2.52.13 to 2.52.14 (fixes BalancerForward X-Real-IP header handling). (#117)
+<!-- release-notes:v0.11.0:end -->
+
+<!-- release-notes:v0.10.0:start -->
+## [v0.10.0] - 2026-08-07
+
+### Added
+- **FIDO Alliance MDS3 trust registry** (#116): New `pkg/registry/fidomds3` TrustRegistry enables verification of FIDO2 hardware authenticator attestations (e.g., YubiKeys) against the official FIDO Alliance Metadata Service v3. The registry fetches and verifies the MDS3 JWT-signed blob, indexes entries by AAGUID, and evaluates attestation certificate chains against trusted roots while checking authenticator status reports. Includes optional disk caching via `CachePath` to survive network failures and process restarts—cached blobs are re-verified on load and never trusted blindly, allowing the service to start healthy on stale-but-valid data while retrying live refreshes in the background. This supports the broader FIDO2 hardware-attestation trust plan without embedding trust-evaluation logic in consuming services like go-wallet-backend.
+<!-- release-notes:v0.10.0:end -->
+
+<!-- release-notes:v0.9.3:start -->
+## [v0.9.3] - 2026-08-01
+
+### Fixed
+- Fixed critical deadlock in `WhitelistRegistry.Refresh()` that blocked all trust evaluation requests during background whitelist refreshes. The write lock was previously held across all network I/O (JWKS discovery, metadata fetching with retries), causing concurrent `Evaluate()` calls to stall for minutes when any whitelisted entity was slow or unreachable. This manifested as intermittent "issuer is not trusted" timeouts in production despite correct whitelist configuration. The refresh now builds the new key cache lock-free and only briefly locks to swap in the updated state, allowing evaluations to proceed using cached data while refreshes run in the background. (#115)
+<!-- release-notes:v0.9.3:end -->
+
+<!-- release-notes:v0.9.2:start -->
+## [v0.9.2] - 2026-07-25
+
+### Fixed
+- Whitelist registries configured via `--config` can now fetch JWKS over HTTP when `allow_http: true` is set, matching the behavior of other registry types. Previously, config-file whitelists always required HTTPS for JWKS discovery, causing local/testing deployments to fail with "HTTPS required for JWKS fetch" (#112)
+<!-- release-notes:v0.9.2:end -->
+
+<!-- release-notes:v0.9.1:start -->
+## [v0.9.1] - 2026-07-20
+
+### Added
+- Support for pre-supplied `trust_chain` parameter in OpenID Federation registry evaluation, allowing clients to provide their own trust chain for validation (#102)
+- `mdoc-issuer` policy to example configuration for handling non-mDL mDoc verification requests (e.g., `eu.europa.ec.eudi.pid.1`) (#109)
+- Manual workflow dispatch trigger for Docker builds via GitHub Actions UI (#103)
+
+### Fixed
+- Environment variable prefix normalized from `GO_TRUST` to `GT_` for consistency across the codebase (#100)
+
+### Changed
+- Replaced sunset Go Report Card badge with OpenSSF Scorecard badge in documentation (#105)
+
+### Security
+- Workflow tokens now follow least-privilege principle with explicit top-level `permissions: read-all` or `permissions: contents: read` declarations, satisfying OpenSSF Scorecard Token-Permissions check (#104, #106)
+- Pre-supplied trust chain validation hardened based on security review feedback (#102)
+<!-- release-notes:v0.9.1:end -->
+
+<!-- release-notes:v0.9.0:start -->
+## [v0.9.0] - 2026-07-08
+
+### Added
+- **ETSI TS 119 615 LoTE signature verification** — `VerifyLoTESignature()` validates compact and flattened JSON JWS with RS/PS/ES 256/384/512 algorithms, performing x5c chain validation against configurable trust anchors via new `LoTETrustAnchorProvider` interface. Includes `StaticTrustAnchorProvider` for production use and `NilTrustAnchorProvider` (default) for backwards compatibility (#101)
+- **WRPAC–WRPRC subject binding checks** — `CheckWRPACWRPRCBinding()` enforces ARF RPRC_16 and ETSI TS 119 475 §5.1 requirements, returning typed `*BindingError` when organization identifiers mismatch. `X5CEnrichmentResult.WRPACOrgID` now populated during profile enrichment (#101)
+- **National Register fallback** — `Config.RegisterClient` enables querying national registers when entities are absent from LoTE, providing resilience against incomplete list-of-trust distributions (#101)
+- **DCQL policy evaluation interface** — New `DCQLPolicyEvaluator` with `StrictDCQLPolicyEvaluator` (blocks over-requests per AUTHZ-ATT-01-FAIL) and `PermissiveDCQLPolicyEvaluator` (audit mode). Evaluators now correctly match credential types using vct/doctype values from `ProvidedAttestations[].Meta` (#101)
+- **Structured trust evaluation errors** — `TrustEvaluationErrorCode` enum and `TrustEvaluationError` type with `Unwrap()` support for programmatic error handling (#101)
+
+### Fixed
+- **TOCTOU vulnerability in LoTE refresh** — Trust evaluation now parses from the same raw bytes that passed signature verification, eliminating time-of-check-time-of-use race condition (#101)
+- **PSS signature validation** — RSA-PSS salt length now enforced as hash length per RFC 7518 §3.5 using `PSSSaltLengthEqualsHash` (#101)
+- **Concurrency deadlock risk** — Read lock released before blocking national register network calls in `Evaluate()` (#101)
+
+### Security
+- **Go 1.26.5 upgrade** — Patches GO-2026-5856 (Encrypted Client Hello privacy leak in `crypto/tls`) (#101)
+<!-- release-notes:v0.9.0:end -->
+
+<!-- release-notes:v0.8.0:start -->
+## [v0.8.0] - 2026-07-06
+
+### Added
+- **Pub-EAA profile-aware trust evaluation**: The LoTE registry now enforces ETSI TS 119 602 Annex H semantics for `EUPubEAAProvidersList` entries. An entity is only trusted if at least one of its services has `ServiceStatus = notified`. Keys from non-notified services are excluded from the trust index, and CA-anchored X.509 chains must terminate at a notified service. Entities with all services withdrawn or absent are rejected with informative deny reasons. Non-Pub-EAA profiles (PID, WRPAC, WRPRC, Wallet Registrars) retain existing behavior where presence in the list is the trust signal. (#38)
+<!-- release-notes:v0.8.0:end -->
+
+<!-- release-notes:v0.7.0:start -->
+## [v0.7.0] - 2026-07-03
+
+### Added
+
+- **RP certificate validation** — New `pkg/registry/rpcert` package implements ETSI TS 119 411-8 Wallet-Relying Party Access Certificate (WRPAC) profile validation, including JWT Registration Certificate (WRPRC, `rc-wrp+jwt`) support, RP entitlement role URIs (all Annex A.2 roles), DCQL credential query language support, and a `ProfileRegistry` for extensible profile management (#70)
+- **CA-anchored trust fallback** — Subjects not published in a List of Trust Entities (LoTE) are now accepted when their x5c chain validates against a listed CA entity, enabling trust-by-CA-membership alongside explicit entity listing (#70)
+- **RP identity extraction** — ETSI and LoTE registries now extract and return RP identity metadata (Organization, CN, Country, SerialNumber, SANs, policy OIDs, validity period) from leaf certificates for use in authorization decisions (#70)
+- **`GT_CONFIG` environment variable** — Configuration file path can now be specified via `GT_CONFIG` as an alternative to the `--config` flag; the environment variable takes precedence when both are set (#99)
+- **Discovery endpoint logging** — Issuer key discovery log messages now include the `discovery_endpoint` field, matching the detail level of verifier discovery logs (#88)
+
+### Fixed
+
+- **EKU validation relaxed** — All registry backends (ETSI, LoTE, static, mdociaca) now accept any Extended Key Usage when verifying x5c chains, resolving rejection of WRPAC certificates that use client-auth-only EKU (#70)
+- **Environment variable overrides** — `GT_HOST`, `GT_PORT`, and other environment variables are now correctly applied even when no config file is provided via `--config` (#97)
+- **Server start log accuracy** — "Starting go-trust server" message now displays the correct host and port values after all configuration sources have been loaded (#93)
+
+### Changed
+
+- **Configurable certificate policy OIDs** — ETSI policy constraints now support `RequiredCertPolicyOIDs` and `ExtractRPIdentity` fields, enabling runtime control of which certificate policies are accepted and whether RP identity should be extracted from leaf certificates (#70)
+- **Shared x5c enrichment logic** — New `pkg/registry/x5c_enrichment` package consolidates post-chain-validation steps (profile matching, identity extraction, DCQL/entitlement checks) across all registry backends (#70)
+- **Example configuration updated** — `example/config.yaml` now demonstrates the recommended `lists` + `actions` format for whitelist configuration and clearly marks the legacy `issuers`/`verifiers`/`trusted_subjects` fields as deprecated (#92)
+- Dependency updates: `golang.org/x/net` 0.54.0→0.55.0, `alpine` 3.23→3.24, `actions/checkout` 4→7, and other GitHub Actions (#82, #83, #94, #95)
+<!-- release-notes:v0.7.0:end -->
+
+<!-- release-notes:v0.6.1:start -->
+## [v0.6.1] - 2026-06-16
+
+### Fixed
+- Whitelist registry now performs scheme-agnostic matching when comparing subject IDs against configured entities. Previously, a request with `subject_id=tecca.issuer.id.siros.org` would fail to match a config entry of `https://tecca.issuer.id.siros.org`, causing trust denials. Both subject and whitelist entries are now normalized (scheme and trailing slash removed) before comparison (#86)
+
+### Changed
+- License standardized to BSD-2-Clause attributed to SIROS Foundation per organizational policy (#84)
+- Removed GoReleaser configuration and binary release workflow; Docker images remain the sole supported artifact (#80)
+<!-- release-notes:v0.6.1:end -->
+
+<!-- release-notes:v0.6.0:start -->
+## [v0.6.0] - 2026-06-10
+
+### Security
+- Pinned Docker builder image to `golang:1.26.3-alpine` to address 6 high-severity CVEs, including HTTP/2 SETTINGS DoS (CVE-2026-33814), DNS buffer overflow (CVE-2026-33811), and TLS memory exhaustion vulnerabilities (#56)
+- Replaced unpinned `go install govulncheck` with version-locked `golang/govulncheck-action@v1` for deterministic vulnerability scanning (#77)
+- Reduced workflow permissions from `read-all` to explicit minimal scopes (`contents: read`, `actions: read`) to address SonarCloud security hotspot (#76)
+
+### Added
+- Data-driven test vector system for wallet-backend compatibility testing: 15 JSON-based vectors covering EUDI PID, mDL, SD-JWT VC, and W3C VC flows across 12+ registry implementations, with ASCII compatibility matrix output (#60)
+- Comprehensive integration tests for OpenID Federation subordinate entity resolution, including 11 new tests exercising trust chains, entity type filtering, cache bypass, and cross-federation rejection using the SUNET test federation (#58)
+- Contract testing suite: 11 golden wire-format tests, 3 fuzz targets, 6 testserver contract tests, and 9 consumer-driven tests mimicking real usage from go-wallet-backend and vc (#61)
+- Nightly network test workflow (06:00 UTC) to catch upstream trust infrastructure changes like expired certificates or modified entity configurations (#61)
+- SonarCloud continuous code quality analysis and OpenSSF Scorecard weekly supply-chain security assessment workflows (#74)
+- PR comment trigger `@conformance` to run centralized conformance tests with profile/variant selection and image override support (#63)
+- `ToBaseURL` method on DID type for generating entity identifier URLs (#79)
+
+### Fixed
+- OpenID Federation trust chain resolution for subordinate entities: corrected `realtaTrustAnchor` constant from `https://realta.labb.sunet.se/` (trailing slash) to `https://realta.labb.sunet.se` to match canonical entity ID, fixing `authority_hints` intersection failures (#58)
+- Addressed 12 gap analysis issues including max chain depth filtering, context timeouts, x5c key binding, error reporting clarity, trailing slash normalization, cache TTL capping at statement expiry, LRU eviction, and dead code removal (#58)
+- ECDSA P1363 signature handling, NextUpdate validity, and territory/LoTL pointer issues in TSL processing via g119612 v0.5.0 upgrade (#71)
+
+### Changed
+- Migrated Docker build workflow to organization-wide reusable workflow with Go 1.26.4 and Trivy container scanning (#78)
+- Boosted test coverage: registry package 68.8% → 76.5%, didwebvh 65.5% → 75.9%, didutil → 96.8% (#61, #79)
+- Updated github.com/SUNET/vc from 0.5.6 to 0.5.9 and github.com/sirosfoundation/g119612 from 0.4.0 to 0.5.0 (#57, #71)
+<!-- release-notes:v0.6.0:end -->
+
+<!-- release-notes:v0.5.0:start -->
+## [v0.5.0] - 2026-05-15
+
+No changes recorded for this release.
+<!-- release-notes:v0.5.0:end -->
+
+<!-- release-notes:v0.5.0-oidf1:start -->
+## [v0.5.0-oidf1] - 2026-05-22
+
+### Added
+
+- JWKS fetch resilience with exponential backoff retry (default: 3 attempts) and per-URL stale-cache fallback for transient failures. The new `pkg/resilience.Fetcher` library is integrated into `didjwks` and `whitelist` registries, preventing single transient network errors from breaking trust evaluation (#52)
+- Comprehensive OIDF integration test suite covering subordinate entity resolution, trust chain validation, cache behavior, and cross-federation rejection using the SUNET test federation (#58)
+- Wallet-backend compatibility test suite verifying interoperability across all registry implementations (#58)
+- Cache statistics tracking (hits/misses) now exposed via `GetCacheStats` response (#58)
+
+### Fixed
+
+- OIDF trust anchor entity ID trailing slash mismatch that prevented subordinate entity resolution. The `realtaTrustAnchor` constant now uses the canonical form without trailing slash, fixing `authority_hints` intersection failures (#58)
+- Whitelist registry now preserves stale key fingerprints for entities whose JWKS fetch fails during refresh, instead of clearing all keys. Registry remains healthy as long as some entities have valid keys (#52)
+- Cache TTL now correctly capped at the earliest expiry time across all statements in a trust chain, preventing stale chain components from being served (#58)
+- Error reporting now distinguishes "entity not reachable" from "no valid trust chain found" for clearer diagnostics (#58)
+
+### Changed
+
+- Removed `pkg/registry/issuerurl` adapter (474 LOC) — issuer metadata resolution now handled directly by consumers via the `issuermetadata` package. The `issuer_url` config key in gt YAML is silently ignored (#50)
+- Upgraded `github.com/go-oidfed/lib` from 0.10.4 to 0.10.9, fixing metadata policy bugs with `scope` claims, essential policy handling for arrays, and trust chain caching staleness (#51, #53)
+- Upgraded `github.com/SUNET/vc` from 0.5.6 to 0.5.9 with portal improvements and VCT harmonization (#57)
+- Upgraded `github.com/sirosfoundation/g119612` from pseudo-version to tagged v0.4.0, adding fetch resilience and profile-aware ServiceStatus per ETSI TS 119 602 (#55)
+- LRU eviction now replaces random map iteration for cache management, improving predictability (#58)
+- Dependency updates: `fsnotify` 1.10.0→1.10.1 (fixes sibling watch path prefix bugs on inotify/Windows) (#51)
+
+### Security
+
+- Pinned Docker builder image to `golang:1.26.3-alpine` to ensure Go 1.26.3 security fixes are included, addressing 6 High-severity CVEs including HTTP/2 SETTINGS DoS (CVE-2026-33814), LookupCNAME buffer overflow (CVE-2026-33811), and TLS key update memory exhaustion (CVE-2026-32283) (#56)
+- GitHub Actions runner updated to node24 runtime via `actions/dependency-review-action` v5, requiring Actions Runner ≥v2.327.1 (#54)
+<!-- release-notes:v0.5.0-oidf1:end -->
+
+<!-- release-notes:v0.4.1:start -->
+## [v0.4.1] - 2026-05-06
+
+### Fixed
+- Signed metadata verification now falls back to JWT header keys (e.g., `x5c` certificate chains) when the metadata body lacks `jwks` or `jwks_uri`. This resolves failures with issuers that embed signing keys only in the JWT header, such as wwWallet v2 deployments (#49)
+<!-- release-notes:v0.4.1:end -->
+
+<!-- release-notes:v0.4.0:start -->
+## [v0.4.0] - 2026-05-06
+
+### Added
+
+- SSRF mitigation with `SafeHTTPClient` for all DID and metadata registries, blocking private IPs, cloud metadata endpoints, and DNS rebinding attacks (#21)
+- DID validation package enforcing W3C DID Core 1.0 syntax and security checks (path traversal, injection attacks, shell metacharacters) (#21)
+- `action.parameters` support for credential type filtering in ETSI registry, enabling client-supplied constraints merged with server-side policy (#22)
+- Background refresh loop for TSL registry with configurable interval and graceful shutdown (#25)
+- ETSI TS 119 615 pivot processing for automated LOTL signer certificate rollover via `SchemeInformationURI` (#32)
+- XML format support for LoTE documents with automatic JSON/XML detection based on content type (#35)
+- LoTL cascading resolution: `lotl_sources` config field follows `PointersToOtherLoTEs` to discover individual LoTEs, with configurable depth limiting (#35)
+- `issuer-url` registry for OpenID4VCI issuer metadata resolution via `/.well-known/openid-credential-issuer`, returning metadata as `trust_metadata` in AuthZEN responses (#37)
+- Content-Type based metadata format detection supporting `application/jwt` responses with two-phase validation: cryptographic signature verification followed by trust evaluation of the signer via `TrustEvaluator` interface (#43)
+- Decision-aware logging: denials at Info level, approvals at Debug, with subject, resource, action, reason, and duration (#47)
+- Security toolchain: govulncheck, SBOM generation, and Dependabot for Go modules, GitHub Actions, and Docker (#26)
+
+### Fixed
+
+- Normalized OpenID4VP `x509_san_dns:` and `x509_san_uri:` subject IDs to `https://` URLs in whitelist registry for correct matching (#46)
+
+### Changed
+
+- Renamed `/tsls` endpoint to `/registries` (deprecated alias retained for backward compatibility) since it returns metadata for all trust registries, not just TSLs (#30)
+- Healthz requests returning HTTP 200 are excluded from access logs to reduce monitoring noise; debug mode still logs all requests (#48)
+- Network-dependent tests now require `RUN_NETWORK_TESTS=1` opt-in to prevent CI failures from external service unavailability (#48)
+- Dependency updates: go-jose/v4 4.1.4, Alpine 3.23, GitHub Actions (13 updates), Go modules (8 updates) (#20, #27, #28, #29, #42)
+
+### Security
+
+- Addressed 5 critical SSRF vulnerabilities in DID and metadata registries flagged by CodeQL (#21)
+<!-- release-notes:v0.4.0:end -->
+
+<!-- release-notes:v0.3.0:start -->
+## [v0.3.0] - 2026-03-26
+
+### Changed
+- Updated vc dependency to github.com/SUNET/vc v0.5.3, migrating from dc4eu/vc (#e805835a)
+<!-- release-notes:v0.3.0:end -->
+
+<!-- release-notes:v0.2.0:start -->
+## [v0.2.0] - 2026-03-24
+
+### Added
+- LoTE (List of Trusted Entities) registry type implementing ETSI TS 119 602 trust evaluation (#56329825, #a165c737, #2cc914ec). Supports X.509 PKIX path validation for trust anchor mode, enabling standards-compliant trust list processing for qualified trust service providers.
+- Integrated go-cryptoutil for extensible certificate parsing (#fbb55e95), providing more flexible handling of X.509 certificate extensions and attributes.
+
+### Changed
+- Updated module dependencies to sirosfoundation organization paths (#ad228644).
+- Bumped signedxml to v1.4.0-siros1 (#1e8c19e9).
+
+### Fixed
+- Corrected g119612 dependency to include etsi119602 package (#2458fcd5).
+<!-- release-notes:v0.2.0:end -->
+
+<!-- release-notes:v0.1.0:start -->
+## [v0.1.0] - 2026-03-10
+
+### Added
+- **Trust registries**: Whitelist (JWKS-based), ETSI TSL (EU trust lists with LOTL signature validation), mDOC IACA, static registries, and OpenID Federation support (#4)
+- **DID method support**: Full resolver implementation for `did:web`, `did:jwks` (with fragment matching), and `did:webvh` (with SCID/hash verification and signature validation using official test vectors)
+- **SD-JWT VC metadata discovery**: Implements §5.3 jwt-vc-issuer metadata discovery for whitelist registry
+- **Key binding verification**: Whitelist registry now verifies key binding for credentials
+- **Background refresh**: JWKS keys refresh automatically on configurable intervals; health endpoint tracks successful entity loading and refresh status
+- **mDOC x509_san_dns resource type**: Enables OpenID4VP client_id verification via certificate SAN matching
+- **Policy-based routing**: Route evaluation requests to appropriate registries via `action.name` field
+- **Metadata caching**: OpenID Federation metadata cached with configurable TTL
+- **TLS support**: Server now supports TLS configuration (#5)
+- **AuthZEN compliance**: Implements Trust Registry Profile with `.well-known` discovery endpoint and external URL support
+- **OpenAPI documentation**: Swagger docs generated during build; endpoints follow Kubernetes conventions
+- **Configuration support**: All registry types (whitelist, ETSI TSL, static, IACA) and trust policies now configurable via file
+- **Embedded test server**: Integration testing infrastructure for registry implementations
+- **HTTP client configurability**: Configurable response body size limits and client settings for DID resolution
+
+### Fixed
+- **Dockerfile**: Corrected app directory path and binary name; enabled CGO for PKCS#11 support; updated to Go 1.25 (#4)
+- **ETSI TSL**: Added intermediate certificate support in chain validation; fixed certificate parsing edge cases
+- **did:webvh**: Fixed JCS canonicalization for SCID/hash verification
+- **Whitelist registry**: Initial JWKS fetch now completes before refresh interval starts; health check requires successful first refresh
+- **CI builds**: Added vc module replace directive to handle non-standard module path
+- **Readiness check**: Simplified to use registry health status directly
+
+### Changed
+- **Architecture**: Moved to PDP-only model; removed obsolete pipeline architecture and renamed pipeline metrics to refresh metrics
+- **Whitelist registry**: Now supports named lists with explicit action mapping; request logging moved to DEBUG level
+- **Trust evaluation**: Enforced canonical pattern across all registries with consistent error aggregation
+- **Project structure**: Reorganized codebase; consolidated examples to canonical set
+- **Dependencies**: Updated signedxml to v1.2.3-leifj6 (adds RSA-PSS support and C14N fixes)
+<!-- release-notes:v0.1.0:end -->
