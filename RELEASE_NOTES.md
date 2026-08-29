@@ -4,6 +4,19 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.19.0:start -->
+## [v0.19.0] - 2026-08-26
+
+### Added
+- Service-level WRPAC–WRPRC binding and `telephoneNumber` Subject DN attribute support (#110). Services can now bind wallet-relying-party attestation credentials to wallet-relying-party registration credentials at the service level, and certificate subjects can include telephone numbers as distinguished name attributes.
+
+### Fixed
+- Pinned `go-oidfed/lib` to v0.10.12 to restore a working build (#136). The v0.11.1 dependency introduced in the weekly bump was a breaking change that pulled in Go 1.27 experimental JSON packages and changed public API signatures, breaking compilation on Go 1.26. The pin removes `jwx/v4` from the dependency graph entirely until Go 1.27 makes the required packages stable.
+- Hardened release-notes workflow to prevent branch names from being written as release sections and to fail explicitly when OIDC token minting fails (#135). Manual workflow dispatches from branches without an explicit tag parameter now error cleanly instead of generating bogus release note sections.
+
+### Changed
+- Updated Go runtime to 1.26.6-alpine and bumped seven routine dependency patches (#128, #129).
+<!-- release-notes:v0.19.0:end -->
 <!-- release-notes:v0.18.0:start -->
 ## [v0.18.0] - 2026-08-20
 
