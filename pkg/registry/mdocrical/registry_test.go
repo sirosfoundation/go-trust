@@ -340,13 +340,16 @@ func TestEvaluate_TrustedReaderChainOmittingRoot(t *testing.T) {
 }
 
 // TestEvaluate_TrustedDespiteMissingIsTrustAnchor documents that isTrustAnchor
-// is not enforced as a gate: a RICAL whose CertificateInfo entries omit it
-// entirely (F.3.2.2 currently documents it as Required) still trusts a chain
-// that validates to one of its entries. The interop event organizers have
-// confirmed isTrustAnchor is being removed from the ISO/IEC 18013-5 standard
-// going forward, and real published RICALs already omit it in practice - the
-// Geneva 2026 event's live document (geneva2026.mdoc.online) has it absent on
-// all 35 published entries.
+// is not enforced as a gate: a RICAL CertificateInfo whose isTrustAnchor is
+// false (F.3.2.2 currently documents it as Required) still trusts a chain
+// that validates to it. The field isn't read anywhere in this package's
+// decision-making, so whether a real producer encodes it as false or omits
+// the CBOR key entirely (as the Geneva 2026 event's live document does -
+// geneva2026.mdoc.online has it absent on all 35 published entries) makes no
+// behavioral difference; this fixture exercises the encoded-false case since
+// the struct tag has no `omitempty` and always writes the key. The interop
+// event organizers have confirmed isTrustAnchor is being removed from the
+// ISO/IEC 18013-5 standard going forward.
 func TestEvaluate_TrustedDespiteMissingIsTrustAnchor(t *testing.T) {
 	ricalRoot, ricalRootKey := generateCA(t, "Test RICAL Root")
 	signerCert, signerKey := generateLeaf(t, ricalRoot, ricalRootKey, "Test RICAL Signer", 2)
@@ -364,7 +367,9 @@ func TestEvaluate_TrustedDespiteMissingIsTrustAnchor(t *testing.T) {
 				Certificate:  readerCA.Raw,
 				SerialNumber: readerCA.SerialNumber,
 				SKI:          readerCA.SubjectKeyId,
-				// IsTrustAnchor intentionally omitted (zero value: false).
+				// IsTrustAnchor left at its Go zero value (false) - see the
+				// doc comment above for why the CBOR-encoded-false vs
+				// key-absent distinction doesn't matter here.
 			},
 		},
 	}

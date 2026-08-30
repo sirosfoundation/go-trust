@@ -464,6 +464,17 @@ func validateChainAgainstAnchors(chain []*x509.Certificate, infos []RICALCertifi
 		if err != nil {
 			continue
 		}
+		// Only CA certificates are eligible as path-validation roots. A
+		// RICAL entry can also be a reader's own leaf/intermediate cert,
+		// enrolled solely to carry TrustConstraints per F.3.2.6 - adding
+		// those to the root pool would let a chain "validate" to a
+		// non-anchor cert just because it's listed, which is a different
+		// (and much weaker) trust question than "does this chain lead to a
+		// CA the RICAL vouches for". Non-CA entries are still reachable via
+		// findFirstMatchingCertificateInfo's exact chain-member match.
+		if !cert.IsCA {
+			continue
+		}
 		roots.AddCert(cert)
 		haveAnchor = true
 	}
