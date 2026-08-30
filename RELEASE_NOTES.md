@@ -4,6 +4,16 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.20.4:start -->
+## [v0.20.4] - 2026-08-30
+
+### Fixed
+
+- **Release image builds now succeed on Go 1.27+** (#150). The v0.20.3 release image failed CI with `undefined: jsonv2.SkipFunc` because `jwx/v4` v4.2.0's internal JSON package depends on Go's experimental `encoding/json/v2` API, which changed incompatibly in Go 1.27.0. Pinned the Dockerfile back to `golang:1.26.6-alpine` with explicit `GOEXPERIMENT=jsonv2` to restore stable builds. Also fixed latent API mismatches in `pkg/registry/oidfed` against `go-oidfed/lib` v0.11.1 (private `TrustAnchor.JWKS` field, slice-of-pointers type change, `jwx/v4` generic export signature) that were masked by the compilation failure.
+
+- **mDOC RICAL validation no longer requires `isTrustAnchor` field** (#151). The Geneva 2026 interop event's live RICAL omits `isTrustAnchor` on all 35 published certificate entries because the field is being removed from ISO/IEC 18013-5 in a future edition. Enforcing it as required would reject every reader against current and future spec-compliant RICALs. Certificate chain validation now builds its root pool from all `CertificateInfo` entries unconditionally; the field is still decoded for wire compatibility but no longer gates trust decisions.
+<!-- release-notes:v0.20.4:end -->
+
 <!-- release-notes:v0.19.0:start -->
 ## [v0.19.0] - 2026-08-26
 
