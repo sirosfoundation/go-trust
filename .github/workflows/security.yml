@@ -15,6 +15,9 @@ jobs:
   govulncheck:
     name: Go Vulnerability Check
     runs-on: ubuntu-latest
+    env:
+      # See go.yml's build job for why this is needed.
+      GOEXPERIMENT: jsonv2
     steps:
       - uses: actions/checkout@v7
       - name: Set up Go

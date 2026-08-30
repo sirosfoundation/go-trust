@@ -204,11 +204,18 @@ func parseECPublicKey(jwk map[string]interface{}) (*ecdsa.PublicKey, error) {
 		return nil, fmt.Errorf("unsupported curve: %s", crv)
 	}
 
-	return &ecdsa.PublicKey{
-		Curve: curve,
-		X:     new(big.Int).SetBytes(xBytes),
-		Y:     new(big.Int).SetBytes(yBytes),
-	}, nil
+	// ecdsa.PublicKey's X/Y fields are deprecated since Go 1.26; build the
+	// SEC1 uncompressed point (0x04 || X || Y) and parse it instead. JWK
+	// x/y are supposed to already be fixed-width per RFC 7518, but pad
+	// defensively since the old big.Int-based construction tolerated any
+	// length (including a stripped leading zero byte).
+	coordSize := (curve.Params().BitSize + 7) / 8
+	uncompressed := make([]byte, 1+2*coordSize)
+	uncompressed[0] = 0x04
+	copy(uncompressed[1+coordSize-len(xBytes):1+coordSize], xBytes)
+	copy(uncompressed[1+2*coordSize-len(yBytes):], yBytes)
+
+	return ecdsa.ParseUncompressedPublicKey(curve, uncompressed)
 }
 
 func parseRSAPublicKey(jwk map[string]interface{}) (*rsa.PublicKey, error) {
