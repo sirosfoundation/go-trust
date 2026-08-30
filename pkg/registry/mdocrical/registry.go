@@ -78,6 +78,14 @@ type Config struct {
 	// CryptoExt provides extensible certificate parsing for non-standard
 	// curves (e.g. brainpool). If nil, standard x509.ParseCertificate is
 	// used.
+	//
+	// Note: this registry does not enforce CertificateInfo.IsTrustAnchor as
+	// a gate on path validation, even though F.3.2.2 currently documents it
+	// as Required - the interop event organizers have confirmed
+	// isTrustAnchor is being removed from the ISO/IEC 18013-5 standard
+	// going forward, and real published RICALs (e.g. the Geneva 2026
+	// event's live document at geneva2026.mdoc.online) already omit it in
+	// practice. See validateChainAgainstAnchors's doc comment for details.
 	CryptoExt *gocryptoutil.Extensions
 }
 
@@ -92,9 +100,11 @@ type TrustConstraint struct {
 // RICALCertificateInfo mirrors the RICAL structure's RICALCertificateInfo
 // (F.3.2.2).
 type RICALCertificateInfo struct {
-	Certificate      []byte            `cbor:"certificate"`
-	SerialNumber     *big.Int          `cbor:"serialNumber"`
-	SKI              []byte            `cbor:"ski"`
+	Certificate  []byte   `cbor:"certificate"`
+	SerialNumber *big.Int `cbor:"serialNumber"`
+	SKI          []byte   `cbor:"ski"`
+	// IsTrustAnchor is decoded for completeness but not enforced as a gate
+	// anywhere in this package - see Config.CryptoExt's doc comment for why.
 	IsTrustAnchor    bool              `cbor:"isTrustAnchor"`
 	AKI              []byte            `cbor:"aki,omitempty"`
 	Type             string            `cbor:"type,omitempty"`
@@ -423,38 +433,46 @@ func findFirstMatchingCertificateInfo(chain []*x509.Certificate, infos []RICALCe
 	return nil, -1
 }
 
-// validateChainAgainstAnchors builds a root pool from every
-// isTrustAnchor=true CertificateInfo and validates the presented chain
-// against it, using any non-anchor CertificateInfo entries (and the
-// presented chain's own intermediates) to help complete the path. Returns
+// validateChainAgainstAnchors builds a root pool from every CertificateInfo
+// in the RICAL and validates the presented chain against it, using the
+// presented chain's own intermediates to help complete the path. Returns
 // every verified chain (leaf-to-root) x509.Verify found, so a caller can
-// identify which specific RICAL trust anchor the chain actually resolved
-// to - see resolveCertificateInfo's doc comment for why that matters.
+// identify which specific RICAL entry the chain actually resolved to - see
+// resolveCertificateInfo's doc comment for why that matters.
+//
+// isTrustAnchor is deliberately NOT enforced as a gate here, even though
+// F.3.2.2 currently documents it as Required: the interop event organizers
+// have confirmed isTrustAnchor is being removed from the ISO/IEC 18013-5
+// standard going forward (word received directly from the organizers, not
+// inferred), and real published RICALs already omit it in practice - the
+// Geneva 2026 event's live document (geneva2026.mdoc.online) has it absent
+// on all 35 published certificateInfos entries. Enforcing a field the
+// standard itself is dropping would deny every reader against any
+// spec-current or spec-future RICAL, not just a non-conformant one - so
+// every entry is treated as usable for path validation regardless of this
+// field's presence or value, both today and once the field is gone
+// entirely.
 func validateChainAgainstAnchors(chain []*x509.Certificate, infos []RICALCertificateInfo, ext *gocryptoutil.Extensions) ([][]*x509.Certificate, error) {
 	if len(chain) == 0 {
 		return nil, fmt.Errorf("empty chain")
 	}
 
 	roots := x509.NewCertPool()
-	intermediates := x509.NewCertPool()
 	haveAnchor := false
 	for _, info := range infos {
 		cert, err := registry.ParseCertificate(info.Certificate, ext)
 		if err != nil {
 			continue
 		}
-		if info.IsTrustAnchor {
-			roots.AddCert(cert)
-			haveAnchor = true
-		} else {
-			intermediates.AddCert(cert)
-		}
+		roots.AddCert(cert)
+		haveAnchor = true
 	}
 	if !haveAnchor {
-		return nil, fmt.Errorf("RICAL has no isTrustAnchor=true certificate")
+		return nil, fmt.Errorf("RICAL has no usable certificate")
 	}
 
 	leaf := chain[0]
+	intermediates := x509.NewCertPool()
 	for _, c := range chain[1:] {
 		intermediates.AddCert(c)
 	}
@@ -514,9 +532,6 @@ func resolveCertificateInfo(chain []*x509.Certificate, infos []RICALCertificateI
 	for _, verifiedChain := range verifiedChains {
 		root := verifiedChain[len(verifiedChain)-1]
 		for i := range infos {
-			if !infos[i].IsTrustAnchor {
-				continue
-			}
 			infoCert, err := registry.ParseCertificate(infos[i].Certificate, ext)
 			if err != nil {
 				continue
@@ -527,9 +542,9 @@ func resolveCertificateInfo(chain []*x509.Certificate, infos []RICALCertificateI
 		}
 	}
 	// Should be unreachable: validateChainAgainstAnchors only builds its
-	// root pool from isTrustAnchor entries, so a successful Verify's root
-	// must be one of them.
-	return nil, -1, fmt.Errorf("chain validated but its root isn't a RICAL trust anchor entry")
+	// root pool from parseable RICAL entries, so a successful Verify's
+	// root must be one of them.
+	return nil, -1, fmt.Errorf("chain validated but its root isn't a RICAL entry")
 }
 
 // anyTrustConstraintSatisfied is a placeholder: this specification (per

@@ -339,6 +339,65 @@ func TestEvaluate_TrustedReaderChainOmittingRoot(t *testing.T) {
 	}
 }
 
+// TestEvaluate_TrustedDespiteMissingIsTrustAnchor documents that isTrustAnchor
+// is not enforced as a gate: a RICAL whose CertificateInfo entries omit it
+// entirely (F.3.2.2 currently documents it as Required) still trusts a chain
+// that validates to one of its entries. The interop event organizers have
+// confirmed isTrustAnchor is being removed from the ISO/IEC 18013-5 standard
+// going forward, and real published RICALs already omit it in practice - the
+// Geneva 2026 event's live document (geneva2026.mdoc.online) has it absent on
+// all 35 published entries.
+func TestEvaluate_TrustedDespiteMissingIsTrustAnchor(t *testing.T) {
+	ricalRoot, ricalRootKey := generateCA(t, "Test RICAL Root")
+	signerCert, signerKey := generateLeaf(t, ricalRoot, ricalRootKey, "Test RICAL Signer", 2)
+
+	readerCA, readerCAKey := generateCA(t, "Test Reader CA")
+	readerLeaf, _ := generateLeaf(t, readerCA, readerCAKey, "Test Reader", 3)
+
+	rical := &RICAL{
+		Version:  "1.0",
+		Provider: "test-provider",
+		Date:     time.Now().UTC().Format(time.RFC3339),
+		Type:     "org.iso.18013.5.1.reader_authentication",
+		CertificateInfos: []RICALCertificateInfo{
+			{
+				Certificate:  readerCA.Raw,
+				SerialNumber: readerCA.SerialNumber,
+				SKI:          readerCA.SubjectKeyId,
+				// IsTrustAnchor intentionally omitted (zero value: false).
+			},
+		},
+	}
+	body := buildSignedRical(t, rical, signerCert, signerKey)
+	mock := newMockRicalServer(t, body)
+	defer mock.Close()
+
+	reg, err := New(&Config{
+		RicalProviderURL:        mock.URL(),
+		RicalRootCertificatePEM: certPEM(ricalRoot),
+		AllowHTTP:               true,
+		AllowPrivateIPs:         true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := &authzen.EvaluationRequest{
+		Resource: authzen.Resource{
+			Type: "x5c",
+			Key:  []interface{}{certBase64(readerLeaf), certBase64(readerCA)},
+		},
+	}
+
+	resp, err := reg.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if !resp.Decision {
+		t.Fatalf("expected trusted decision even though no CertificateInfo has isTrustAnchor=true, got denied: %+v", resp.Context)
+	}
+}
+
 func TestEvaluate_RicalSignedByWrongRoot(t *testing.T) {
 	ricalRoot, _ := generateCA(t, "Real RICAL Root")
 	// Signed by a DIFFERENT root than the one configured as trusted.
