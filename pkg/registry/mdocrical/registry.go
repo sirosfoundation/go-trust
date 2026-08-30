@@ -192,12 +192,8 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		return r.denyWithReason(fmt.Sprintf("failed to get RICAL: %v", err)), nil
 	}
 
-	matchedInfo, matchIdx := findFirstMatchingCertificateInfo(chain, rical.CertificateInfos, r.config.CryptoExt)
-	if matchedInfo == nil {
-		return r.denyWithReason("reader certificate chain not present in RICAL"), nil
-	}
-
-	if err := validateChainAgainstAnchors(chain, rical.CertificateInfos, r.config.CryptoExt); err != nil {
+	matchedInfo, matchIdx, err := resolveCertificateInfo(chain, rical.CertificateInfos, r.config.CryptoExt)
+	if err != nil {
 		return r.denyWithReason(fmt.Sprintf("certificate path validation failed: %v", err)), nil
 	}
 
@@ -430,10 +426,13 @@ func findFirstMatchingCertificateInfo(chain []*x509.Certificate, infos []RICALCe
 // validateChainAgainstAnchors builds a root pool from every
 // isTrustAnchor=true CertificateInfo and validates the presented chain
 // against it, using any non-anchor CertificateInfo entries (and the
-// presented chain's own intermediates) to help complete the path.
-func validateChainAgainstAnchors(chain []*x509.Certificate, infos []RICALCertificateInfo, ext *gocryptoutil.Extensions) error {
+// presented chain's own intermediates) to help complete the path. Returns
+// every verified chain (leaf-to-root) x509.Verify found, so a caller can
+// identify which specific RICAL trust anchor the chain actually resolved
+// to - see resolveCertificateInfo's doc comment for why that matters.
+func validateChainAgainstAnchors(chain []*x509.Certificate, infos []RICALCertificateInfo, ext *gocryptoutil.Extensions) ([][]*x509.Certificate, error) {
 	if len(chain) == 0 {
-		return fmt.Errorf("empty chain")
+		return nil, fmt.Errorf("empty chain")
 	}
 
 	roots := x509.NewCertPool()
@@ -452,7 +451,7 @@ func validateChainAgainstAnchors(chain []*x509.Certificate, infos []RICALCertifi
 		}
 	}
 	if !haveAnchor {
-		return fmt.Errorf("RICAL has no isTrustAnchor=true certificate")
+		return nil, fmt.Errorf("RICAL has no isTrustAnchor=true certificate")
 	}
 
 	leaf := chain[0]
@@ -460,13 +459,77 @@ func validateChainAgainstAnchors(chain []*x509.Certificate, infos []RICALCertifi
 		intermediates.AddCert(c)
 	}
 
-	_, err := leaf.Verify(x509.VerifyOptions{
+	return leaf.Verify(x509.VerifyOptions{
 		Roots:         roots,
 		Intermediates: intermediates,
 		CurrentTime:   time.Now(),
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	})
-	return err
+}
+
+// resolveCertificateInfo determines which RICAL CertificateInfo entry
+// governs the presented chain's trust constraints, and confirms the chain
+// path-validates against a RICAL-listed trust anchor.
+//
+// Per F.3.2.6, "the CertificateInfo element of the first certificate
+// (bottom-up) in the certificate chain included in the RICAL" should be
+// used - findFirstMatchingCertificateInfo implements that literally, but
+// it only ever matches when a reader's own leaf or intermediate
+// certificate is individually enrolled in the RICAL. In practice a reader
+// presents only its own leaf (plus any intermediates) and never the
+// self-signed root a RICAL provider lists as the trust anchor - the whole
+// point of an out-of-band trust anchor is that it need not be
+// retransmitted. Requiring an exact match before ever attempting path
+// validation denies every reader whose issuing CA isn't ALSO separately
+// enrolled as its own CertificateInfo, defeating the RICAL's purpose as a
+// CA-level trust list (confirmed live: a reader chaining cleanly to a
+// RICAL-listed root was denied with "reader certificate chain not present
+// in RICAL" solely because neither its leaf nor its issuing CA appeared
+// verbatim in the RICAL - only the root did).
+//
+// So: prefer an explicit match (it may carry reader-specific
+// TrustConstraints tighter than the anchor's own), but when none exists,
+// fall back to whichever RICAL trust-anchor entry the chain actually
+// validated against.
+func resolveCertificateInfo(chain []*x509.Certificate, infos []RICALCertificateInfo, ext *gocryptoutil.Extensions) (*RICALCertificateInfo, int, error) {
+	verifiedChains, err := validateChainAgainstAnchors(chain, infos, ext)
+	if err != nil {
+		return nil, -1, err
+	}
+
+	if matched, idx := findFirstMatchingCertificateInfo(chain, infos, ext); matched != nil {
+		// Only apply reader/intermediate-specific constraints if the matching
+		// certificate is actually part of a verified path.
+		infoCert, err := registry.ParseCertificate(matched.Certificate, ext)
+		if err == nil {
+			for _, verifiedChain := range verifiedChains {
+				for _, c := range verifiedChain {
+					if c.Equal(infoCert) {
+						return matched, idx, nil
+					}
+				}
+			}
+		}
+	}
+	for _, verifiedChain := range verifiedChains {
+		root := verifiedChain[len(verifiedChain)-1]
+		for i := range infos {
+			if !infos[i].IsTrustAnchor {
+				continue
+			}
+			infoCert, err := registry.ParseCertificate(infos[i].Certificate, ext)
+			if err != nil {
+				continue
+			}
+			if root.Equal(infoCert) {
+				return &infos[i], i, nil
+			}
+		}
+	}
+	// Should be unreachable: validateChainAgainstAnchors only builds its
+	// root pool from isTrustAnchor entries, so a successful Verify's root
+	// must be one of them.
+	return nil, -1, fmt.Errorf("chain validated but its root isn't a RICAL trust anchor entry")
 }
 
 // anyTrustConstraintSatisfied is a placeholder: this specification (per

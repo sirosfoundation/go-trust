@@ -278,6 +278,67 @@ func TestEvaluate_UntrustedReaderChain(t *testing.T) {
 	}
 }
 
+// TestEvaluate_TrustedReaderChainOmittingRoot covers the real-world case a
+// live interop test caught: a reader presents only its own leaf (no
+// intermediates, and critically no copy of the self-signed root a RICAL
+// provider lists as the trust anchor - the anchor is distributed
+// out-of-band precisely so it need not be retransmitted). The chain still
+// path-validates cleanly against the RICAL-listed root, but no certificate
+// in the presented chain is byte-identical to any RICALCertificateInfo, so
+// the previous exact-match-only implementation denied every such reader
+// with "reader certificate chain not present in RICAL".
+func TestEvaluate_TrustedReaderChainOmittingRoot(t *testing.T) {
+	ricalRoot, ricalRootKey := generateCA(t, "Test RICAL Root")
+	signerCert, signerKey := generateLeaf(t, ricalRoot, ricalRootKey, "Test RICAL Signer", 2)
+
+	readerCA, readerCAKey := generateCA(t, "Test Reader CA")
+	readerLeaf, _ := generateLeaf(t, readerCA, readerCAKey, "Test Reader", 3)
+
+	rical := &RICAL{
+		Version:  "1.0",
+		Provider: "test-provider",
+		Date:     time.Now().UTC().Format(time.RFC3339),
+		Type:     "org.iso.18013.5.1.reader_authentication",
+		CertificateInfos: []RICALCertificateInfo{
+			{
+				Certificate:   readerCA.Raw,
+				SerialNumber:  readerCA.SerialNumber,
+				SKI:           readerCA.SubjectKeyId,
+				IsTrustAnchor: true,
+			},
+		},
+	}
+	body := buildSignedRical(t, rical, signerCert, signerKey)
+	mock := newMockRicalServer(t, body)
+	defer mock.Close()
+
+	reg, err := New(&Config{
+		RicalProviderURL:        mock.URL(),
+		RicalRootCertificatePEM: certPEM(ricalRoot),
+		AllowHTTP:               true,
+		AllowPrivateIPs:         true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := &authzen.EvaluationRequest{
+		Resource: authzen.Resource{
+			Type: "x5c",
+			// Leaf only - no readerCA, unlike TestEvaluate_TrustedReaderChain.
+			Key: []interface{}{certBase64(readerLeaf)},
+		},
+	}
+
+	resp, err := reg.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if !resp.Decision {
+		t.Fatalf("expected trusted decision for a chain that validates against a RICAL trust anchor even without an exact chain-member match, got denied: %+v", resp.Context)
+	}
+}
+
 func TestEvaluate_RicalSignedByWrongRoot(t *testing.T) {
 	ricalRoot, _ := generateCA(t, "Real RICAL Root")
 	// Signed by a DIFFERENT root than the one configured as trusted.
