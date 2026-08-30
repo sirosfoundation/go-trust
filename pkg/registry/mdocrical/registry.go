@@ -498,9 +498,19 @@ func resolveCertificateInfo(chain []*x509.Certificate, infos []RICALCertificateI
 	}
 
 	if matched, idx := findFirstMatchingCertificateInfo(chain, infos, ext); matched != nil {
-		return matched, idx, nil
+		// Only apply reader/intermediate-specific constraints if the matching
+		// certificate is actually part of a verified path.
+		infoCert, err := registry.ParseCertificate(matched.Certificate, ext)
+		if err == nil {
+			for _, verifiedChain := range verifiedChains {
+				for _, c := range verifiedChain {
+					if c.Equal(infoCert) {
+						return matched, idx, nil
+					}
+				}
+			}
+		}
 	}
-
 	for _, verifiedChain := range verifiedChains {
 		root := verifiedChain[len(verifiedChain)-1]
 		for i := range infos {
