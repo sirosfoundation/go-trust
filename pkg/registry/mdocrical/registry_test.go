@@ -617,3 +617,23 @@ func TestRefresh_ClearsCache(t *testing.T) {
 		t.Fatal("expected fetch to fail after Refresh() cleared the cache while the server is down")
 	}
 }
+
+func TestValidateChainAgainstAnchors_EmptyChain(t *testing.T) {
+	_, err := validateChainAgainstAnchors(nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for an empty chain")
+	}
+}
+
+func TestValidateChainAgainstAnchors_NoUsableCertificate(t *testing.T) {
+	readerCA, readerCAKey := generateCA(t, "Test Reader CA")
+	readerLeaf, _ := generateLeaf(t, readerCA, readerCAKey, "Test Reader", 2)
+
+	infos := []RICALCertificateInfo{
+		{Certificate: []byte("not-a-real-certificate")},
+	}
+	_, err := validateChainAgainstAnchors([]*x509.Certificate{readerLeaf, readerCA}, infos, nil)
+	if err == nil {
+		t.Fatal("expected error when the RICAL has no parseable certificate")
+	}
+}
