@@ -4,6 +4,13 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.20.3:start -->
+## [v0.20.3] - 2026-08-30
+
+### Fixed
+- RICAL registry now correctly validates reader certificate chains that omit the trust-anchor root certificate. Previously, readers presenting only their leaf certificate (plus intermediates) were incorrectly denied even when their chain validated against a RICAL-listed CA, because the registry required an exact byte match before performing path validation. The registry now validates the chain first, then matches against the verified trust anchor. (#148)
+<!-- release-notes:v0.20.3:end -->
+
 <!-- release-notes:v0.19.0:start -->
 ## [v0.19.0] - 2026-08-26
 
