@@ -398,6 +398,65 @@ func TestEvaluate_TrustedDespiteMissingIsTrustAnchor(t *testing.T) {
 	}
 }
 
+// TestEvaluate_SkipsUnparseableCertificateInfoEntry documents that a
+// malformed/unparseable CertificateInfo entry in the RICAL doesn't abort
+// evaluation for the rest - validateChainAgainstAnchors builds its root pool
+// from every entry it CAN parse, silently skipping ones it can't, so a single
+// bad entry doesn't deny readers that validate against a different, good
+// entry.
+func TestEvaluate_SkipsUnparseableCertificateInfoEntry(t *testing.T) {
+	ricalRoot, ricalRootKey := generateCA(t, "Test RICAL Root")
+	signerCert, signerKey := generateLeaf(t, ricalRoot, ricalRootKey, "Test RICAL Signer", 2)
+
+	readerCA, readerCAKey := generateCA(t, "Test Reader CA")
+	readerLeaf, _ := generateLeaf(t, readerCA, readerCAKey, "Test Reader", 3)
+
+	rical := &RICAL{
+		Version:  "1.0",
+		Provider: "test-provider",
+		Date:     time.Now().UTC().Format(time.RFC3339),
+		Type:     "org.iso.18013.5.1.reader_authentication",
+		CertificateInfos: []RICALCertificateInfo{
+			{
+				Certificate: []byte("not-a-real-certificate"),
+			},
+			{
+				Certificate:  readerCA.Raw,
+				SerialNumber: readerCA.SerialNumber,
+				SKI:          readerCA.SubjectKeyId,
+			},
+		},
+	}
+	body := buildSignedRical(t, rical, signerCert, signerKey)
+	mock := newMockRicalServer(t, body)
+	defer mock.Close()
+
+	reg, err := New(&Config{
+		RicalProviderURL:        mock.URL(),
+		RicalRootCertificatePEM: certPEM(ricalRoot),
+		AllowHTTP:               true,
+		AllowPrivateIPs:         true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := &authzen.EvaluationRequest{
+		Resource: authzen.Resource{
+			Type: "x5c",
+			Key:  []interface{}{certBase64(readerLeaf), certBase64(readerCA)},
+		},
+	}
+
+	resp, err := reg.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if !resp.Decision {
+		t.Fatalf("expected trusted decision despite an unparseable CertificateInfo entry, got denied: %+v", resp.Context)
+	}
+}
+
 func TestEvaluate_RicalSignedByWrongRoot(t *testing.T) {
 	ricalRoot, _ := generateCA(t, "Real RICAL Root")
 	// Signed by a DIFFERENT root than the one configured as trusted.
