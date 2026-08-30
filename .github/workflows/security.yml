@@ -28,3 +28,11 @@ jobs:
         uses: golang/govulncheck-action@v1
         with:
           go-version-file: go.mod
+          # The action's own internal setup-go step defaults go-version-input
+          # to 'stable' with check-latest: true, which silently wins over
+          # go-version-file and always installs the newest Go release -
+          # exactly the 1.27.0-breaks-jwx/v4 problem this workflow exists to
+          # avoid. Empty string + check-latest: false makes it actually
+          # respect go.mod's pinned 1.26.x.
+          go-version-input: ''
+          check-latest: false
