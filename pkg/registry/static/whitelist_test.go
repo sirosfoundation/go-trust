@@ -2738,6 +2738,51 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		}
 	})
 
+	t.Run("brainpool_root_grants_trust_via_cryptoext_chain_walk", func(t *testing.T) {
+		// Real-world artifact, not synthesized: the actual signed OpenID4VP
+		// request JWT's x5c leaf, captured live from a fresh
+		// geneva2026.mdoc.online session on 2026-08-31. This leaf uses an
+		// ordinary NIST P-256 key - only the ROOT above is brainpool - which
+		// is exactly the case additional_trusted_root_with_brainpool_curve_
+		// succeeds_with_cryptoext doesn't cover: that test only confirms
+		// loadSystemCertPool() succeeds, not that a real chain actually
+		// validates through evaluateViaSystemCA's full Evaluate() path.
+		// Confirmed live before this fix: stdlib's leaf.Verify() failed with
+		// "certificate signed by unknown authority" even with AKI==SKI and
+		// openssl independently confirming the signature was valid -
+		// stdlib's x509.Certificate.Verify() has no extension point for a
+		// parent using a curve it can't do ECDSA math with at all, so this
+		// needed the verifyChainWithCryptoExt fallback, not just a parsing
+		// fix.
+		cryptoExt := gocryptoutil.New()
+		brainpool.Register(cryptoExt)
+		reg := NewWhitelistRegistry(
+			WithWhitelistConfig(WhitelistConfig{
+				Lists:                  map[string][]string{"verifiers": {"x509_san_dns:geneva2026.mdoc.online"}},
+				Actions:                map[string]string{"credential-verifier": "verifiers"},
+				TrustX509ViaSystemCA:   true,
+				AdditionalTrustedRoots: []string{geneva2026VerifierReaderCABrainpoolPEM},
+			}),
+			WithWhitelistCryptoExt(cryptoExt),
+		)
+		_ = reg.Refresh(context.Background())
+
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{ID: "x509_san_dns:geneva2026.mdoc.online"},
+			Action:  &authzen.Action{Name: "credential-verifier"},
+			Resource: authzen.Resource{
+				Type: "x5c",
+				Key:  []interface{}{geneva2026SampleReaderAuthLeafB64},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Decision {
+			t.Fatalf("expected decision=true: leaf is genuinely signed by the brainpool root, got deny: %v", resp.Context.Reason["error"])
+		}
+	})
+
 	t.Run("malformed_additional_trusted_root_denies_with_pool_error", func(t *testing.T) {
 		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
 			Lists:                  map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
@@ -2941,6 +2986,32 @@ YXRlLmNybDAKBggqhkjOPQQDAgNHADBEAiA8kN16YtTtyKmrDXV/18cVWg6vdNGA
 wmo13EG6SYju2wIgIsh0Ca9Tm7FsnKmi9QpX84L8TE3rLbyhPXJilIEYV8Y=
 -----END CERTIFICATE-----
 `
+
+// geneva2026SampleReaderAuthLeafB64 is the actual x5c[0] leaf certificate
+// (base64 DER, ready to use as a resource.key entry) from a real signed
+// OpenID4VP request JWT, captured live from a fresh geneva2026.mdoc.online
+// session on 2026-08-31 - the exact case that surfaced this fix's need.
+// Subject "Remote Reader Authentication Certificate Default Relying Party
+// Geneva 2026", issued by geneva2026VerifierReaderCABrainpoolPEM above
+// (AKI/SKI confirmed matching, and openssl independently confirmed the
+// signature is valid). Uses an ordinary NIST P-256 key itself - only the
+// root is brainpool - so this exercises the real, single-brainpool-hop
+// chain shape this fix actually needs to handle.
+const geneva2026SampleReaderAuthLeafB64 = "MIIDNjCCAtygAwIBAgIQF8PXB9GFLgSGHDihxQRdTzAKBggqhkjOPQQDAjCBgjFAMD4GA1UEAxM3" +
+	"UmVhZGVyIENBIENlcnRpZmljYXRlIERlZmF1bHQgUmVseWluZyBQYXJ0eSBHZW5ldmEgMjAyNjEL" +
+	"MAkGA1UEBhMCQ0gxETAPBgNVBAoTCEFwdGl0dWRlMR4wHAYDVQQLExVDZXJ0aWZpY2F0ZSBBdXRo" +
+	"b3JpdHkwHhcNMjYwNjExMDgzODEzWhcNMjkwOTEwMDgzODEzWjB1MVMwUQYDVQQDE0pSZW1vdGUg" +
+	"UmVhZGVyIEF1dGhlbnRpY2F0aW9uIENlcnRpZmljYXRlIERlZmF1bHQgUmVseWluZyBQYXJ0eSBH" +
+	"ZW5ldmEgMjAyNjELMAkGA1UEBhMCQ0gxETAPBgNVBAoTCEFwdGl0dWRlMFkwEwYHKoZIzj0CAQYI" +
+	"KoZIzj0DAQcDQgAEjvvsN2JpcpOp0cBaoRzjBdmbvr141BvoFXUa2aAZaXycBkrzPKZHac29omZf" +
+	"J6lG/pnpdGwIAlk3aQjBrZeiAKOCAT4wggE6MB0GA1UdDgQWBBSv3LtByr4ClFeYzt9RHraeZKgF" +
+	"fTAOBgNVHQ8BAf8EBAMCB4AwIQYDVR0RBBowGIIWZ2VuZXZhMjAyNi5tZG9jLm9ubGluZTAVBgNV" +
+	"HSUBAf8ECzAJBgcogYxdBQEGMFYGA1UdHwRPME0wS6BJoEeGRWh0dHBzOi8vZ2VuZXZhMjAyNi5t" +
+	"ZG9jLm9ubGluZS9DZXJ0aWZpY2F0ZXMvMS9SZWFkZXJDYUNlcnRpZmljYXRlLmNybDAfBgNVHSME" +
+	"GDAWgBSXaBQehUnl9rPBPKnA3ml1ep6l1TBWBgNVHRIETzBNhh9odHRwczovL2dlbmV2YTIwMjYu" +
+	"bWRvYy5vbmxpbmUvgSpyZWFkZXJjYWNlcnRpZmljYXRlQGdlbmV2YTIwMjYubWRvYy5vbmxpbmUw" +
+	"CgYIKoZIzj0EAwIDSAAwRQIhAIq7lAU9tg6y9AXHpa8vD3NMh68IVm8Io1arV/6koUfnAiBd6bGp" +
+	"h+sj5AoB5YICgVXVnmxUe5yHOGHeYMi576patA=="
 
 // generateCASignedLeafCertWithIntermediate builds a 3-tier root CA ->
 // intermediate CA -> leaf chain, for testing evaluateViaSystemCA's
