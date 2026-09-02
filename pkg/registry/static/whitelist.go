@@ -20,6 +20,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/sirosfoundation/g119612/pkg/utils/x509util"
+	gocryptoutil "github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
 	"github.com/sirosfoundation/go-trust/pkg/resilience"
@@ -85,6 +86,13 @@ type WhitelistRegistry struct {
 	systemCertPoolOnce sync.Once
 	systemCertPool     *x509.CertPool
 	systemCertPoolErr  error
+
+	// cryptoExt provides curve support beyond Go's stdlib crypto/x509 (e.g.
+	// brainpool, used by several real-world ISO 18013-5 reader-CA roots) for
+	// parsing AdditionalTrustedRoots. Nil falls back to stdlib parsing only,
+	// same as every other registry's use of this type (see
+	// pkg/registry/cryptoext.go's ParseCertificatesPEM).
+	cryptoExt *gocryptoutil.Extensions
 }
 
 // WhitelistConfig holds the whitelist configuration.
@@ -252,6 +260,18 @@ func WithHTTPClient(client *http.Client) WhitelistOption {
 func WithRefreshInterval(interval time.Duration) WhitelistOption {
 	return func(r *WhitelistRegistry) {
 		r.refreshInterval = interval
+	}
+}
+
+// WithWhitelistCryptoExt sets curve support beyond stdlib crypto/x509 (e.g.
+// brainpool) for parsing AdditionalTrustedRoots PEMs. Without this, a root
+// using a curve stdlib doesn't recognize (confirmed live for a real ISO
+// 18013-5 reader-CA root using brainpoolP256r1) fails the whole registry's
+// CA pool construction, denying every whitelisted entity, not just the one
+// with the unsupported root.
+func WithWhitelistCryptoExt(ext *gocryptoutil.Extensions) WhitelistOption {
+	return func(r *WhitelistRegistry) {
+		r.cryptoExt = ext
 	}
 }
 
@@ -681,9 +701,20 @@ func (r *WhitelistRegistry) loadSystemCertPool() (*x509.CertPool, error) {
 		}
 		if r.systemCertPoolErr == nil {
 			for i, pemCert := range r.config.AdditionalTrustedRoots {
-				if !r.systemCertPool.AppendCertsFromPEM([]byte(pemCert)) {
+				// Uses registry.ParseCertificatesPEM (r.cryptoExt-aware,
+				// same helper mdocrical/vical/etc. use) rather than
+				// x509.CertPool.AppendCertsFromPEM directly - the stdlib
+				// method can't parse curves it doesn't recognize (e.g.
+				// brainpool, a real ISO 18013-5 reader-CA root curve) and
+				// silently drops the whole PEM rather than reporting which
+				// certificate failed.
+				certs, err := registry.ParseCertificatesPEM([]byte(pemCert), r.cryptoExt)
+				if err != nil || len(certs) == 0 {
 					r.systemCertPoolErr = fmt.Errorf("additional_trusted_roots[%d]: failed to parse PEM certificate", i)
 					return
+				}
+				for _, cert := range certs {
+					r.systemCertPool.AddCert(cert)
 				}
 			}
 		}
