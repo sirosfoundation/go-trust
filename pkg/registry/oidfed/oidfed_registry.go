@@ -30,7 +30,7 @@ import (
 
 	oidfed "github.com/go-oidfed/lib"
 	oidfedjwx "github.com/go-oidfed/lib/jwx"
-	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v4/jwk"
 	cryptoutil "github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
@@ -353,11 +353,11 @@ func NewOIDFedRegistry(config Config) (*OIDFedRegistry, error) {
 			return nil, fmt.Errorf("trust anchor %d: entity_id is required", i)
 		}
 
-		anchor := oidfed.TrustAnchor{
+		anchor := &oidfed.TrustAnchor{
 			EntityID: strings.TrimRight(ta.EntityID, "/"),
 		}
 		if ta.JWKS != nil {
-			anchor.JWKS = *ta.JWKS
+			anchor.SetJWKS(*ta.JWKS)
 		}
 		trustAnchors[i] = anchor
 	}
@@ -943,8 +943,8 @@ func (r *OIDFedRegistry) verifyX5CKeyBinding(keys []interface{}, leafStatement *
 		}
 
 		// Extract raw public key from JWK and compare
-		var rawKey interface{}
-		if err := jwk.Export(key, &rawKey); err != nil {
+		rawKey, err := jwk.Export[any](key)
+		if err != nil {
 			continue
 		}
 
@@ -1155,7 +1155,7 @@ func (r *OIDFedRegistry) validatePreSuppliedTrustChain(req *authzen.EvaluationRe
 	var configuredAnchor *oidfed.TrustAnchor
 	for i := range r.trustAnchors {
 		if r.trustAnchors[i].EntityID == normalizedAnchorIssuer {
-			configuredAnchor = &r.trustAnchors[i]
+			configuredAnchor = r.trustAnchors[i]
 			break
 		}
 	}
@@ -1179,7 +1179,7 @@ func (r *OIDFedRegistry) validatePreSuppliedTrustChain(req *authzen.EvaluationRe
 	// [Security] Verify the anchor using configured JWKS (not the untrusted
 	// JWKS from the chain itself). If no configured JWKS is available for
 	// this anchor, fall back to resolver-based validation.
-	anchorJWKS := configuredAnchor.JWKS
+	anchorJWKS := configuredAnchor.JWKS()
 	if anchorJWKS.Set == nil {
 		// No configured JWKS for this anchor — cannot securely verify
 		// the pre-supplied chain. Fall back to resolver.

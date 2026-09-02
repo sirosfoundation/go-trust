@@ -1,4 +1,13 @@
 # Build stage
+#
+# Pinned below 1.27: go-oidfed/lib pulls in lestrrat-go/jwx/v4, which uses
+# Go's still-experimental encoding/json/v2 (aliased "jsonv2" in its source).
+# That package needs GOEXPERIMENT=jsonv2 to even compile on 1.26.x (below);
+# on 1.27.0 the experiment is on by default, but jwx/v4 v4.2.0's own
+# internal/json/registry.go references jsonv2.SkipFunc, a symbol that
+# Go 1.27.0's actual jsonv2 API no longer has - a real upstream break, not a
+# flag issue. Don't bump past 1.26.x without confirming jwx/v4 has a release
+# that builds clean against whatever jsonv2 shape the target Go version ships.
 FROM golang:1.26.6-alpine AS builder
 
 WORKDIR /app
@@ -19,7 +28,9 @@ ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 
-RUN CGO_ENABLED=1 GOOS=linux go build \
+# GOEXPERIMENT=jsonv2: required for jwx/v4's internal/json package on
+# Go 1.26.x - see the FROM line's comment above for the full story.
+RUN GOEXPERIMENT=jsonv2 CGO_ENABLED=1 GOOS=linux go build \
     -ldflags="-s -w -linkmode external -extldflags '-static' -X github.com/sirosfoundation/go-trust/pkg/version.Version=${VERSION} -X github.com/sirosfoundation/go-trust/pkg/version.Commit=${COMMIT} -X github.com/sirosfoundation/go-trust/pkg/version.Date=${BUILD_DATE}" \
     -o gt ./cmd/gt
 
