@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	gocryptoutil "github.com/sirosfoundation/go-cryptoutil"
+	"github.com/sirosfoundation/go-cryptoutil/brainpool"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 )
 
@@ -2687,6 +2689,55 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 		}
 	})
 
+	t.Run("additional_trusted_root_with_brainpool_curve_fails_without_cryptoext", func(t *testing.T) {
+		// Real-world artifact, not synthesized: the Geneva 2026 interop
+		// event's actual reader-CA root for its reference OpenID4VP
+		// verifier (geneva2026.mdoc.online), which uses brainpoolP256r1 -
+		// a real ISO 18013-5/eIDAS-ecosystem curve stdlib crypto/x509
+		// doesn't parse. Confirmed live 2026-08-31: adding this root
+		// without CryptoExt wired up denied every other whitelisted
+		// verifier too (verifier.multipaz.org included), not just Geneva -
+		// AppendCertsFromPEM fails the whole pool on one bad cert.
+		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
+			Lists:                  map[string][]string{"verifiers": {"x509_san_dns:geneva2026.mdoc.online"}},
+			Actions:                map[string]string{"credential-verifier": "verifiers"},
+			TrustX509ViaSystemCA:   true,
+			AdditionalTrustedRoots: []string{geneva2026VerifierReaderCABrainpoolPEM},
+		}))
+		_ = reg.Refresh(context.Background())
+
+		_, err := reg.loadSystemCertPool()
+		if err == nil {
+			t.Fatal("expected loadSystemCertPool to fail without CryptoExt: stdlib crypto/x509 cannot parse a brainpoolP256r1 cert")
+		}
+		if !strings.Contains(err.Error(), "additional_trusted_roots") {
+			t.Errorf("expected error to name additional_trusted_roots as the cause, got: %v", err)
+		}
+	})
+
+	t.Run("additional_trusted_root_with_brainpool_curve_succeeds_with_cryptoext", func(t *testing.T) {
+		cryptoExt := gocryptoutil.New()
+		brainpool.Register(cryptoExt)
+		reg := NewWhitelistRegistry(
+			WithWhitelistConfig(WhitelistConfig{
+				Lists:                  map[string][]string{"verifiers": {"x509_san_dns:geneva2026.mdoc.online"}},
+				Actions:                map[string]string{"credential-verifier": "verifiers"},
+				TrustX509ViaSystemCA:   true,
+				AdditionalTrustedRoots: []string{geneva2026VerifierReaderCABrainpoolPEM},
+			}),
+			WithWhitelistCryptoExt(cryptoExt),
+		)
+		_ = reg.Refresh(context.Background())
+
+		pool, err := reg.loadSystemCertPool()
+		if err != nil {
+			t.Fatalf("expected the brainpool root to load successfully with CryptoExt wired up, got: %v", err)
+		}
+		if pool == nil {
+			t.Fatal("expected a non-nil cert pool")
+		}
+	})
+
 	t.Run("malformed_additional_trusted_root_denies_with_pool_error", func(t *testing.T) {
 		reg := NewWhitelistRegistry(WithWhitelistConfig(WhitelistConfig{
 			Lists:                  map[string][]string{"verifiers": {"x509_san_dns:verifier.example.com"}},
@@ -2861,6 +2912,33 @@ LWZvdW5kYXRpb24tbGFicy9pZGVudGl0eS1jcmVkZW50aWFsL2NybDAdBgNVHQ4EFgQUsYQ5hS9K
 buq/6mKtvFHQgfdIhykwHwYDVR0jBBgwFoAUsYQ5hS9Kbuq/6mKtvFHQgfdIhykwCgYIKoZIzj0E
 AwMDaAAwZQIwKh87sK/cMbzuc9PFvyiSRedr2RoP0fuFK0X8ddOpi6hEMOapHL/Gs/QByROCpDpk
 AjEA2yLSJDZEu1GI8uChAsDBZwJPtv5KHUjq1Vpok69SNn+zzb1mNpqmiey+tchPBjZm
+-----END CERTIFICATE-----
+`
+
+// geneva2026VerifierReaderCABrainpoolPEM is the Geneva 2026 interop event's
+// actual reader-CA root for its reference OpenID4VP verifier
+// (geneva2026.mdoc.online), extracted 2026-08-31 from the event's own
+// distributed certificate bundle ("Reader CA Certificate Default Relying
+// Party Geneva 2026.cer"). Self-signed, subjectAltName URI
+// https://geneva2026.mdoc.online, using the brainpoolP256r1 curve - see
+// additional_trusted_root_with_brainpool_curve_fails_without_cryptoext.
+const geneva2026VerifierReaderCABrainpoolPEM = `-----BEGIN CERTIFICATE-----
+MIIC+DCCAp+gAwIBAgIQD+aaWtJUM91mcNCqtGQIbjAKBggqhkjOPQQDAjCBgjFA
+MD4GA1UEAxM3UmVhZGVyIENBIENlcnRpZmljYXRlIERlZmF1bHQgUmVseWluZyBQ
+YXJ0eSBHZW5ldmEgMjAyNjELMAkGA1UEBhMCQ0gxETAPBgNVBAoTCEFwdGl0dWRl
+MR4wHAYDVQQLExVDZXJ0aWZpY2F0ZSBBdXRob3JpdHkwHhcNMjYwNjExMDgzODEz
+WhcNNDYwNjExMDgzODEzWjCBgjFAMD4GA1UEAxM3UmVhZGVyIENBIENlcnRpZmlj
+YXRlIERlZmF1bHQgUmVseWluZyBQYXJ0eSBHZW5ldmEgMjAyNjELMAkGA1UEBhMC
+Q0gxETAPBgNVBAoTCEFwdGl0dWRlMR4wHAYDVQQLExVDZXJ0aWZpY2F0ZSBBdXRo
+b3JpdHkwWjAUBgcqhkjOPQIBBgkrJAMDAggBAQcDQgAEaDG8yWWWSdNMJWwOOcQG
+VSaIC1HQHMqUVkMwchxawqxqwgEi3uIXv9cKNj3EAVyxyBwzJ9Vy0G4iEHeYhp2c
+ZqOB8zCB8DAdBgNVHQ4EFgQUl2gUHoVJ5fazwTypwN5pdXqepdUwDgYDVR0PAQH/
+BAQDAgEGMFYGA1UdEgRPME2GH2h0dHBzOi8vZ2VuZXZhMjAyNi5tZG9jLm9ubGlu
+ZS+BKnJlYWRlcmNhY2VydGlmaWNhdGVAZ2VuZXZhMjAyNi5tZG9jLm9ubGluZTAP
+BgNVHRMBAf8EBTADAQH/MFYGA1UdHwRPME0wS6BJoEeGRWh0dHBzOi8vZ2VuZXZh
+MjAyNi5tZG9jLm9ubGluZS9DZXJ0aWZpY2F0ZXMvMS9SZWFkZXJDYUNlcnRpZmlj
+YXRlLmNybDAKBggqhkjOPQQDAgNHADBEAiA8kN16YtTtyKmrDXV/18cVWg6vdNGA
+wmo13EG6SYju2wIgIsh0Ca9Tm7FsnKmi9QpX84L8TE3rLbyhPXJilIEYV8Y=
 -----END CERTIFICATE-----
 `
 

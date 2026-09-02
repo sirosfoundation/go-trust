@@ -19,6 +19,9 @@ jobs:
     # pull_request workflows triggered from forks. Analysis still runs on push to
     # main and on PRs opened from within the same repository.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      # See go.yml's build job for why this is needed.
+      GOEXPERIMENT: jsonv2
     steps:
       - uses: actions/checkout@v7
         with:
