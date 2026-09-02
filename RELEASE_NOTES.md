@@ -4,6 +4,13 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.20.2:start -->
+## [v0.20.2] - 2026-08-28
+
+### Changed
+- `JWTRegistrationCertValidator` now compares the JWT `typ` header exactly instead of case-insensitively (#146). While media type names are technically case-insensitive per RFC 2045, all callers in practice expect the lowercase form and perform exact comparisons, making the lenient check an unnecessary special case. Note that `JWTRegistrationCertValidator` has been deprecated since v0.20.0 and returns `StatusUnknown`, so this change primarily ensures consistency across the codebase rather than fixing active validation logic.
+<!-- release-notes:v0.20.2:end -->
+
 <!-- release-notes:v0.20.1:start -->
 ## [v0.20.1] - 2026-08-26
 
