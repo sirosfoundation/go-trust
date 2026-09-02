@@ -295,9 +295,12 @@ func main() {
 			logger.Info("Configuring whitelist registry from file",
 				logging.F("path", *whitelistFile),
 				logging.F("watch", *whitelistWatch))
+			cryptoExt := gocryptoutil.New()
+			brainpool.Register(cryptoExt)
 			whitelistReg, err := static.NewWhitelistRegistryFromFile(*whitelistFile, *whitelistWatch,
 				static.WithWhitelistName("whitelist"),
-				static.WithWhitelistDescription("URL whitelist from "+*whitelistFile))
+				static.WithWhitelistDescription("URL whitelist from "+*whitelistFile),
+				static.WithWhitelistCryptoExt(cryptoExt))
 			if err != nil {
 				logger.Fatal("Failed to create whitelist registry",
 					logging.F("error", err.Error()))
@@ -463,6 +466,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 				wlCfg.WatchFile,
 				static.WithWhitelistName(name),
 				static.WithWhitelistDescription(desc),
+				static.WithWhitelistCryptoExt(cryptoExt),
 			)
 			if err != nil {
 				logger.Fatal("Failed to create whitelist registry from config file",
@@ -474,6 +478,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			whitelistReg = static.NewWhitelistRegistry(
 				static.WithWhitelistName(name),
 				static.WithWhitelistDescription(desc),
+				static.WithWhitelistCryptoExt(cryptoExt),
 				static.WithWhitelistConfig(static.WhitelistConfig{
 					Lists:                  wlCfg.Lists,
 					Actions:                wlCfg.Actions,
