@@ -4,6 +4,13 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.20.5:start -->
+## [v0.20.5] - 2026-08-31
+
+### Fixed
+- **WhitelistRegistry now handles brainpool curves in trusted roots** (#153): Previously, a single CA root using curves unsupported by Go's stdlib `crypto/x509` (e.g. brainpoolP256r1, found in real ISO 18013-5/eIDAS reader-CA roots from the Geneva 2026 interop event) would fail the entire registry's CA pool construction, denying trust for *all* whitelisted verifiers. `WhitelistRegistry` now accepts a `CryptoExt` via `WithWhitelistCryptoExt` and uses the same `registry.ParseCertificatesPEM` helper that `mdocrical`/`vical` already rely on, allowing these roots to parse correctly.
+<!-- release-notes:v0.20.5:end -->
+
 <!-- release-notes:v0.20.4:start -->
 ## [v0.20.4] - 2026-08-30
 
