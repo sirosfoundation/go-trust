@@ -21,6 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      # go-oidfed/lib pulls in lestrrat-go/jwx/v4, which needs Go's
+      # still-experimental encoding/json/v2 package - see the Dockerfile's
+      # FROM-line comment for the full story on why this is required on
+      # the pinned Go 1.26.x toolchain.
+      GOEXPERIMENT: jsonv2
 
     steps:
     - uses: actions/checkout@v7
@@ -147,6 +153,8 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    env:
+      GOEXPERIMENT: jsonv2
 
     steps:
     - uses: actions/checkout@v7

@@ -278,6 +278,254 @@ func TestEvaluate_UntrustedReaderChain(t *testing.T) {
 	}
 }
 
+// TestEvaluate_TrustedReaderChainOmittingRoot covers the real-world case a
+// live interop test caught: a reader presents only its own leaf (no
+// intermediates, and critically no copy of the self-signed root a RICAL
+// provider lists as the trust anchor - the anchor is distributed
+// out-of-band precisely so it need not be retransmitted). The chain still
+// path-validates cleanly against the RICAL-listed root, but no certificate
+// in the presented chain is byte-identical to any RICALCertificateInfo, so
+// the previous exact-match-only implementation denied every such reader
+// with "reader certificate chain not present in RICAL".
+func TestEvaluate_TrustedReaderChainOmittingRoot(t *testing.T) {
+	ricalRoot, ricalRootKey := generateCA(t, "Test RICAL Root")
+	signerCert, signerKey := generateLeaf(t, ricalRoot, ricalRootKey, "Test RICAL Signer", 2)
+
+	readerCA, readerCAKey := generateCA(t, "Test Reader CA")
+	readerLeaf, _ := generateLeaf(t, readerCA, readerCAKey, "Test Reader", 3)
+
+	rical := &RICAL{
+		Version:  "1.0",
+		Provider: "test-provider",
+		Date:     time.Now().UTC().Format(time.RFC3339),
+		Type:     "org.iso.18013.5.1.reader_authentication",
+		CertificateInfos: []RICALCertificateInfo{
+			{
+				Certificate:   readerCA.Raw,
+				SerialNumber:  readerCA.SerialNumber,
+				SKI:           readerCA.SubjectKeyId,
+				IsTrustAnchor: true,
+			},
+		},
+	}
+	body := buildSignedRical(t, rical, signerCert, signerKey)
+	mock := newMockRicalServer(t, body)
+	defer mock.Close()
+
+	reg, err := New(&Config{
+		RicalProviderURL:        mock.URL(),
+		RicalRootCertificatePEM: certPEM(ricalRoot),
+		AllowHTTP:               true,
+		AllowPrivateIPs:         true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := &authzen.EvaluationRequest{
+		Resource: authzen.Resource{
+			Type: "x5c",
+			// Leaf only - no readerCA, unlike TestEvaluate_TrustedReaderChain.
+			Key: []interface{}{certBase64(readerLeaf)},
+		},
+	}
+
+	resp, err := reg.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if !resp.Decision {
+		t.Fatalf("expected trusted decision for a chain that validates against a RICAL trust anchor even without an exact chain-member match, got denied: %+v", resp.Context)
+	}
+}
+
+// TestEvaluate_TrustedDespiteMissingIsTrustAnchor documents that isTrustAnchor
+// is not enforced as a gate: a RICAL CertificateInfo whose isTrustAnchor is
+// false (F.3.2.2 currently documents it as Required) still trusts a chain
+// that validates to it. The field isn't read anywhere in this package's
+// decision-making, so whether a real producer encodes it as false or omits
+// the CBOR key entirely (as the Geneva 2026 event's live document does -
+// geneva2026.mdoc.online has it absent on all 35 published entries) makes no
+// behavioral difference; this fixture exercises the encoded-false case since
+// the struct tag has no `omitempty` and always writes the key. The interop
+// event organizers have confirmed isTrustAnchor is being removed from the
+// ISO/IEC 18013-5 standard going forward.
+func TestEvaluate_TrustedDespiteMissingIsTrustAnchor(t *testing.T) {
+	ricalRoot, ricalRootKey := generateCA(t, "Test RICAL Root")
+	signerCert, signerKey := generateLeaf(t, ricalRoot, ricalRootKey, "Test RICAL Signer", 2)
+
+	readerCA, readerCAKey := generateCA(t, "Test Reader CA")
+	readerLeaf, _ := generateLeaf(t, readerCA, readerCAKey, "Test Reader", 3)
+
+	rical := &RICAL{
+		Version:  "1.0",
+		Provider: "test-provider",
+		Date:     time.Now().UTC().Format(time.RFC3339),
+		Type:     "org.iso.18013.5.1.reader_authentication",
+		CertificateInfos: []RICALCertificateInfo{
+			{
+				Certificate:  readerCA.Raw,
+				SerialNumber: readerCA.SerialNumber,
+				SKI:          readerCA.SubjectKeyId,
+				// IsTrustAnchor left at its Go zero value (false) - see the
+				// doc comment above for why the CBOR-encoded-false vs
+				// key-absent distinction doesn't matter here.
+			},
+		},
+	}
+	body := buildSignedRical(t, rical, signerCert, signerKey)
+	mock := newMockRicalServer(t, body)
+	defer mock.Close()
+
+	reg, err := New(&Config{
+		RicalProviderURL:        mock.URL(),
+		RicalRootCertificatePEM: certPEM(ricalRoot),
+		AllowHTTP:               true,
+		AllowPrivateIPs:         true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := &authzen.EvaluationRequest{
+		Resource: authzen.Resource{
+			Type: "x5c",
+			Key:  []interface{}{certBase64(readerLeaf), certBase64(readerCA)},
+		},
+	}
+
+	resp, err := reg.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if !resp.Decision {
+		t.Fatalf("expected trusted decision even though no CertificateInfo has isTrustAnchor=true, got denied: %+v", resp.Context)
+	}
+}
+
+// TestEvaluate_SkipsUnparseableCertificateInfoEntry documents that a
+// malformed/unparseable CertificateInfo entry in the RICAL doesn't abort
+// evaluation for the rest - validateChainAgainstAnchors builds its root pool
+// from every entry it CAN parse, silently skipping ones it can't, so a single
+// bad entry doesn't deny readers that validate against a different, good
+// entry.
+func TestEvaluate_SkipsUnparseableCertificateInfoEntry(t *testing.T) {
+	ricalRoot, ricalRootKey := generateCA(t, "Test RICAL Root")
+	signerCert, signerKey := generateLeaf(t, ricalRoot, ricalRootKey, "Test RICAL Signer", 2)
+
+	readerCA, readerCAKey := generateCA(t, "Test Reader CA")
+	readerLeaf, _ := generateLeaf(t, readerCA, readerCAKey, "Test Reader", 3)
+
+	rical := &RICAL{
+		Version:  "1.0",
+		Provider: "test-provider",
+		Date:     time.Now().UTC().Format(time.RFC3339),
+		Type:     "org.iso.18013.5.1.reader_authentication",
+		CertificateInfos: []RICALCertificateInfo{
+			{
+				Certificate: []byte("not-a-real-certificate"),
+			},
+			{
+				Certificate:  readerCA.Raw,
+				SerialNumber: readerCA.SerialNumber,
+				SKI:          readerCA.SubjectKeyId,
+			},
+		},
+	}
+	body := buildSignedRical(t, rical, signerCert, signerKey)
+	mock := newMockRicalServer(t, body)
+	defer mock.Close()
+
+	reg, err := New(&Config{
+		RicalProviderURL:        mock.URL(),
+		RicalRootCertificatePEM: certPEM(ricalRoot),
+		AllowHTTP:               true,
+		AllowPrivateIPs:         true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := &authzen.EvaluationRequest{
+		Resource: authzen.Resource{
+			Type: "x5c",
+			Key:  []interface{}{certBase64(readerLeaf), certBase64(readerCA)},
+		},
+	}
+
+	resp, err := reg.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if !resp.Decision {
+		t.Fatalf("expected trusted decision despite an unparseable CertificateInfo entry, got denied: %+v", resp.Context)
+	}
+}
+
+// TestEvaluate_NonCACertificateInfoNotUsedAsRoot documents that a
+// non-CA CertificateInfo entry (e.g. a reader's own leaf, enrolled solely to
+// carry TrustConstraints per F.3.2.6) is skipped when building the
+// path-validation root pool - it can't itself act as a trust anchor, even
+// though isTrustAnchor is no longer enforced. A reader chain still validates
+// successfully via a separate, genuine CA entry in the same RICAL.
+func TestEvaluate_NonCACertificateInfoNotUsedAsRoot(t *testing.T) {
+	ricalRoot, ricalRootKey := generateCA(t, "Test RICAL Root")
+	signerCert, signerKey := generateLeaf(t, ricalRoot, ricalRootKey, "Test RICAL Signer", 2)
+
+	readerCA, readerCAKey := generateCA(t, "Test Reader CA")
+	readerLeaf, _ := generateLeaf(t, readerCA, readerCAKey, "Test Reader", 3)
+
+	otherCA, otherCAKey := generateCA(t, "Test Other CA")
+	nonCALeaf, _ := generateLeaf(t, otherCA, otherCAKey, "Test Non-CA Entry", 4)
+
+	rical := &RICAL{
+		Version:  "1.0",
+		Provider: "test-provider",
+		Date:     time.Now().UTC().Format(time.RFC3339),
+		Type:     "org.iso.18013.5.1.reader_authentication",
+		CertificateInfos: []RICALCertificateInfo{
+			{
+				Certificate:  nonCALeaf.Raw,
+				SerialNumber: nonCALeaf.SerialNumber,
+				SKI:          nonCALeaf.SubjectKeyId,
+			},
+			{
+				Certificate:  readerCA.Raw,
+				SerialNumber: readerCA.SerialNumber,
+				SKI:          readerCA.SubjectKeyId,
+			},
+		},
+	}
+	body := buildSignedRical(t, rical, signerCert, signerKey)
+	mock := newMockRicalServer(t, body)
+	defer mock.Close()
+
+	reg, err := New(&Config{
+		RicalProviderURL:        mock.URL(),
+		RicalRootCertificatePEM: certPEM(ricalRoot),
+		AllowHTTP:               true,
+		AllowPrivateIPs:         true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := &authzen.EvaluationRequest{
+		Resource: authzen.Resource{
+			Type: "x5c",
+			Key:  []interface{}{certBase64(readerLeaf), certBase64(readerCA)},
+		},
+	}
+
+	resp, err := reg.Evaluate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if !resp.Decision {
+		t.Fatalf("expected trusted decision via the genuine CA entry, got denied: %+v", resp.Context)
+	}
+}
+
 func TestEvaluate_RicalSignedByWrongRoot(t *testing.T) {
 	ricalRoot, _ := generateCA(t, "Real RICAL Root")
 	// Signed by a DIFFERENT root than the one configured as trusted.
@@ -367,5 +615,25 @@ func TestRefresh_ClearsCache(t *testing.T) {
 	}
 	if _, err := reg.getRical(context.Background()); err == nil {
 		t.Fatal("expected fetch to fail after Refresh() cleared the cache while the server is down")
+	}
+}
+
+func TestValidateChainAgainstAnchors_EmptyChain(t *testing.T) {
+	_, err := validateChainAgainstAnchors(nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for an empty chain")
+	}
+}
+
+func TestValidateChainAgainstAnchors_NoUsableCertificate(t *testing.T) {
+	readerCA, readerCAKey := generateCA(t, "Test Reader CA")
+	readerLeaf, _ := generateLeaf(t, readerCA, readerCAKey, "Test Reader", 2)
+
+	infos := []RICALCertificateInfo{
+		{Certificate: []byte("not-a-real-certificate")},
+	}
+	_, err := validateChainAgainstAnchors([]*x509.Certificate{readerLeaf, readerCA}, infos, nil)
+	if err == nil {
+		t.Fatal("expected error when the RICAL has no parseable certificate")
 	}
 }
