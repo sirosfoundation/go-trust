@@ -11,6 +11,58 @@
 - **WhitelistRegistry now handles brainpool curves in trusted roots** (#153): Previously, a single CA root using curves unsupported by Go's stdlib `crypto/x509` (e.g. brainpoolP256r1, found in real ISO 18013-5/eIDAS reader-CA roots from the Geneva 2026 interop event) would fail the entire registry's CA pool construction, denying trust for *all* whitelisted verifiers. `WhitelistRegistry` now accepts a `CryptoExt` via `WithWhitelistCryptoExt` and uses the same `registry.ParseCertificatesPEM` helper that `mdocrical`/`vical` already rely on, allowing these roots to parse correctly.
 <!-- release-notes:v0.20.5:end -->
 
+<!-- release-notes:v0.20.4:start -->
+## [v0.20.4] - 2026-08-30
+
+### Fixed
+
+- **Release image builds now succeed on Go 1.27+** (#150). The v0.20.3 release image failed CI with `undefined: jsonv2.SkipFunc` because `jwx/v4` v4.2.0's internal JSON package depends on Go's experimental `encoding/json/v2` API, which changed incompatibly in Go 1.27.0. Pinned the Dockerfile back to `golang:1.26.6-alpine` with explicit `GOEXPERIMENT=jsonv2` to restore stable builds. Also fixed latent API mismatches in `pkg/registry/oidfed` against `go-oidfed/lib` v0.11.1 (private `TrustAnchor.JWKS` field, slice-of-pointers type change, `jwx/v4` generic export signature) that were masked by the compilation failure.
+
+- **mDOC RICAL validation no longer requires `isTrustAnchor` field** (#151). The Geneva 2026 interop event's live RICAL omits `isTrustAnchor` on all 35 published certificate entries because the field is being removed from ISO/IEC 18013-5 in a future edition. Enforcing it as required would reject every reader against current and future spec-compliant RICALs. Certificate chain validation now builds its root pool from all `CertificateInfo` entries unconditionally; the field is still decoded for wire compatibility but no longer gates trust decisions.
+<!-- release-notes:v0.20.4:end -->
+
+<!-- release-notes:v0.20.3:start -->
+## [v0.20.3] - 2026-08-30
+
+### Fixed
+- RICAL registry now correctly validates reader certificate chains that omit the trust-anchor root certificate. Previously, readers presenting only their leaf certificate (plus intermediates) were incorrectly denied even when their chain validated against a RICAL-listed CA, because the registry required an exact byte match before performing path validation. The registry now validates the chain first, then matches against the verified trust anchor. (#148)
+<!-- release-notes:v0.20.3:end -->
+
+<!-- release-notes:v0.20.2:start -->
+## [v0.20.2] - 2026-08-28
+
+### Changed
+- `JWTRegistrationCertValidator` now compares the JWT `typ` header exactly instead of case-insensitively (#146). While media type names are technically case-insensitive per RFC 2045, all callers in practice expect the lowercase form and perform exact comparisons, making the lenient check an unnecessary special case. Note that `JWTRegistrationCertValidator` has been deprecated since v0.20.0 and returns `StatusUnknown`, so this change primarily ensures consistency across the codebase rather than fixing active validation logic.
+<!-- release-notes:v0.20.2:end -->
+
+<!-- release-notes:v0.20.1:start -->
+## [v0.20.1] - 2026-08-26
+
+### Fixed
+- The `replace` directive for `goxmldsig` now applies correctly. Previously, it pinned `v1.5.0` on the left side while the module graph selected `v1.6.0`, causing the directive to silently fail. This meant builds used upstream goxmldsig instead of the Siros fork, which carries three critical patches: ECDSA P1363-to-DER conversion for XML-DSig verification, `CryptoExtensions` for non-standard algorithms (brainpool curves), and HSM-compatible signing. ETSI trust lists signed with ECDSA in P1363 encoding or non-standard curves would fail to verify despite valid signatures. The fix removes the version constraint and rebases the fork to `v1.6.1-siros1`, delivering all three patches atop the latest upstream release. (#141)
+<!-- release-notes:v0.20.1:end -->
+
+<!-- release-notes:v0.20.0:start -->
+## [v0.20.0] - 2026-08-26
+
+### Changed
+
+**Breaking: `WRPACProfile.ExtractIdentity` now reads `organizationIdentifier` from OID 2.5.4.97 instead of `Subject.SerialNumber`.** EN 319 412-3 requires legal persons to carry the organisation identifier in 2.5.4.97; the previous implementation read 2.5.4.5 (serialNumber), causing conformant certificates to surface no organisation identifier at all. This broke ARF RPRC_16 WRPAC↔WRPRC binding for standards-compliant certificates. SerialNumber remains a fallback for existing fixtures. The correct value now also drives `subject_type`, fixing misclassification of conformant legal persons as natural persons. (#138)
+
+**`JWTRegistrationCertValidator` is deprecated and now fails closed.** Despite documentation claiming otherwise, it never verified JWT signatures—it validated the `x5c` chain but decoded the payload without checking the chain signed it, allowing payload substitution attacks. Since it has no callers and go-trust lacks a JWS implementation to fix it properly, it now returns `StatusUnknown`, causing `RPEntitlements.IsValid()` to report `false` instead of treating unverified documents as valid. Signature verification is the caller's responsibility. (#139)
+
+### Added
+
+**WRPRC payload parsing with multi-version tolerance.** `ParseWRPRCClaims(payload []byte)` and `ParseWRPRCJWTPayload(token string)` provide pure decoding without signature checks, chain building, or network calls. Handles both TS 119 475 v1.1.1 and v1.2.1 spellings, verified against real German sandbox Registrar certificates that diverge from v1.1.1 spec in four ways: `sub` as bare string vs object, legal name in `sub_ln` vs `sub.legal_name`, DCQL claims in `claim` vs `claims`, and service descriptions in `srv_description` list-of-lists vs flat `service`. Previously, claim list mismatches silently resulted in empty allowed-attribute sets, making over-request detection inert. `RPEntitlements.ServiceIdentifier` is now populated from JWTs, enabling `CheckWRPACWRPRCServiceBinding` to function. (#139)
+
+**Attestation provider evaluation methods.** `IsAttestationProvider()` checks for any EAA role or PID (under CIR (EU) 2025/848, PID providers are registered relying parties); `IsEAAProvider()` correctly excludes PID. `ProvidesAttestation(format, typeValue)` reads DCQL `doctype_value`/`vct_values`, with format-only queries covering all types in that format. `CheckWRPRCValidityPeriod()` implements GEN-5.2.4-08, kept separate from parsing to avoid time dependencies. (#139)
+
+**Revocation reference extraction and evaluation framework.** `CRLDistributionPoints()`, `OCSPResponders()`, and `RPEntitlements.StatusReference()` surface where to check revocation status. `RevocationMode.Evaluate(state, subject)` interprets results via caller-supplied `StatusListChecker`/`CertRevocationChecker`. Critically, `RevocationUndetermined` is a distinct state from valid—unreachable CRLs are not evidence of validity. `warn` mode proceeds but records reasons; `fail` mode rejects both revoked and undetermined states; unrecognised modes fall back to `warn` to prevent configuration errors from silently disabling checks. (#140)
+
+### Fixed
+
+**Consolidated package documentation.** Eight files each had package comments, causing godoc to concatenate them and bury the actual overview. Now consolidated in `doc.go` with coverage of the three-step model (verify signature, extract trust information, evaluate) and scope boundaries. A guard test prevents future documentation fragmentation. (#139)
+<!-- release-notes:v0.20.0:end -->
 <!-- release-notes:v0.19.0:start -->
 ## [v0.19.0] - 2026-08-26
 
