@@ -414,23 +414,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		logger.Info("Configuring ETSI TSL registry from config file")
 		etsiCfg := cfg.Registries.ETSI
 
-		tslConfig := etsi.TSLConfig{
-			Name:             etsiCfg.Name,
-			Description:      etsiCfg.Description,
-			CryptoExt:        cryptoExt,
-			CertBundle:       etsiCfg.CertBundle,
-			TSLFiles:         etsiCfg.TSLFiles,
-			LOTLSignerBundle: etsiCfg.LOTLSignerBundle,
-			RequireSignature: etsiCfg.RequireSignature,
-			FollowPivots:     etsiCfg.FollowPivots,
-		}
-
-		if tslConfig.Name == "" {
-			tslConfig.Name = "ETSI-TSL"
-		}
-		if tslConfig.Description == "" {
-			tslConfig.Description = "ETSI TS 119612 Trust Status List Registry"
-		}
+		tslConfig := etsiTSLConfig(etsiCfg, cryptoExt, logger)
 
 		tslRegistry, err := etsi.NewTSLRegistry(tslConfig)
 		if err != nil {
@@ -1054,4 +1038,49 @@ func trimSpace(s string) string {
 
 func isSpace(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\n' || r == '\r'
+}
+
+// etsiTSLConfig maps the ETSI registry's configuration onto the registry's own
+// config struct.
+//
+// Extracted so the mapping can be tested. Every field here was once dropped on
+// the floor: TSLURLs, FollowRefs, MaxRefDepth, UserAgent, AllowNetworkAccess
+// and FetchTimeout were all absent, so configuring an ETSI registry from a file
+// with tsl_urls left it with nothing to load and the process exited with
+// "no trust data loaded" - a message that points at the configuration rather
+// than at the code that ignored it.
+func etsiTSLConfig(etsiCfg *config.ETSIRegistryConfig, cryptoExt *gocryptoutil.Extensions, logger logging.Logger) etsi.TSLConfig {
+	tslConfig := etsi.TSLConfig{
+		Name:               etsiCfg.Name,
+		Description:        etsiCfg.Description,
+		CryptoExt:          cryptoExt,
+		CertBundle:         etsiCfg.CertBundle,
+		TSLFiles:           etsiCfg.TSLFiles,
+		TSLURLs:            etsiCfg.TSLURLs,
+		FollowRefs:         etsiCfg.FollowRefs,
+		MaxRefDepth:        etsiCfg.MaxRefDepth,
+		UserAgent:          etsiCfg.UserAgent,
+		AllowNetworkAccess: etsiCfg.AllowNetworkAccess,
+		LOTLSignerBundle:   etsiCfg.LOTLSignerBundle,
+		RequireSignature:   etsiCfg.RequireSignature,
+		FollowPivots:       etsiCfg.FollowPivots,
+	}
+
+	if etsiCfg.FetchTimeout != "" {
+		if timeout, err := time.ParseDuration(etsiCfg.FetchTimeout); err == nil {
+			tslConfig.FetchTimeout = timeout
+		} else if logger != nil {
+			logger.Warn("Invalid fetch_timeout for etsi registry, using default",
+				logging.F("value", etsiCfg.FetchTimeout),
+				logging.F("error", err.Error()))
+		}
+	}
+
+	if tslConfig.Name == "" {
+		tslConfig.Name = "ETSI-TSL"
+	}
+	if tslConfig.Description == "" {
+		tslConfig.Description = "ETSI TS 119612 Trust Status List Registry"
+	}
+	return tslConfig
 }
