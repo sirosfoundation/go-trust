@@ -1,8 +1,11 @@
 # Binaries for programs and plugins
-output
-gt
-gt-test
-go-trust
+# Anchored to the repository root: an unanchored "gt" also matches the cmd/gt
+# *directory*, which silently excluded every new file under it - a test added
+# there was ignored by `git add -A` without a word, and the commit looked fine.
+/output
+/gt
+/gt-test
+/go-trust
 *.exe
 *.exe~
 *.dll
