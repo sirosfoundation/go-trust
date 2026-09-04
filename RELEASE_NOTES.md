@@ -4,6 +4,16 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.20.6:start -->
+## [v0.20.6] - 2026-09-04
+
+### Fixed
+
+- ETSI registry now respects all configuration fields when loaded from a config file. Previously, `tsl_urls`, `follow_refs`, `max_ref_depth`, `allow_network_access`, `user_agent`, and `fetch_timeout` were silently ignored, causing the registry to exit with "no trust data loaded" despite valid configuration. Only `tsl_files` worked. All fields are now mapped correctly and tested individually. (#159)
+
+- Added missing test file for ETSI configuration that was excluded by an overly broad `.gitignore` pattern. The pattern `gt` (intended to ignore the built binary) matched `cmd/gt/` at any depth, hiding new test files without warning. The pattern is now anchored to the repository root. (#160)
+<!-- release-notes:v0.20.6:end -->
+
 <!-- release-notes:v0.20.5:start -->
 ## [v0.20.5] - 2026-08-31
 
