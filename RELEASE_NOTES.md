@@ -13,7 +13,7 @@
 
 ### Security
 
-- Bumped `google.golang.org/grpc` to 1.83.2, clearing GO-2026-6348 (heap exhaustion via fragmented HTTP/2 DATA frames, reachable through `WhitelistRegistry.Close`) and GHSA-2v4p-qf9q-27wj (xDS servers crash on a request carrying neither `:authority` nor `Host`). Both affect every earlier 0.20.x release. (#165)
+- Bumped `google.golang.org/grpc` to 1.83.2, clearing GO-2026-6348 (heap exhaustion via fragmented HTTP/2 DATA frames) and GHSA-2v4p-qf9q-27wj (xDS servers crash on a request carrying neither `:authority` nor `Host`). Both affect every earlier 0.20.x release. (#165)
 <!-- release-notes:v0.20.7:end -->
 
 <!-- release-notes:v0.20.6:start -->
