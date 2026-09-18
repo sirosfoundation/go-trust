@@ -29,6 +29,8 @@ type RegistriesConfig struct {
 	Whitelist *WhitelistRegistryConfig `yaml:"whitelist,omitempty"`
 	// OpenID Federation registry
 	OIDFed *OIDFedRegistryConfig `yaml:"oidfed,omitempty"`
+	// Self-contained DID methods (did:key, did:jwk), resolved locally
+	DIDLocal *DIDLocalRegistryConfig `yaml:"did_local,omitempty"`
 	// DID method registries
 	DIDWeb   *DIDWebRegistryConfig   `yaml:"didweb,omitempty"`
 	DIDWebVH *DIDWebVHRegistryConfig `yaml:"didwebvh,omitempty"`
@@ -146,6 +148,27 @@ type DIDWebVHRegistryConfig struct {
 	Timeout            string `yaml:"timeout,omitempty"`
 	InsecureSkipVerify bool   `yaml:"insecure_skip_verify,omitempty"`
 	AllowHTTP          bool   `yaml:"allow_http,omitempty"`
+}
+
+// DIDLocalRegistryConfig contains configuration for the registry that resolves
+// the self-contained DID methods -- those that encode their key in the
+// identifier itself and so need no network access.
+//
+// The key is `did_local` rather than `did` because this is one registry among
+// several DID ones, not DID configuration in general: `policy.did` already
+// means the latter. It is not named after a method either, unlike `didweb` or
+// `didjwks`, because the `methods` list is the point -- the next
+// self-contained method should need no new config block.
+//
+// did:web and did:webvh are configured separately, under `didweb` and
+// `didwebvh`, because they fetch and cache documents.
+type DIDLocalRegistryConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Description string `yaml:"description,omitempty"`
+	// Methods lists the DID methods to resolve, e.g. ["key", "jwk"].
+	// Empty enables every self-contained method. An unrecognised method is a
+	// startup error rather than a warning.
+	Methods []string `yaml:"methods,omitempty"`
 }
 
 // DIDJWKSRegistryConfig contains did:jwks registry configuration.

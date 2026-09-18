@@ -213,3 +213,31 @@ func TestGenericDIDRegistryWithLocalMethods_KeepsDIDKey(t *testing.T) {
 	assert.Contains(t, methods, "did:key")
 	assert.Contains(t, methods, "did:jwk")
 }
+
+func TestNewGenericDIDRegistryForMethods(t *testing.T) {
+	t.Run("empty list enables every local method", func(t *testing.T) {
+		r, err := NewGenericDIDRegistryForMethods(GenericDIDRegistryConfig{}, nil)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"did:key", "did:jwk"}, r.getSupportedMethods())
+	})
+
+	t.Run("an explicit list enables only what it names", func(t *testing.T) {
+		r, err := NewGenericDIDRegistryForMethods(GenericDIDRegistryConfig{}, []string{"jwk"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"did:jwk"}, r.getSupportedMethods())
+	})
+
+	t.Run("the did: prefix is accepted", func(t *testing.T) {
+		r, err := NewGenericDIDRegistryForMethods(GenericDIDRegistryConfig{}, []string{"did:jwk", "did:key"})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"did:key", "did:jwk"}, r.getSupportedMethods())
+	})
+
+	t.Run("an unknown method fails rather than being skipped", func(t *testing.T) {
+		// Skipping it would start the service resolving less than was asked
+		// for, which only shows up later as an unresolvable DID.
+		_, err := NewGenericDIDRegistryForMethods(GenericDIDRegistryConfig{}, []string{"jwk", "web"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `unknown DID method "web"`)
+	})
+}

@@ -16,6 +16,7 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 - [registries.etsi](#registriesetsi)
 - [registries.whitelist](#registrieswhitelist)
 - [registries.oidfed](#registriesoidfed)
+- [registries.did_local](#registriesdid_local)
 - [registries.didweb](#registriesdidweb)
 - [registries.didwebvh](#registriesdidwebvh)
 - [registries.didjwks](#registriesdidjwks)
@@ -117,6 +118,16 @@ OpenID Federation registry
 | `oidfed.cache_ttl` | — | string |  |
 | `oidfed.max_cache_size` | — | integer |  |
 | `oidfed.max_chain_depth` | — | integer |  |
+
+## registries.did_local
+
+Self-contained DID methods (did:key, did:jwk), resolved locally
+
+| YAML Key | Env Variable | Type | Description |
+|----------|-------------|------|-------------|
+| `did_local.enabled` | — | boolean |  |
+| `did_local.description` | — | string |  |
+| `did_local.methods` | — | string list | Methods lists the DID methods to resolve, e.g. ["key", "jwk"]. Empty enables every self-contained method. An unrecognised method is a startup error rather than a warning. |
 
 ## registries.didweb
 

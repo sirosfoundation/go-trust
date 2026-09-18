@@ -135,5 +135,46 @@ func NewGenericDIDRegistryWithLocalMethods(config GenericDIDRegistryConfig) *Gen
 	return registry
 }
 
+// LocalMethods names the DID methods this package resolves without network
+// access. did:web and did:webvh are deliberately absent: they need fetching
+// and caching, and have registries of their own.
+var LocalMethods = []string{"key", "jwk"}
+
+// ResolverForMethod returns the built-in resolver for a DID method name as it
+// appears in configuration. Both "key" and "did:key" spellings are accepted.
+func ResolverForMethod(method string) (DIDResolver, error) {
+	switch strings.TrimPrefix(method, "did:") {
+	case "key":
+		return NewDIDKeyResolver(), nil
+	case "jwk":
+		return NewDIDJwkResolver(), nil
+	default:
+		return nil, fmt.Errorf("unknown DID method %q: supported methods are %s",
+			method, strings.Join(LocalMethods, ", "))
+	}
+}
+
+// NewGenericDIDRegistryForMethods creates a GenericDIDRegistry with the named
+// methods registered. An empty list registers every method in LocalMethods.
+//
+// An unknown method is an error rather than a warning: silently ignoring it
+// would leave the registry running with less resolution than was asked for,
+// which surfaces much later as an unresolvable DID.
+func NewGenericDIDRegistryForMethods(config GenericDIDRegistryConfig, methods []string) (*GenericDIDRegistry, error) {
+	if len(methods) == 0 {
+		return NewGenericDIDRegistryWithLocalMethods(config), nil
+	}
+
+	registry := NewGenericDIDRegistry(config)
+	for _, method := range methods {
+		resolver, err := ResolverForMethod(method)
+		if err != nil {
+			return nil, err
+		}
+		registry.RegisterResolver(resolver)
+	}
+	return registry, nil
+}
+
 // Ensure interfaces are implemented
 var _ DIDResolver = (*DIDJwkResolver)(nil)
