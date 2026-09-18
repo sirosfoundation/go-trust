@@ -10,6 +10,10 @@
 ### Fixed
 
 - Strip `decentralized_identifier:` prefix from OpenID4VP 1.0 client IDs before registry lookup, allowing third-party verifiers using the final specification to be trusted by the PDP. The final OpenID4VP 1.0 spec changed the DID client_id scheme from `did` to `decentralized_identifier` with a prefix format, which prevented both whitelist matching and DID resolution. Subject IDs are now normalized to bare DIDs consistently across all schemes. (#165)
+
+### Security
+
+- Bumped `google.golang.org/grpc` to 1.83.2, clearing GO-2026-6348 (heap exhaustion via fragmented HTTP/2 DATA frames, reachable through `WhitelistRegistry.Close`) and GHSA-2v4p-qf9q-27wj (xDS servers crash on a request carrying neither `:authority` nor `Host`). Both affect every earlier 0.20.x release. (#165)
 <!-- release-notes:v0.20.7:end -->
 
 <!-- release-notes:v0.20.6:start -->
