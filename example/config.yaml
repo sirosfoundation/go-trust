@@ -156,6 +156,31 @@ registries:
     max_chain_depth: 10    # Default: 10
 
   # ---------------------------------------------------------------------------
+  # DID Registry (self-contained methods: did:key, did:jwk)
+  # ---------------------------------------------------------------------------
+  # Resolves DID methods that encode their public key in the identifier itself,
+  # so resolution is local: no network access, no caching.
+  #
+  # Note did:jwk (one inline key) is a different method from did:jwks below,
+  # which encodes a JWKS endpoint to be fetched.
+  #
+  # Resolving these says nothing about whether the key should be trusted --
+  # anyone can mint one. Pair with policy if that matters.
+  #
+  # Supported resource types: jwk
+  # Resolution-only: Yes (can resolve DID documents)
+
+  did:
+    enabled: true
+    description: "Self-contained DID methods (did:key, did:jwk)"
+
+    # Methods to resolve. Omit to enable all of them.
+    # An unrecognised method here is a startup error, not a warning.
+    methods:
+      - "key"
+      - "jwk"
+
+  # ---------------------------------------------------------------------------
   # DID Web Registry (did:web method)
   # ---------------------------------------------------------------------------
   # Resolves and validates did:web identifiers.

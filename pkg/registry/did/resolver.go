@@ -28,14 +28,16 @@ import (
 // DIDDocument represents a W3C DID Document.
 // See https://www.w3.org/TR/did-core/#did-documents
 type DIDDocument struct {
-	Context            interface{}          `json:"@context,omitempty"`
-	ID                 string               `json:"id"`
-	Controller         interface{}          `json:"controller,omitempty"`
-	VerificationMethod []VerificationMethod `json:"verificationMethod,omitempty"`
-	Authentication     interface{}          `json:"authentication,omitempty"`
-	AssertionMethod    interface{}          `json:"assertionMethod,omitempty"`
-	KeyAgreement       interface{}          `json:"keyAgreement,omitempty"`
-	Service            interface{}          `json:"service,omitempty"`
+	Context              interface{}          `json:"@context,omitempty"`
+	ID                   string               `json:"id"`
+	Controller           interface{}          `json:"controller,omitempty"`
+	VerificationMethod   []VerificationMethod `json:"verificationMethod,omitempty"`
+	Authentication       interface{}          `json:"authentication,omitempty"`
+	AssertionMethod      interface{}          `json:"assertionMethod,omitempty"`
+	KeyAgreement         interface{}          `json:"keyAgreement,omitempty"`
+	CapabilityInvocation interface{}          `json:"capabilityInvocation,omitempty"`
+	CapabilityDelegation interface{}          `json:"capabilityDelegation,omitempty"`
+	Service              interface{}          `json:"service,omitempty"`
 }
 
 // VerificationMethod represents a verification method in a DID document.
@@ -433,6 +435,12 @@ func didDocumentToTrustMetadata(didDoc *DIDDocument) map[string]interface{} {
 	}
 	if didDoc.KeyAgreement != nil {
 		trustMeta["keyAgreement"] = didDoc.KeyAgreement
+	}
+	if didDoc.CapabilityInvocation != nil {
+		trustMeta["capabilityInvocation"] = didDoc.CapabilityInvocation
+	}
+	if didDoc.CapabilityDelegation != nil {
+		trustMeta["capabilityDelegation"] = didDoc.CapabilityDelegation
 	}
 	if didDoc.Service != nil {
 		trustMeta["service"] = didDoc.Service

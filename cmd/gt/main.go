@@ -18,6 +18,7 @@ import (
 	"github.com/sirosfoundation/go-trust/pkg/api"
 	"github.com/sirosfoundation/go-trust/pkg/config"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
+	"github.com/sirosfoundation/go-trust/pkg/registry/did"
 	"github.com/sirosfoundation/go-trust/pkg/registry/didjwks"
 	"github.com/sirosfoundation/go-trust/pkg/registry/didweb"
 	"github.com/sirosfoundation/go-trust/pkg/registry/didwebvh"
@@ -629,6 +630,25 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 
 		registryMgr.Register(didwebvhReg)
 		logger.Info("did:webvh registry registered from config")
+	}
+
+	// Configure the generic DID registry (self-contained methods) from config
+	if cfg.Registries.DID != nil && cfg.Registries.DID.Enabled {
+		logger.Info("Configuring DID registry from config file")
+		didCfg := cfg.Registries.DID
+
+		didReg, err := did.NewGenericDIDRegistryForMethods(
+			did.GenericDIDRegistryConfig{Description: didCfg.Description},
+			didCfg.Methods,
+		)
+		if err != nil {
+			logger.Fatal("Failed to create DID registry from config",
+				logging.F("error", err.Error()))
+		}
+
+		registryMgr.Register(didReg)
+		logger.Info("DID registry registered from config",
+			logging.F("methods", didReg.Info().TrustAnchors))
 	}
 
 	// Configure did:jwks registry from config
