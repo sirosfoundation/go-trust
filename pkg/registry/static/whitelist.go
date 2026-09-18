@@ -2,6 +2,7 @@
 package static
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/x509"
@@ -93,6 +94,19 @@ type WhitelistRegistry struct {
 	// same as every other registry's use of this type (see
 	// pkg/registry/cryptoext.go's ParseCertificatesPEM).
 	cryptoExt *gocryptoutil.Extensions
+
+	// additionalTrustedRootCerts mirrors AdditionalTrustedRoots as already-
+	// parsed certificates (populated alongside systemCertPool in
+	// loadSystemCertPool), used by evaluateViaSystemCA's cryptoExt fallback
+	// chain walk. Go's stdlib x509.Certificate.Verify() cannot build a chain
+	// through a root using a curve it doesn't natively support (confirmed
+	// live: brainpoolP256r1, a real ISO 18013-5/eIDAS reader-CA curve) even
+	// when the root parses fine via cryptoExt and the signature is
+	// genuinely valid per cryptoExt.CheckSignature - Verify()'s internal
+	// signature check is stdlib-only and has no extension point. This slice
+	// lets the fallback walk reuse the exact same trusted-root set without
+	// needing to enumerate x509.CertPool (which doesn't expose its members).
+	additionalTrustedRootCerts []*x509.Certificate
 }
 
 // WhitelistConfig holds the whitelist configuration.
@@ -715,6 +729,7 @@ func (r *WhitelistRegistry) loadSystemCertPool() (*x509.CertPool, error) {
 				}
 				for _, cert := range certs {
 					r.systemCertPool.AddCert(cert)
+					r.additionalTrustedRootCerts = append(r.additionalTrustedRootCerts, cert)
 				}
 			}
 		}
@@ -796,6 +811,23 @@ func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, originalSubjectID, ro
 	}
 
 	chains, err := certs[0].Verify(opts)
+	if err != nil && r.cryptoExt != nil && len(r.additionalTrustedRootCerts) > 0 {
+		// stdlib's Verify() failed - possibly because the true issuer uses a
+		// curve stdlib can't do signature verification with at all (e.g.
+		// brainpoolP256r1), which surfaces as the same "signed by unknown
+		// authority" error as an actually-untrusted chain. Retry with a
+		// cryptoExt-aware manual walk before giving up - see
+		// verifyChainWithCryptoExt's doc comment for why this can't just be
+		// "parse the root correctly" (that part already works).
+		var intermediates []*x509.Certificate
+		if len(certs) > 1 {
+			intermediates = certs[1:]
+		}
+		if extChain, extErr := verifyChainWithCryptoExt(certs[0], intermediates, r.additionalTrustedRootCerts, r.cryptoExt); extErr == nil {
+			chains = [][]*x509.Certificate{extChain}
+			err = nil
+		}
+	}
 	if err != nil {
 		return r.deny(subjectID, fmt.Sprintf("x509 chain validation against system CA pool failed: %s", err))
 	}
@@ -825,6 +857,75 @@ func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, originalSubjectID, ro
 			},
 		},
 	}, nil
+}
+
+// verifyChainWithCryptoExt validates a certificate chain from leaf to one of
+// roots using ext's signature checking, for the case where Go's stdlib
+// x509.Certificate.Verify() cannot build a chain at all because a
+// participant's public key uses a curve stdlib doesn't natively support
+// (confirmed live: brainpoolP256r1, used by a real ISO 18013-5/eIDAS
+// reader-CA root - the root parses fine via cryptoExt, and
+// cryptoExt.CheckSignature confirms the leaf's signature over it is
+// genuinely valid, but stdlib's own Verify() has no extension point for
+// this and fails with the same "certificate signed by unknown authority"
+// error an actually-untrusted chain would produce).
+//
+// This only walks issuer/signature links (AKI/SKI or Issuer/Subject DN
+// match, then a real signature check) and validity periods - it doesn't
+// evaluate BasicConstraints/PathLen/KeyUsage the way stdlib's Verify() does,
+// matching the reduced assurance this whole fallback already implies: it
+// only ever runs for identities relying on AdditionalTrustedRoots, which
+// this package's own doc comments already treat as an out-of-band, "we
+// vouch for this specific root" trust decision rather than public-CA-grade
+// path validation.
+func verifyChainWithCryptoExt(leaf *x509.Certificate, intermediates, roots []*x509.Certificate, ext *gocryptoutil.Extensions) ([]*x509.Certificate, error) {
+	now := time.Now()
+	candidates := make([]*x509.Certificate, 0, len(intermediates)+len(roots))
+	candidates = append(candidates, intermediates...)
+	candidates = append(candidates, roots...)
+
+	isRoot := func(cert *x509.Certificate) bool {
+		for _, r := range roots {
+			if r == cert {
+				return true
+			}
+		}
+		return false
+	}
+
+	chain := []*x509.Certificate{leaf}
+	current := leaf
+	const maxDepth = 8
+	for i := 0; i < maxDepth; i++ {
+		if now.Before(current.NotBefore) || now.After(current.NotAfter) {
+			return nil, fmt.Errorf("certificate %q is not valid at %s", current.Subject, now.Format(time.RFC3339))
+		}
+
+		var parent *x509.Certificate
+		for _, cand := range candidates {
+			if len(current.AuthorityKeyId) > 0 && len(cand.SubjectKeyId) > 0 {
+				if !bytes.Equal(current.AuthorityKeyId, cand.SubjectKeyId) {
+					continue
+				}
+			} else if current.Issuer.String() != cand.Subject.String() {
+				continue
+			}
+			if err := ext.CheckSignature(cand, current.SignatureAlgorithm, current.RawTBSCertificate, current.Signature); err != nil {
+				continue
+			}
+			parent = cand
+			break
+		}
+		if parent == nil {
+			return nil, fmt.Errorf("no trusted issuer found for %q", current.Subject)
+		}
+		chain = append(chain, parent)
+		if isRoot(parent) {
+			return chain, nil
+		}
+		current = parent
+	}
+	return nil, fmt.Errorf("certificate chain for %q exceeds maximum depth", leaf.Subject)
 }
 
 // allowViaPinnedHash builds the allow response for an x509_hash-identified
