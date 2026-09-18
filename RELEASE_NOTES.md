@@ -4,6 +4,14 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.20.7:start -->
+## [v0.20.7] - 2026-09-18
+
+### Fixed
+
+- Strip `decentralized_identifier:` prefix from OpenID4VP 1.0 client IDs before registry lookup, allowing third-party verifiers using the final specification to be trusted by the PDP. The final OpenID4VP 1.0 spec changed the DID client_id scheme from `did` to `decentralized_identifier` with a prefix format, which prevented both whitelist matching and DID resolution. Subject IDs are now normalized to bare DIDs consistently across all schemes. (#165)
+<!-- release-notes:v0.20.7:end -->
+
 <!-- release-notes:v0.20.6:start -->
 ## [v0.20.6] - 2026-09-04
 
