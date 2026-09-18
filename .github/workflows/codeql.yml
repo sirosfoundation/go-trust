@@ -1,16 +1,19 @@
 name: "CodeQL"
 
+# No paths-ignore. The default branch's ruleset requires a CodeQL result on
+# every pull request, and a rule cannot be scoped to a path - so skipping this
+# workflow for documentation does not make such a pull request cheap, it makes
+# it unmergeable: every check it does run goes green and the merge stays
+# BLOCKED, waiting for an analysis that was never going to start. That is what
+# happened to the release-notes bot's pull requests, which touch RELEASE_NOTES.md
+# and nothing else, and which someone then had to merge with an admin bypass
+# every release. Analysing a documentation change wastes a couple of minutes;
+# not analysing it costs a bypass on the default branch.
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
   schedule:
     - cron: '0 8 * * 1' # Run every Monday at 8:00 AM
 

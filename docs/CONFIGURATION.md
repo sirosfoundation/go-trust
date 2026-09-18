@@ -244,5 +244,3 @@ Static test registries
 | `never_trusted.name` | — | string |  |
 | `never_trusted.description` | — | string |  |
 
-
-<!-- merge-block probe, to be reverted -->
