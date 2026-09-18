@@ -202,6 +202,40 @@ registries:
     allow_http: false
 
   # ---------------------------------------------------------------------------
+  # DID JWKS Registry (did:jwks method)
+  # ---------------------------------------------------------------------------
+  # Resolves did:jwks identifiers by fetching the JWKS an existing OAuth2/OIDC
+  # deployment already publishes, then generating a DID document from it.
+  # Fragments match either a JWK "kid" or an RFC 7638 JWK thumbprint.
+  # Best for: reusing existing OAuth2/OIDC JWKS endpoints as DID subjects
+  #
+  # Resolution order:
+  #   did:jwks:example.com        -> https://example.com/.well-known/jwks.json
+  #   did:jwks:example.com:api:v1 -> https://example.com/api/v1/jwks.json
+  # Falls back to OAuth2/OIDC discovery (jwks_uri) unless disabled below.
+  #
+  # Supported resource types: jwk
+  # Resolution-only: Yes (can resolve DID documents)
+
+  didjwks:
+    enabled: true
+    name: "DID-JWKS"
+    description: "DID JWKS Method (did:jwks) Registry"
+
+    # Request timeout
+    timeout: "30s"
+
+    # TLS verification (disable only for testing!)
+    insecure_skip_verify: false
+
+    # Allow HTTP (disable for production - spec requires HTTPS)
+    allow_http: false
+
+    # Skip the OAuth2/OIDC discovery fallback and require a direct
+    # jwks.json endpoint.
+    disable_oidc_discovery: false
+
+  # ---------------------------------------------------------------------------
   # LoTE Registry (ETSI TS 119 602 Lists of Trusted Entities)
   # ---------------------------------------------------------------------------
   # Validates entities against ETSI TS 119 602 LoTE documents.
