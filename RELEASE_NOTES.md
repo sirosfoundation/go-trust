@@ -4,6 +4,21 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.21.0:start -->
+## [v0.21.0] - 2026-09-21
+
+### Added
+
+- `did:jwk` resolution, enabling verifiers to authenticate clients using `client_id_scheme=did` with `did:jwk` identifiers. Resolution is entirely local (no network access or caching), validates that no private key material is embedded, and respects the `use` field to restrict verification relationships. (#167)
+- Generic DID registry configuration block (`registries.did`) to make self-contained DID methods (`did:key`, `did:jwk`) reachable from a running server. Methods can be enabled selectively, and unrecognised methods fail at startup rather than being silently skipped. (#167)
+- `capabilityInvocation` and `capabilityDelegation` verification relationships to `DIDDocument`, populated by `did:jwk` and mapped into trust metadata. (#167)
+- `didjwks` registry block to `example/config.yaml`, documenting the `did:jwks` registry's configuration fields (`timeout`, `insecure_skip_verify`, `allow_http`, `disable_oidc_discovery`) and resolution behavior. (#170)
+
+### Fixed
+
+- CodeQL analysis now runs on documentation-only pull requests, unblocking automated release-notes PRs that previously required admin bypass to merge. (#169)
+<!-- release-notes:v0.21.0:end -->
+
 <!-- release-notes:v0.20.7:start -->
 ## [v0.20.7] - 2026-09-18
 
