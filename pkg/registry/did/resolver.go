@@ -339,7 +339,9 @@ func didDocServicesMatch(service interface{}, requiredTypes []string) bool {
 
 // SupportedResourceTypes returns the resource types this registry can handle.
 func (r *GenericDIDRegistry) SupportedResourceTypes() []string {
-	return []string{"jwk"}
+	// "kid" accompanies a key identifier rather than key material, which is
+	// how a DID-based client_id names the method that signed a request.
+	return []string{"jwk", "kid"}
 }
 
 // SupportsResolutionOnly returns true as DID resolution supports resolution-only requests.
@@ -455,19 +457,73 @@ func verifyKeyBinding(req *authzen.EvaluationRequest, didDoc *DIDDocument) (bool
 		return false, nil, fmt.Errorf("resource.key must not be empty")
 	}
 
-	requestJWK, ok := req.Resource.Key[0].(map[string]interface{})
-	if !ok {
-		return false, nil, fmt.Errorf("resource.key[0] must be a JWK object")
+	switch key := req.Resource.Key[0].(type) {
+	case map[string]interface{}:
+		for i := range didDoc.VerificationMethod {
+			vm := &didDoc.VerificationMethod[i]
+			if vm.PublicKeyJwk != nil && registry.JWKsMatch(key, vm.PublicKeyJwk) {
+				return true, vm, nil
+			}
+		}
+		return false, nil, nil
+
+	case string:
+		// A `kid` names a verification method instead of carrying key
+		// material, which is the normal shape for a DID-based client_id: the
+		// signer points at the method in its own document rather than
+		// inlining a key the verifier could already resolve.
+		//
+		// Like the JWK branch above, this establishes membership -- that the
+		// document really declares the method the signer named -- and not
+		// that any signature is valid. Verifying the signature against the
+		// resolved key remains the caller's job in both branches.
+		if vm := findVerificationMethodByKid(didDoc, key); vm != nil {
+			return true, vm, nil
+		}
+		return false, nil, nil
+
+	default:
+		return false, nil, fmt.Errorf("resource.key[0] must be a JWK object or a key identifier")
+	}
+}
+
+// findVerificationMethodByKid resolves a `kid` against a DID document's
+// verification methods, accepting the three spellings seen in practice: the
+// absolute DID URL, a relative fragment such as "#0", and the bare DID when
+// the document leaves no ambiguity about which method is meant.
+func findVerificationMethodByKid(didDoc *DIDDocument, kid string) *VerificationMethod {
+	if kid == "" {
+		return nil
 	}
 
 	for i := range didDoc.VerificationMethod {
-		vm := &didDoc.VerificationMethod[i]
-		if vm.PublicKeyJwk != nil && registry.JWKsMatch(requestJWK, vm.PublicKeyJwk) {
-			return true, vm, nil
+		if didDoc.VerificationMethod[i].ID == kid {
+			return &didDoc.VerificationMethod[i]
 		}
 	}
 
-	return false, nil, nil
+	if strings.HasPrefix(kid, "#") {
+		// A relative reference resolves against the document's own DID. It is
+		// resolved and compared whole rather than matched as a suffix: a
+		// document may embed a method belonging to another controller, and
+		// "#0" must not bind did:other:xyz#0 just because the fragments agree.
+		absolute := didDoc.ID + kid
+		for i := range didDoc.VerificationMethod {
+			if didDoc.VerificationMethod[i].ID == absolute {
+				return &didDoc.VerificationMethod[i]
+			}
+		}
+		return nil
+	}
+
+	// Some signers set `kid` to the DID itself. That only names a method when
+	// the document declares exactly one, so it is accepted only then rather
+	// than guessing at the first of several.
+	if kid == didDoc.ID && len(didDoc.VerificationMethod) == 1 {
+		return &didDoc.VerificationMethod[0]
+	}
+
+	return nil
 }
 
 // DIDKeyResolver implements the did:key method.

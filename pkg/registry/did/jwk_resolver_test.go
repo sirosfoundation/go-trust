@@ -241,3 +241,120 @@ func TestNewGenericDIDRegistryForMethods(t *testing.T) {
 		assert.Contains(t, err.Error(), `unknown DID method "web"`)
 	})
 }
+
+// TestVerifyKeyBinding_KidKeyMaterial covers the AuthZEN request wallet-common
+// sends when a verifier's request JWT header carries a `kid` rather than an
+// inline `jwk` — the normal shape for a DID-based client_id.
+//
+// This used to fail with "resource.key[0] must be a JWK object", so the PDP
+// reported an otherwise valid verifier as untrusted even though the wallet had
+// already verified the request signature against the resolved key.
+func TestVerifyKeyBinding_KidKeyMaterial(t *testing.T) {
+	registry := NewGenericDIDRegistryWithLocalMethods(GenericDIDRegistryConfig{})
+
+	evaluate := func(t *testing.T, kid string) *authzen.EvaluationResponse {
+		t.Helper()
+		resp, err := registry.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{ID: didJwkP256Sig},
+			Resource: authzen.Resource{Type: "kid", Key: []interface{}{kid}},
+		})
+		require.NoError(t, err)
+		return resp
+	}
+
+	t.Run("absolute DID URL", func(t *testing.T) {
+		resp := evaluate(t, didJwkP256Sig+"#0")
+		require.True(t, resp.Decision, "kid naming the verification method should bind")
+		assert.Equal(t, didJwkP256Sig+"#0", resp.Context.Reason["verification_method"])
+	})
+
+	t.Run("relative fragment", func(t *testing.T) {
+		assert.True(t, evaluate(t, "#0").Decision)
+	})
+
+	t.Run("the bare DID, when the document declares one method", func(t *testing.T) {
+		assert.True(t, evaluate(t, didJwkP256Sig).Decision)
+	})
+
+	t.Run("a kid naming no method does not bind", func(t *testing.T) {
+		resp := evaluate(t, didJwkP256Sig+"#nope")
+		require.False(t, resp.Decision, "a kid the document does not declare must not bind")
+		assert.Contains(t, resp.Context.Reason["error"], "no matching verification method")
+	})
+
+	t.Run("a fragment naming no method does not bind", func(t *testing.T) {
+		assert.False(t, evaluate(t, "#nope").Decision)
+	})
+
+	t.Run("a different DID does not bind", func(t *testing.T) {
+		// The bare-DID shorthand must not turn into "any single-method document".
+		other := didJwkFor(t, map[string]interface{}{
+			"kty": "EC", "crv": "P-256",
+			"x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+			"y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+		})
+		assert.False(t, evaluate(t, other).Decision)
+	})
+}
+
+// The JWK branch must keep working unchanged.
+func TestVerifyKeyBinding_JWKKeyMaterialStillWorks(t *testing.T) {
+	registry := NewGenericDIDRegistryWithLocalMethods(GenericDIDRegistryConfig{})
+
+	resp, err := registry.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{ID: didJwkP256Sig},
+		Resource: authzen.Resource{Type: "jwk", Key: []interface{}{
+			map[string]interface{}{
+				"kty": "EC", "crv": "P-256",
+				"x": "cT-c5OJuoY53qzPlKuKdGcQOPrRHrDOMKMUKqcfdguc",
+				"y": "TJiBXU-uHlhi_2iWvrKhKb1zi_vKPpuTeSwVC4HJrec",
+			},
+		}},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+}
+
+func TestVerifyKeyBinding_RejectsUnusableKeyMaterial(t *testing.T) {
+	registry := NewGenericDIDRegistryWithLocalMethods(GenericDIDRegistryConfig{})
+
+	resp, err := registry.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{ID: didJwkP256Sig},
+		Resource: authzen.Resource{Type: "jwk", Key: []interface{}{42}},
+	})
+	require.NoError(t, err)
+	require.False(t, resp.Decision)
+	assert.Contains(t, resp.Context.Reason["error"], "must be a JWK object or a key identifier")
+}
+
+// A DID document may embed a verification method belonging to another
+// controller. A relative reference such as "#0" resolves against the
+// document's own DID, so it must not bind a foreign method that merely
+// happens to share the fragment.
+func TestFindVerificationMethodByKid_FragmentIsScopedToTheDocument(t *testing.T) {
+	doc := &DIDDocument{
+		ID: "did:example:subject",
+		VerificationMethod: []VerificationMethod{
+			{ID: "did:other:controller#0", Type: "JsonWebKey2020", Controller: "did:other:controller"},
+			{ID: "did:example:subject#keys-1", Type: "JsonWebKey2020", Controller: "did:example:subject"},
+		},
+	}
+
+	assert.Nil(t, findVerificationMethodByKid(doc, "#0"),
+		"#0 must resolve against did:example:subject, not bind did:other:controller#0")
+
+	vm := findVerificationMethodByKid(doc, "#keys-1")
+	require.NotNil(t, vm, "a fragment naming this document's own method should bind")
+	assert.Equal(t, "did:example:subject#keys-1", vm.ID)
+
+	// An absolute identifier still binds whatever the document declares,
+	// including a foreign one: the signer named it in full rather than
+	// relying on resolution against the subject.
+	vm = findVerificationMethodByKid(doc, "did:other:controller#0")
+	require.NotNil(t, vm)
+	assert.Equal(t, "did:other:controller#0", vm.ID)
+
+	// The bare-DID shorthand needs an unambiguous document, and this one
+	// declares two methods.
+	assert.Nil(t, findVerificationMethodByKid(doc, "did:example:subject"))
+}

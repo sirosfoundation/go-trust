@@ -97,7 +97,17 @@ func TestEvaluationRequestValidation(t *testing.T) {
 				Resource: Resource{Type: "pem", ID: "did:example:123", Key: []interface{}{"pemdata"}},
 			},
 			wantError: true,
-			errorMsg:  "resource.type must be 'jwk' or 'x5c', got 'pem'",
+			errorMsg:  "resource.type must be 'jwk', 'x5c' or 'kid', got 'pem'",
+		},
+		{
+			// A key identifier rather than key material: how a DID-based
+			// client_id names the verification method that signed a request.
+			name: "full request with resource.type kid",
+			request: EvaluationRequest{
+				Subject:  Subject{Type: "key", ID: "did:example:123"},
+				Resource: Resource{Type: "kid", ID: "did:example:123", Key: []interface{}{"did:example:123#0"}},
+			},
+			wantError: false,
 		},
 	}
 
