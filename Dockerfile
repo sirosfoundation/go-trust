@@ -8,7 +8,7 @@
 # Go 1.27.0's actual jsonv2 API no longer has - a real upstream break, not a
 # flag issue. Don't bump past 1.26.x without confirming jwx/v4 has a release
 # that builds clean against whatever jsonv2 shape the target Go version ships.
-FROM golang:1.26.6-alpine AS builder
+FROM golang:1.27.1-alpine AS builder
 
 WORKDIR /app
 
