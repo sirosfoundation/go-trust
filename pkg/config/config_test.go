@@ -168,6 +168,83 @@ registries:
 	}
 }
 
+func TestLoadConfigDIDLocalRegistry(t *testing.T) {
+	// Regression test: config is decoded with a non-strict yaml.Unmarshal, so
+	// a wrong or stale key on DIDLocal leaves the field nil and the registry
+	// simply absent. Nothing errors; did:key and did:jwk just stop resolving,
+	// and the failure surfaces far away as an unresolvable DID. The key was
+	// renamed from did_local to didlocal, which is exactly the kind of change
+	// that fails this way.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  host: "0.0.0.0"
+  port: "8080"
+
+registries:
+  didlocal:
+    enabled: true
+    description: "Self-contained DID methods"
+    methods:
+      - "key"
+      - "jwk"
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if cfg.Registries.DIDLocal == nil {
+		t.Fatal("registries.didlocal was not parsed - the yaml tag and this key have diverged")
+	}
+	if !cfg.Registries.DIDLocal.Enabled {
+		t.Error("expected didlocal registry to be enabled")
+	}
+	if got := cfg.Registries.DIDLocal.Methods; len(got) != 2 || got[0] != "key" || got[1] != "jwk" {
+		t.Errorf("Methods = %v, want [key jwk]", got)
+	}
+}
+
+func TestLoadConfigDIDLocalIgnoresTheOldKey(t *testing.T) {
+	// The previous spelling is not an alias. Pinning the behaviour so the
+	// silent-ignore is a stated property rather than a surprise: a deployment
+	// still using did_local gets no registry and no error.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  host: "0.0.0.0"
+  port: "8080"
+
+registries:
+  did_local:
+    enabled: true
+    methods:
+      - "jwk"
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if cfg.Registries.DIDLocal != nil {
+		t.Error("did_local should no longer populate DIDLocal; if it does, the rename was incomplete")
+	}
+}
+
 func TestLoadConfigWithEnvOverrides(t *testing.T) {
 	// Set environment variables
 	os.Setenv("GT_HOST", "192.168.1.1")

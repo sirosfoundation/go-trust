@@ -170,7 +170,7 @@ registries:
   # Supported resource types: jwk
   # Resolution-only: Yes (can resolve DID documents)
 
-  did_local:
+  didlocal:
     enabled: true
     description: "Self-contained DID methods (did:key, did:jwk)"
 
