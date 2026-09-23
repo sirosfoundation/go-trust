@@ -4,6 +4,22 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.21.1:start -->
+## [v0.21.1] - 2026-09-23
+
+### Fixed
+
+- Fixed trust evaluation failure when verifiers use `kid` instead of inline `jwk` for DID-based key binding. The registry now accepts `kid` references in three forms: absolute DID URL (`did:jwk:…#0`), relative fragment (`#0`), or bare DID when the document has exactly one verification method. This affected `did:jwk` and `did:key` verifiers whose request JWTs carried a `kid` header — the wallet had already verified their signature but trust evaluation rejected them with "resource.key[0] must be a JWK object". (#172)
+
+- Fixed X.509 chain validation for roots using brainpool curves (e.g., mdoc.online Geneva deployments). Go's stdlib `crypto/x509` refuses to verify signatures over curves it doesn't recognize, so a manual chain walk using `ext.CheckSignature` now runs as a fallback when stdlib verification fails and a `CryptoExt` is configured. NIST-curve paths are unchanged. (#155)
+
+### Changed
+
+- **Breaking:** Renamed the `did_local` registry config key to `didlocal` for consistency with other unpunctuated registry keys (`didweb`, `didwebvh`, etc.). Deployed configs using `did_local:` must update to `didlocal:` in the same change — the old key is silently ignored rather than rejected, causing `did:jwk` and `did:key` resolution to fail. This affects deployments that adopted the feature in the two days since #167 merged. (#173)
+
+- Dependency updates: `github.com/SUNET/vc` 0.7.0→0.7.18, `github.com/fxamacker/cbor/v2` 2.9.3→2.9.4, `github.com/go-oidfed/lib` 0.11.1→0.11.2, `github.com/go-webauthn/webauthn` 0.17.4→0.18.1, `golang.org/x/time` 0.15.0→0.16.0, and Go runtime 1.26.6→1.27.1. (#166, #157)
+<!-- release-notes:v0.21.1:end -->
+
 <!-- release-notes:v0.21.0:start -->
 ## [v0.21.0] - 2026-09-21
 
