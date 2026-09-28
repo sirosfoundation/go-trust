@@ -311,9 +311,18 @@ type OIDFedPolicyConfig struct {
 
 	// MaxChainDepth limits trust chain resolution depth
 	MaxChainDepth int `yaml:"max_chain_depth,omitempty"`
+
+	// CredentialTypeTrustMarks maps credential type identifiers (VCT) to the
+	// trust marks required for that type. When a request carries
+	// credential_types, the matching trust marks are added to the required set.
+	// Example: {"eu.europa.ec.eudi.pid.1": ["https://trust.eu/wallet/pid-issuer"]}
+	CredentialTypeTrustMarks map[string][]string `yaml:"credential_type_trust_marks,omitempty"`
 }
 
 // ETSIPolicyConfig contains ETSI TSL-specific policy constraints.
+// Every field here maps 1:1 onto registry.ETSIPolicyConstraints; keep the two
+// in step, because a constraint with no field on this side is not rejected by
+// the YAML decoder, it is silently discarded (see TestETSIPolicyConfigCoversConstraints).
 type ETSIPolicyConfig struct {
 	// ServiceTypes filters by ETSI service type URIs
 	ServiceTypes []string `yaml:"service_types,omitempty"`
@@ -323,6 +332,34 @@ type ETSIPolicyConfig struct {
 
 	// Countries filters by country codes (e.g., ["DE", "FR"])
 	Countries []string `yaml:"countries,omitempty"`
+
+	// CredentialTypes specifies credential type identifiers (e.g., SD-JWT VCT
+	// values) that the policy scopes the evaluation to.
+	CredentialTypes []string `yaml:"credential_types,omitempty"`
+
+	// RequiredCertPolicyOIDs specifies certificate policy OIDs that MUST appear
+	// in the leaf certificate's Certificate Policies extension, used to
+	// distinguish access certificates (ETSI TS 119 411-8) from generic TLS
+	// certificates.
+	RequiredCertPolicyOIDs []string `yaml:"required_cert_policy_oids,omitempty"`
+
+	// ExtractRPIdentity controls whether RP identity information (Subject DN,
+	// SANs, serial number) is extracted from the leaf certificate and returned
+	// in the response trust metadata.
+	ExtractRPIdentity bool `yaml:"extract_rp_identity,omitempty"`
+
+	// AllowedAttributes lists the attribute names the RP is entitled to
+	// request. Over-request detection per TS 119 475 does not run at all
+	// unless this is set.
+	AllowedAttributes []string `yaml:"allowed_attributes,omitempty"`
+
+	// StrictEntitlementCheck rejects over-requesting RPs instead of returning
+	// warnings alongside an allow decision.
+	StrictEntitlementCheck bool `yaml:"strict_entitlement_check,omitempty"`
+
+	// AllowIntermediaries accepts intermediary/broker presentation requests
+	// and surfaces intermediary metadata. Defaults to false.
+	AllowIntermediaries bool `yaml:"allow_intermediaries,omitempty"`
 }
 
 // DIDPolicyConfig contains DID method-specific policy constraints.

@@ -603,3 +603,90 @@ policies:
 		t.Errorf("FIDOMDS3 AllowedAAGUIDs count = %v, want %v", len(wscdPolicy.FIDOMDS3.AllowedAAGUIDs), 1)
 	}
 }
+
+func TestLoadConfigPolicyEnrichmentKeys(t *testing.T) {
+	// Regression test for the six ETSI enrichment keys (and the OIDFed
+	// credential-type trust marks) that pkg/registry implemented but
+	// pkg/config had no field for. Because decoding is non-strict, writing
+	// them produced silence and no enforcement rather than an error — in
+	// particular over-request detection, which does not run at all unless
+	// allowed_attributes is set.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  host: "0.0.0.0"
+  port: "8080"
+
+policies:
+  default_policy: credential-verifier
+  policies:
+    credential-verifier:
+      description: "Relying parties"
+      constraints:
+        allowed_key_types: ["x5c"]
+        require_key_binding: true
+      etsi:
+        credential_types: ["eu.europa.ec.eudi.pid.1"]
+        required_cert_policy_oids: ["0.4.0.194112.1.0"]
+        extract_rp_identity: true
+        allowed_attributes: ["given_name", "family_name"]
+        strict_entitlement_check: true
+        allow_intermediaries: true
+      oidfed:
+        credential_type_trust_marks:
+          eu.europa.ec.eudi.pid.1:
+            - "https://trust.eu/wallet/pid-issuer"
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	policy, ok := cfg.Policies.Policies["credential-verifier"]
+	if !ok || policy == nil {
+		t.Fatal("policies.credential-verifier was not parsed")
+	}
+
+	if policy.Constraints == nil || !policy.Constraints.RequireKeyBinding {
+		t.Error("constraints.require_key_binding was not parsed")
+	}
+
+	etsi := policy.ETSI
+	if etsi == nil {
+		t.Fatal("policies.credential-verifier.etsi was not parsed")
+	}
+	if got := etsi.CredentialTypes; len(got) != 1 || got[0] != "eu.europa.ec.eudi.pid.1" {
+		t.Errorf("credential_types = %v, want [eu.europa.ec.eudi.pid.1]", got)
+	}
+	if got := etsi.RequiredCertPolicyOIDs; len(got) != 1 || got[0] != "0.4.0.194112.1.0" {
+		t.Errorf("required_cert_policy_oids = %v, want [0.4.0.194112.1.0]", got)
+	}
+	if !etsi.ExtractRPIdentity {
+		t.Error("extract_rp_identity was not parsed")
+	}
+	if got := etsi.AllowedAttributes; len(got) != 2 || got[0] != "given_name" {
+		t.Errorf("allowed_attributes = %v, want [given_name family_name]", got)
+	}
+	if !etsi.StrictEntitlementCheck {
+		t.Error("strict_entitlement_check was not parsed")
+	}
+	if !etsi.AllowIntermediaries {
+		t.Error("allow_intermediaries was not parsed")
+	}
+
+	if policy.OIDFed == nil {
+		t.Fatal("policies.credential-verifier.oidfed was not parsed")
+	}
+	marks := policy.OIDFed.CredentialTypeTrustMarks["eu.europa.ec.eudi.pid.1"]
+	if len(marks) != 1 || marks[0] != "https://trust.eu/wallet/pid-issuer" {
+		t.Errorf("credential_type_trust_marks = %v, want one pid-issuer entry",
+			policy.OIDFed.CredentialTypeTrustMarks)
+	}
+}

@@ -220,8 +220,11 @@ func TestApplyPolicyToRequest_EmptyConstraints(t *testing.T) {
 	assert.Equal(t, "empty-constraints", req.Context["_policy"])
 }
 
-// TestApplyPolicyToRequest_PreservesExistingContext verifies that existing context
-// fields from the client are preserved when policy constraints are applied.
+// TestApplyPolicyToRequest_PreservesExistingContext verifies that context
+// entries already present are preserved when policy constraints are applied.
+// By the time applyPolicyToRequest runs, Evaluate has sanitized the context,
+// so what survives here is server-controlled — see
+// TestEvaluate_SanitizesClientSuppliedContext for the boundary itself.
 func TestApplyPolicyToRequest_PreservesExistingContext(t *testing.T) {
 	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
 
@@ -234,14 +237,14 @@ func TestApplyPolicyToRequest_PreservesExistingContext(t *testing.T) {
 
 	req := &authzen.EvaluationRequest{
 		Context: map[string]interface{}{
-			"client_field": "should-be-preserved",
+			"purpose": "age verification",
 		},
 	}
 	pctx := &PolicyContext{Policy: policy}
 
 	mgr.applyPolicyToRequest(req, pctx)
 
-	assert.Equal(t, "should-be-preserved", req.Context["client_field"])
+	assert.Equal(t, "age verification", req.Context["purpose"])
 	assert.Equal(t, []string{"example.com"}, req.Context["allowed_domains"])
 }
 
