@@ -409,6 +409,28 @@ var clientSuppliableContextKeys = map[string]bool{
 	"doc_type":         true, // mdoc doctype, filters VICAL entries
 	"intermediary_x5c": true, // the intermediary's own certificate chain
 
+	// OpenID Federation request data, consumed by OIDFedRegistry. All four
+	// are data or hints, not policy: none of them decides what the server
+	// permits.
+	//
+	// trust_chain is the verifier-supplied chain from a signed request
+	// (OID4VP 5.9.3.6). Accepting it is safe because it is never taken on
+	// trust: validatePreSuppliedTrustChain caps its depth, requires the leaf
+	// to be the entity under evaluation, requires the anchor to be a
+	// CONFIGURED anchor that self-signs, checks linkage and time validity,
+	// and verifies the anchor against the configured JWKS rather than the
+	// chain's own. Without a configured JWKS it refuses and falls back to
+	// resolving from scratch. A forged chain cannot pass; supplying a real
+	// one only saves the resolution.
+	//
+	// cache_control can only ever ask for FRESHER data. GetWithMaxAge
+	// applies max-age on top of normal expiry, so a client can force
+	// revalidation but never extend a cache entry's life.
+	"trust_chain":          true, // pre-supplied federation trust chain
+	"include_trust_chain":  true, // response shaping: include the chain
+	"include_certificates": true, // response shaping: include X.509 certs
+	"cache_control":        true, // freshness hint; only ever tightens
+
 	// Informational / audit
 	"purpose": true, // presentation purpose
 }
