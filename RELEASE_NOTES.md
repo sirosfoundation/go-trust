@@ -4,6 +4,20 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.23.0:start -->
+## [v0.23.0] - 2026-09-28
+
+### Added
+- Configuration reference now documents the entire policy surface, including all 25 ETSI/OIDFed/DID/mDOC IACA/FIDO MDS3 constraint keys and enrichment options. Previously, `PolicyConfig` rendered as an opaque object with no detail (#183)
+- CORS middleware with origin allowlist enforcement. Wildcards follow DID policy semantics (`https://*.example.com` covers subdomains but not the apex), and credentials are never enabled since the PDP uses bearer tokens (#183)
+- Rate limiting is now wired and active. Burst is set to rps/10 (minimum 1), with a cleanup loop to prevent unbounded per-IP map growth (#183)
+- Composite registries (AND/OR/MAJORITY/QUORUM), resolution strategies (`all`, `best_match`, `sequential`), system cert pool, and ETSI background refresh intervals are now configurable. Children are automatically unregistered when added to a composite to prevent bypassing agreement requirements (#183)
+
+### Changed
+- Unknown configuration keys now log warnings with key name, line number, and section. These will become startup errors in v0.24.0 to prevent silent misconfigurations (#183)
+- `server.frequency` removed—registries already carry their own `refresh_interval`, making a second global loop redundant (#183)
+<!-- release-notes:v0.23.0:end -->
+
 <!-- release-notes:v0.22.0:start -->
 ## [v0.22.0] - 2026-09-28
 
