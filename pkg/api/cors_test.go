@@ -156,3 +156,20 @@ func TestCORSWildcardEndToEnd(t *testing.T) {
 		t.Errorf("Allow-Origin = %q, want empty", got)
 	}
 }
+
+func TestCORSMalformedPatternNeverMatches(t *testing.T) {
+	// A pattern with no scheme cannot be split into scheme and host, so the
+	// wildcard branch must decline rather than fall through to a partial
+	// comparison that could over-match.
+	for _, pattern := range []string{"*.example.com", "example.com", "://*.example.com"} {
+		if originAllowed("https://sub.example.com", []string{pattern}) {
+			t.Errorf("pattern %q matched; a wildcard pattern must carry a scheme", pattern)
+		}
+	}
+
+	// An Origin header that is not a well-formed origin must not match a
+	// wildcard pattern either.
+	if originAllowed("sub.example.com", []string{"https://*.example.com"}) {
+		t.Error("a schemeless Origin matched a wildcard pattern")
+	}
+}

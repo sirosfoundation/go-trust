@@ -176,23 +176,7 @@ func main() {
 		logger.Info("Loaded configuration from file",
 			logging.F("file", *configFile))
 
-		// Warn about keys the decoder threw away. Decoding is non-strict, so
-		// a stale or misspelled key is discarded rather than rejected, and
-		// the consequence surfaces far from the config file - as an
-		// unresolvable DID, or a policy control that silently never applies.
-		// Warning is not the end state: from v0.24.0 this is intended to be
-		// a startup error, most likely behind a config gate.
-		if unknown := cfg.UnknownKeys(); len(unknown) > 0 {
-			for _, key := range unknown {
-				logger.Warn("Unknown config key ignored",
-					logging.F("key", key.Field),
-					logging.F("line", key.Line),
-					logging.F("section", key.Type))
-			}
-			logger.Warn("Unknown config keys were ignored; they configure nothing. These will be startup errors in v0.24.0",
-				logging.F("count", len(unknown)),
-				logging.F("file", *configFile))
-		}
+		warnUnknownConfigKeys(cfg, *configFile, logger)
 
 		// Validate configuration
 		if err := cfg.Validate(); err != nil {
@@ -395,34 +379,7 @@ func main() {
 	}))
 	r.Use(gin.Recovery())
 
-	// CORS, before rate limiting, so a rejected request still carries the
-	// headers a browser needs to surface the real status rather than an
-	// opaque network error.
-	if cfg != nil && cfg.Security.EnableCORS {
-		if len(cfg.Security.AllowedOrigins) == 0 {
-			logger.Warn("CORS is enabled but security.allowed_origins is empty; no cross-origin request can succeed")
-		}
-		r.Use(api.CORSMiddleware(cfg.Security.AllowedOrigins))
-		logger.Info("CORS enabled",
-			logging.F("allowed_origins", cfg.Security.AllowedOrigins))
-	}
-
-	if cfg != nil && cfg.Security.RateLimitRPS > 0 {
-		// Burst is a tenth of the sustained rate (at least 1), so a client
-		// can absorb a short spike without being able to bank a full
-		// second's allowance and spend it at once.
-		burst := cfg.Security.RateLimitRPS / 10
-		if burst < 1 {
-			burst = 1
-		}
-		limiter := api.NewRateLimiter(cfg.Security.RateLimitRPS, burst)
-		// Without this the per-IP map grows for the life of the process.
-		limiter.StartCleanupLoop(time.Hour, time.Hour, make(chan struct{}))
-		r.Use(limiter.Middleware())
-		logger.Info("Rate limiting enabled",
-			logging.F("rps", cfg.Security.RateLimitRPS),
-			logging.F("burst", burst))
-	}
+	installSecurityMiddleware(r, cfg, logger)
 
 	// Initialize metrics
 	metrics := api.NewMetrics()
@@ -480,19 +437,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 
 		registryMgr.Register(tslRegistry)
 
-		// Background refresh, matching what lote, whitelist and fidomds3
-		// already do. Without it the registry serves whatever it loaded at
-		// startup until the process restarts, so a revoked service stays
-		// trusted for as long as gt happens to stay up.
-		if tslConfig.RefreshInterval > 0 {
-			if err := tslRegistry.StartRefreshLoop(context.Background()); err != nil {
-				logger.Warn("Failed to start ETSI TSL background refresh",
-					logging.F("error", err.Error()))
-			} else {
-				logger.Info("ETSI TSL background refresh started",
-					logging.F("interval", tslConfig.RefreshInterval.String()))
-			}
-		}
+		startETSIRefreshLoop(tslRegistry, tslConfig.RefreshInterval, logger)
 
 		logger.Info("ETSI TSL registry registered from config")
 	}
@@ -572,22 +517,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		registryMgr.Register(static.NewAlwaysTrustedRegistry(name))
 	}
 
-	// Configure the system certificate pool registry from config
-	if cfg.Registries.SystemCertPool != nil && cfg.Registries.SystemCertPool.Enabled {
-		logger.Info("Configuring system certificate pool registry from config")
-		scpCfg := cfg.Registries.SystemCertPool
-		scpReg, err := static.NewSystemCertPoolRegistry(static.SystemCertPoolConfig{
-			Name:        scpCfg.Name,
-			Description: scpCfg.Description,
-		})
-		if err != nil {
-			logger.Fatal("Failed to create system certificate pool registry",
-				logging.F("error", err.Error()))
-		}
-		registryMgr.Register(scpReg)
-		logger.Info("System certificate pool registry registered",
-			logging.F("name", scpReg.Info().Name))
-	}
+	configureSystemCertPoolRegistry(cfg, registryMgr, logger)
 
 	// Configure never-trusted registry from config
 	if cfg.Registries.NeverTrusted != nil && cfg.Registries.NeverTrusted.Enabled {
@@ -1005,6 +935,114 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		logger.Info("FIDO MDS3 registry registered from config")
 	}
 
+}
+
+// warnUnknownConfigKeys reports config-file keys the decoder threw away.
+//
+// Decoding is non-strict, so a stale or misspelled key is discarded rather
+// than rejected, and the consequence surfaces far from the config file — as
+// an unresolvable DID, or a policy control that silently never applies.
+// Warning is not the end state: from v0.24.0 this is intended to be a startup
+// error, most likely behind a config gate.
+func warnUnknownConfigKeys(cfg *config.Config, configFile string, logger logging.Logger) {
+	if cfg == nil {
+		return
+	}
+	unknown := cfg.UnknownKeys()
+	if len(unknown) == 0 {
+		return
+	}
+	for _, key := range unknown {
+		logger.Warn("Unknown config key ignored",
+			logging.F("key", key.Field),
+			logging.F("line", key.Line),
+			logging.F("section", key.Type))
+	}
+	logger.Warn("Unknown config keys were ignored; they configure nothing. These will be startup errors in v0.24.0",
+		logging.F("count", len(unknown)),
+		logging.F("file", configFile))
+}
+
+// installSecurityMiddleware adds CORS and rate limiting when configured.
+//
+// CORS goes on first so a rate-limited request still carries the headers a
+// browser needs to surface the real status rather than an opaque network
+// error.
+func installSecurityMiddleware(r *gin.Engine, cfg *config.Config, logger logging.Logger) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.Security.EnableCORS {
+		if len(cfg.Security.AllowedOrigins) == 0 {
+			logger.Warn("CORS is enabled but security.allowed_origins is empty; no cross-origin request can succeed")
+		}
+		r.Use(api.CORSMiddleware(cfg.Security.AllowedOrigins))
+		logger.Info("CORS enabled",
+			logging.F("allowed_origins", cfg.Security.AllowedOrigins))
+	}
+
+	if cfg.Security.RateLimitRPS > 0 {
+		burst := rateLimitBurst(cfg.Security.RateLimitRPS)
+		limiter := api.NewRateLimiter(cfg.Security.RateLimitRPS, burst)
+		// Without this the per-IP map grows for the life of the process.
+		limiter.StartCleanupLoop(time.Hour, time.Hour, make(chan struct{}))
+		r.Use(limiter.Middleware())
+		logger.Info("Rate limiting enabled",
+			logging.F("rps", cfg.Security.RateLimitRPS),
+			logging.F("burst", burst))
+	}
+}
+
+// rateLimitBurst is a tenth of the sustained rate, minimum 1, so a client can
+// absorb a short spike without being able to bank a full second's allowance
+// and spend it at once.
+func rateLimitBurst(rps int) int {
+	if burst := rps / 10; burst >= 1 {
+		return burst
+	}
+	return 1
+}
+
+// configureSystemCertPoolRegistry registers the host trust store as a registry.
+func configureSystemCertPoolRegistry(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) {
+	if cfg == nil || cfg.Registries.SystemCertPool == nil || !cfg.Registries.SystemCertPool.Enabled {
+		return
+	}
+	logger.Info("Configuring system certificate pool registry from config")
+	scpCfg := cfg.Registries.SystemCertPool
+	scpReg, err := static.NewSystemCertPoolRegistry(static.SystemCertPoolConfig{
+		Name:        scpCfg.Name,
+		Description: scpCfg.Description,
+	})
+	if err != nil {
+		logger.Fatal("Failed to create system certificate pool registry",
+			logging.F("error", err.Error()))
+		return
+	}
+	registryMgr.Register(scpReg)
+	logger.Info("System certificate pool registry registered",
+		logging.F("name", scpReg.Info().Name))
+}
+
+// startETSIRefreshLoop starts background TSL refresh, matching what lote,
+// whitelist and fidomds3 already do. Without it the registry serves whatever
+// it loaded at startup until the process restarts, so a service revoked
+// upstream stays trusted for as long as gt happens to stay up.
+//
+// A zero interval disables refresh, and a failure to start is a warning
+// rather than fatal: stale trust data still answers, no trust data does not.
+func startETSIRefreshLoop(reg *etsi.TSLRegistry, interval time.Duration, logger logging.Logger) {
+	if reg == nil || interval <= 0 {
+		return
+	}
+	if err := reg.StartRefreshLoop(context.Background()); err != nil {
+		logger.Warn("Failed to start ETSI TSL background refresh",
+			logging.F("error", err.Error()))
+		return
+	}
+	logger.Info("ETSI TSL background refresh started",
+		logging.F("interval", interval.String()))
 }
 
 // resolutionStrategy maps registries.strategy onto a ResolutionStrategy.
