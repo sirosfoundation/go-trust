@@ -16,6 +16,15 @@
 ### Changed
 - Unknown configuration keys now log warnings with key name, line number, and section. These will become startup errors in v0.24.0 to prevent silent misconfigurations (#183)
 - `server.frequency` removed—registries already carry their own `refresh_interval`, making a second global loop redundant (#183)
+- `security.rate_limit_rps: 0` now disables rate limiting instead of failing validation. Omitting the key still leaves the default of 100, which is not the same thing (#183)
+
+### Fixed
+- Rate limiting no longer throttles `/healthz`, `/readyz` and `/metrics`. An exhausted bucket made liveness return 429 even though the handler guarantees 200 while the process runs, so an orchestrator reading it could restart a healthy server (#183)
+- A composite registry now rejects an ambiguous child name instead of taking one of two same-named registries and leaving the other registered top-level, where it could allow a request on its own — the exact bypass composite ownership exists to prevent. `Unregister` removes every match rather than the first (#183)
+- A composite `timeout` of `"0"` or a negative value now falls back to the default. Both parsed cleanly and installed an already-expired context, so context-aware children failed instantly and every composite evaluation became a denial (#183)
+
+### Security
+- **Rate limiting was bypassable.** The limiter keys on the client address, and gin trusts `0.0.0.0/0` by default, so a directly reachable client could rotate `X-Forwarded-For` and receive a fresh bucket on every request. Trusted proxies are now set explicitly from the new `security.trusted_proxies`, which is empty by default: no forwarded header is believed and the peer address is used. **Deployments behind a load balancer must list it**, or every request appears to come from the balancer and shares one bucket (#183)
 <!-- release-notes:v0.23.0:end -->
 
 <!-- release-notes:v0.22.0:start -->
