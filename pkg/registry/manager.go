@@ -477,25 +477,48 @@ func (m *RegistryManager) GetRegistry(name string) TrustRegistry {
 	return nil
 }
 
-// Unregister removes the registry with the given Info().Name and reports
-// whether one was removed.
+// CountRegistries returns how many registered registries carry the given
+// Info().Name. Register permits duplicates, so a name is not necessarily a
+// unique handle, and a caller that needs one must check.
+func (m *RegistryManager) CountRegistries(name string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	count := 0
+	for _, reg := range m.registries {
+		if reg.Info().Name == name {
+			count++
+		}
+	}
+	return count
+}
+
+// Unregister removes every registry with the given Info().Name and returns
+// how many were removed.
 //
 // This exists so a CompositeRegistry can take ownership of its children: a
 // child left registered alongside its parent would also be consulted on its
 // own, and under FirstMatch could return decision=true by itself — exactly
 // the agreement an AND composite was configured to require.
-func (m *RegistryManager) Unregister(name string) bool {
+//
+// It removes all matches rather than the first because Register permits
+// duplicate names. Removing only one would leave a same-named registry
+// top-level and reintroduce exactly that bypass.
+func (m *RegistryManager) Unregister(name string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for i, reg := range m.registries {
-		if reg.Info().Name != name {
+	kept := m.registries[:0]
+	removed := 0
+	for _, reg := range m.registries {
+		if reg.Info().Name == name {
+			removed++
 			continue
 		}
-		m.registries = append(m.registries[:i], m.registries[i+1:]...)
-		return true
+		kept = append(kept, reg)
 	}
-	return false
+	m.registries = kept
+	return removed
 }
 
 // SupportedResourceTypes returns the union of all resource types supported by registered registries

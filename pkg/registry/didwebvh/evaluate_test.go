@@ -215,8 +215,8 @@ func TestMatchJWK(t *testing.T) {
 			reqKey: []interface{}{map[string]interface{}{"kty": "EC", "crv": "P-256", "x": "abc", "y": "def"}},
 			didDoc: &DIDDocument{
 				VerificationMethod: []VerificationMethod{{
-					ID:   "#key-1",
-					Type: "JsonWebKey2020",
+					ID:           "#key-1",
+					Type:         "JsonWebKey2020",
 					PublicKeyJwk: map[string]interface{}{"kty": "EC", "crv": "P-256", "x": "abc", "y": "def"},
 				}},
 			},
@@ -227,8 +227,8 @@ func TestMatchJWK(t *testing.T) {
 			reqKey: []interface{}{map[string]interface{}{"kty": "EC", "crv": "P-256", "x": "abc", "y": "def"}},
 			didDoc: &DIDDocument{
 				VerificationMethod: []VerificationMethod{{
-					ID:   "#key-1",
-					Type: "JsonWebKey2020",
+					ID:           "#key-1",
+					Type:         "JsonWebKey2020",
 					PublicKeyJwk: map[string]interface{}{"kty": "EC", "crv": "P-256", "x": "xyz", "y": "def"},
 				}},
 			},

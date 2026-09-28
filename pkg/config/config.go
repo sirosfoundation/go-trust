@@ -549,6 +549,16 @@ type SecurityConfig struct {
 	EnableCORS           bool     `yaml:"enable_cors"`
 	AllowedOrigins       []string `yaml:"allowed_origins"`
 	MaxResponseBodyBytes int      `yaml:"max_response_body_bytes,omitempty"` // Max HTTP response body size in bytes (default: 10MB)
+	// TrustedProxies lists the CIDRs whose X-Forwarded-For and X-Real-IP
+	// headers may be believed when determining a client's address. Empty
+	// (the default) trusts none of them, so the peer address is used.
+	//
+	// This matters because rate limiting keys on the client address: if a
+	// directly reachable client's forwarded headers were trusted, it could
+	// rotate X-Forwarded-For and get a fresh bucket on every request.
+	// Deployments behind a load balancer must list it here for per-client
+	// limiting to work at all.
+	TrustedProxies []string `yaml:"trusted_proxies,omitempty"`
 }
 
 // DefaultConfig returns a Config with sensible default values.
@@ -706,8 +716,8 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate security configuration
-	if c.Security.RateLimitRPS <= 0 {
-		return fmt.Errorf("rate limit RPS must be positive")
+	if c.Security.RateLimitRPS < 0 {
+		return fmt.Errorf("rate limit RPS must not be negative (0 disables rate limiting)")
 	}
 
 	// Validate ETSI registry configuration

@@ -50,10 +50,24 @@ logging:
 # Security Configuration
 # =============================================================================
 security:
-  # Rate limiting, per client IP. 0 (or omitted) disables it entirely.
+  # Rate limiting, per client address. 0 disables it; omitting the key
+  # leaves the default of 100, which is NOT the same thing.
   # Burst is a tenth of this, minimum 1, so a client can absorb a short
   # spike without banking a whole second's allowance to spend at once.
+  # /healthz, /readyz and /metrics are never rate limited - an exhausted
+  # bucket must not make a healthy server look dead to an orchestrator.
   rate_limit_rps: 100
+
+  # Whose X-Forwarded-For / X-Real-IP to believe when identifying a client.
+  # Empty (the default) trusts none of them and uses the peer address.
+  #
+  # This is a rate-limiting control, not a formality: if forwarded headers
+  # from untrusted peers were believed, a directly reachable client could
+  # rotate X-Forwarded-For and get a fresh bucket on every request. Behind a
+  # load balancer, list it here - otherwise every request appears to come
+  # from the balancer and shares one bucket.
+  # trusted_proxies:
+  #   - "10.0.0.0/8"
 
   # CORS. Only needed when a browser calls the PDP directly; server-to-server
   # callers are unaffected. With enable_cors true and an empty allowed_origins

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/sirosfoundation/g119612/pkg/logging"
+	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/config"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
 	staticreg "github.com/sirosfoundation/go-trust/pkg/registry/static"
@@ -228,5 +230,72 @@ func TestCompositeInvalidTimeoutIsNotFatal(t *testing.T) {
 	}
 	if got := comp.Info().Description; got != "described, to exercise WithDescription" {
 		t.Errorf("Description = %q; WithDescription was not applied", got)
+	}
+}
+
+// TestCompositeRejectsAmbiguousChildName pins the duplicate-name case.
+// Register permits duplicate Info().Name values — a config-file ETSI registry
+// and a CLI-configured one both default to "ETSI-TSL" — so taking "one of
+// them" would leave the other top-level, free to allow a request on its own.
+// There is no safe way to guess which was meant.
+func TestCompositeRejectsAmbiguousChildName(t *testing.T) {
+	mgr := registry.NewRegistryManager(registry.FirstMatch, 0)
+	mgr.Register(namedRegistry("ETSI-TSL"))
+	mgr.Register(namedRegistry("ETSI-TSL"))
+	mgr.Register(namedRegistry("whitelist"))
+
+	cfg := &config.Config{}
+	cfg.Registries.Composite = []config.CompositeRegistryConfig{{
+		Name:       "c",
+		Operator:   "AND",
+		Registries: []string{"ETSI-TSL", "whitelist"},
+	}}
+
+	err := configureCompositeRegistriesFromConfig(cfg, mgr, logging.SilentLogger())
+	if err == nil {
+		t.Fatal("expected an error: two registries share the named child")
+	}
+	if !strings.Contains(err.Error(), "share that name") {
+		t.Errorf("error = %q, want it to explain the ambiguity", err)
+	}
+}
+
+// TestCompositeNonPositiveTimeoutUsesDefault covers the values ParseDuration
+// accepts but that would install an already-expired context, making
+// context-aware children fail instantly and turning every evaluation into a
+// denial.
+func TestCompositeNonPositiveTimeoutUsesDefault(t *testing.T) {
+	for _, timeout := range []string{"0", "0s", "-5s"} {
+		mgr := registry.NewRegistryManager(registry.FirstMatch, 0)
+		mgr.Register(namedRegistry("a"))
+
+		cfg := &config.Config{}
+		cfg.Registries.Composite = []config.CompositeRegistryConfig{{
+			Name:       "c",
+			Operator:   "OR",
+			Timeout:    timeout,
+			Registries: []string{"a"},
+		}}
+
+		if err := configureCompositeRegistriesFromConfig(cfg, mgr, logging.SilentLogger()); err != nil {
+			t.Fatalf("timeout %q must fall back to the default, not fail: %v", timeout, err)
+		}
+
+		comp := mgr.GetRegistry("c")
+		if comp == nil {
+			t.Fatalf("timeout %q: composite was not registered", timeout)
+		}
+		// The default timeout must still let a child answer.
+		resp, err := comp.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{Type: "key", ID: "https://rp.example.com"},
+			Resource: authzen.Resource{Type: "x5c", ID: "https://rp.example.com", Key: []any{"MIIC..."}},
+		})
+		if err != nil {
+			t.Errorf("timeout %q: Evaluate returned %v; the context expired immediately", timeout, err)
+			continue
+		}
+		if !resp.Decision {
+			t.Errorf("timeout %q: decision=false; an expired context turned an allow into a denial", timeout)
+		}
 	}
 }

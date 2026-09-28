@@ -350,11 +350,22 @@ func TestValidateConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "Non-positive rate limit",
+			// 0 is the documented way to disable rate limiting. It used to be
+			// rejected, which made "0 disables" impossible to configure.
+			name: "Zero rate limit disables rather than failing",
 			config: &Config{
 				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 0},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Negative rate limit",
+			config: &Config{
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
+				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
+				Security: SecurityConfig{RateLimitRPS: -1},
 			},
 			wantErr: true,
 		},

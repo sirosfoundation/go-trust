@@ -989,14 +989,56 @@ func installSecurityMiddleware(r *gin.Engine, cfg *config.Config, logger logging
 	}
 
 	if cfg.Security.RateLimitRPS > 0 {
+		// Decide whose X-Forwarded-For to believe before anything reads a
+		// client address. Gin trusts 0.0.0.0/0 by default, which would let a
+		// directly reachable client rotate the header and get a fresh bucket
+		// on every request — a rate limit that anyone can opt out of.
+		if err := r.SetTrustedProxies(cfg.Security.TrustedProxies); err != nil {
+			logger.Warn("Invalid security.trusted_proxies; trusting none",
+				logging.F("value", cfg.Security.TrustedProxies),
+				logging.F("error", err.Error()))
+			_ = r.SetTrustedProxies(nil)
+		}
+		if len(cfg.Security.TrustedProxies) == 0 {
+			logger.Info("Rate limiting keys on the peer address; no proxies are trusted",
+				logging.F("hint", "set security.trusted_proxies when running behind a load balancer"))
+		}
+
 		burst := rateLimitBurst(cfg.Security.RateLimitRPS)
 		limiter := api.NewRateLimiter(cfg.Security.RateLimitRPS, burst)
 		// Without this the per-IP map grows for the life of the process.
 		limiter.StartCleanupLoop(time.Hour, time.Hour, make(chan struct{}))
-		r.Use(limiter.Middleware())
+		r.Use(exemptOperationalEndpoints(limiter.Middleware()))
 		logger.Info("Rate limiting enabled",
 			logging.F("rps", cfg.Security.RateLimitRPS),
-			logging.F("burst", burst))
+			logging.F("burst", burst),
+			logging.F("exempt", operationalEndpoints()))
+	}
+}
+
+// operationalEndpoints are the paths an orchestrator and a metrics scraper
+// poll, which must never be rate limited.
+func operationalEndpoints() []string {
+	return []string{"/healthz", "/readyz", "/metrics"}
+}
+
+// exemptOperationalEndpoints wraps a middleware so liveness, readiness and
+// metrics bypass it.
+//
+// Without this, a client that exhausts its bucket makes /healthz return 429
+// even though the handler guarantees 200 while the process is running, and an
+// orchestrator reading that will restart a perfectly healthy server.
+func exemptOperationalEndpoints(next gin.HandlerFunc) gin.HandlerFunc {
+	exempt := make(map[string]bool)
+	for _, path := range operationalEndpoints() {
+		exempt[path] = true
+	}
+	return func(c *gin.Context) {
+		if exempt[c.Request.URL.Path] {
+			c.Next()
+			return
+		}
+		next(c)
 	}
 }
 
@@ -1106,13 +1148,24 @@ func configureCompositeRegistriesFromConfig(cfg *config.Config, registryMgr *reg
 
 		children := make([]registry.TrustRegistry, 0, len(compCfg.Registries))
 		for _, childName := range compCfg.Registries {
-			child := registryMgr.GetRegistry(childName)
-			if child == nil {
+			// Registry names are not guaranteed unique — a config-file ETSI
+			// registry and a CLI-configured one both default to "ETSI-TSL",
+			// for instance. Taking one of two would leave the other
+			// top-level, able to allow a request on its own, which is the
+			// bypass this whole mechanism exists to prevent. There is no
+			// safe way to guess which was meant, so say so.
+			switch registryMgr.CountRegistries(childName) {
+			case 0:
 				// An error rather than a skip: a composite quietly missing a
 				// child is a weaker trust rule than the operator wrote.
 				return fmt.Errorf("composite registry %q names registry %q, which is not configured",
 					compCfg.Name, childName)
+			case 1:
+			default:
+				return fmt.Errorf("composite registry %q names registry %q, but %d registries share that name; give them distinct names",
+					compCfg.Name, childName, registryMgr.CountRegistries(childName))
 			}
+			child := registryMgr.GetRegistry(childName)
 			registryMgr.Unregister(childName)
 			children = append(children, child)
 		}
@@ -1129,15 +1182,22 @@ func configureCompositeRegistriesFromConfig(cfg *config.Config, registryMgr *reg
 			opts = append(opts, registry.WithThreshold(compCfg.Threshold))
 		}
 		if compCfg.Timeout != "" {
-			if timeout, err := time.ParseDuration(compCfg.Timeout); err == nil {
-				opts = append(opts, registry.WithTimeout(timeout))
-			} else {
-				// Not fatal: a bad timeout weakens nothing, it just falls
-				// back to the CompositeRegistry default.
+			// ParseDuration accepts "0" and negatives, and either would
+			// install an already-expired context: context-aware children
+			// would then fail instantly and turn every evaluation into a
+			// denial. Not fatal, because falling back to the default
+			// weakens nothing.
+			if timeout, err := time.ParseDuration(compCfg.Timeout); err != nil {
 				logger.Warn("Invalid timeout for composite registry, using default",
 					logging.F("composite", compCfg.Name),
 					logging.F("value", compCfg.Timeout),
 					logging.F("error", err.Error()))
+			} else if timeout <= 0 {
+				logger.Warn("Non-positive timeout for composite registry, using default",
+					logging.F("composite", compCfg.Name),
+					logging.F("value", compCfg.Timeout))
+			} else {
+				opts = append(opts, registry.WithTimeout(timeout))
 			}
 		}
 

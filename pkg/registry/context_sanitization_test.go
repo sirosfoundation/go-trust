@@ -315,8 +315,8 @@ func TestGetRegistryAndUnregisterMisses(t *testing.T) {
 	if got := mgr.GetRegistry("absent"); got != nil {
 		t.Errorf("GetRegistry(absent) = %v, want nil", got)
 	}
-	if mgr.Unregister("absent") {
-		t.Error("Unregister(absent) = true, want false")
+	if got := mgr.Unregister("absent"); got != 0 {
+		t.Errorf("Unregister(absent) = %d, want 0", got)
 	}
 
 	reg := &mockRegistry{name: "present", resourceTypes: []string{"x5c"}, healthy: true}
@@ -325,10 +325,36 @@ func TestGetRegistryAndUnregisterMisses(t *testing.T) {
 	if mgr.GetRegistry("present") == nil {
 		t.Error("GetRegistry(present) = nil")
 	}
-	if !mgr.Unregister("present") {
-		t.Error("Unregister(present) = false, want true")
+	if got := mgr.Unregister("present"); got != 1 {
+		t.Errorf("Unregister(present) = %d, want 1", got)
 	}
 	if mgr.GetRegistry("present") != nil {
 		t.Error("registry survived Unregister")
+	}
+}
+
+// TestUnregisterRemovesEveryDuplicate pins the reason Unregister removes all
+// matches rather than the first. Register permits duplicate names — a
+// config-file ETSI registry and a CLI-configured one both default to
+// "ETSI-TSL" — and leaving one behind would keep a registry top-level that
+// can allow a request on its own, which is precisely the bypass composite
+// ownership exists to prevent.
+func TestUnregisterRemovesEveryDuplicate(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+	mgr.Register(&mockRegistry{name: "ETSI-TSL", resourceTypes: []string{"x5c"}, healthy: true})
+	mgr.Register(&mockRegistry{name: "ETSI-TSL", resourceTypes: []string{"x5c"}, healthy: true})
+	mgr.Register(&mockRegistry{name: "other", resourceTypes: []string{"x5c"}, healthy: true})
+
+	if got := mgr.CountRegistries("ETSI-TSL"); got != 2 {
+		t.Fatalf("CountRegistries = %d, want 2", got)
+	}
+	if got := mgr.Unregister("ETSI-TSL"); got != 2 {
+		t.Errorf("Unregister = %d, want 2", got)
+	}
+	if got := mgr.CountRegistries("ETSI-TSL"); got != 0 {
+		t.Errorf("%d duplicates survived; one can still allow a request alone", got)
+	}
+	if mgr.GetRegistry("other") == nil {
+		t.Error("an unrelated registry was removed")
 	}
 }

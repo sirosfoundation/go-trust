@@ -59,6 +59,7 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 | `security.enable_cors` | `GT_ENABLE_CORS` | boolean |  |
 | `security.allowed_origins` | `GT_ALLOWED_ORIGINS` | string list |  |
 | `security.max_response_body_bytes` | `GT_MAX_RESPONSE_BODY_BYTES` | integer | Max HTTP response body size in bytes (default: 10MB) |
+| `security.trusted_proxies` | — | string list | TrustedProxies lists the CIDRs whose X-Forwarded-For and X-Real-IP headers may be believed when determining a client's address. Empty (the default) trusts none of them, so the peer address is used.  This matters because rate limiting keys on the client address: if a directly reachable client's forwarded headers were trusted, it could rotate X-Forwarded-For and get a fresh bucket on every request. Deployments behind a load balancer must list it here for per-client limiting to work at all. |
 
 ## policies
 
