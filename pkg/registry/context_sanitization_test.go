@@ -308,3 +308,27 @@ func TestClientSuppliableKeysExcludePolicyControls(t *testing.T) {
 			"%q is a server-side policy control and must not be client-suppliable", k)
 	}
 }
+
+func TestGetRegistryAndUnregisterMisses(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+
+	if got := mgr.GetRegistry("absent"); got != nil {
+		t.Errorf("GetRegistry(absent) = %v, want nil", got)
+	}
+	if mgr.Unregister("absent") {
+		t.Error("Unregister(absent) = true, want false")
+	}
+
+	reg := &mockRegistry{name: "present", resourceTypes: []string{"x5c"}, healthy: true}
+	mgr.Register(reg)
+
+	if mgr.GetRegistry("present") == nil {
+		t.Error("GetRegistry(present) = nil")
+	}
+	if !mgr.Unregister("present") {
+		t.Error("Unregister(present) = false, want true")
+	}
+	if mgr.GetRegistry("present") != nil {
+		t.Error("registry survived Unregister")
+	}
+}

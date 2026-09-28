@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sirosfoundation/g119612/pkg/logging"
@@ -79,7 +80,9 @@ func TestCompositeTakesOwnershipOfChildren(t *testing.T) {
 		Registries: []string{"alpha", "beta"},
 	}}
 
-	configureCompositeRegistriesFromConfig(cfg, mgr, logging.SilentLogger())
+	if err := configureCompositeRegistriesFromConfig(cfg, mgr, logging.SilentLogger()); err != nil {
+		t.Fatalf("configureCompositeRegistriesFromConfig: %v", err)
+	}
 
 	if mgr.GetRegistry("alpha") != nil {
 		t.Error("alpha is still registered standalone; it can satisfy first_match alone")
@@ -118,7 +121,9 @@ func TestCompositeQuorumThresholdIsCarried(t *testing.T) {
 		Registries: []string{"a", "b", "c"},
 	}}
 
-	configureCompositeRegistriesFromConfig(cfg, mgr, logging.SilentLogger())
+	if err := configureCompositeRegistriesFromConfig(cfg, mgr, logging.SilentLogger()); err != nil {
+		t.Fatalf("configureCompositeRegistriesFromConfig: %v", err)
+	}
 
 	comp := mgr.GetRegistry("two-of-three")
 	if comp == nil {
@@ -133,4 +138,95 @@ func TestCompositeQuorumThresholdIsCarried(t *testing.T) {
 // participant: these tests are about wiring, not trust decisions.
 func namedRegistry(name string) registry.TrustRegistry {
 	return staticreg.NewAlwaysTrustedRegistry(name)
+}
+
+// TestCompositeConfigValidation covers the rejections. Each one exists because
+// accepting it would silently yield a weaker trust rule than the operator
+// wrote, so "it errors" is the behaviour under test, not an implementation
+// detail.
+func TestCompositeConfigValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		comp    config.CompositeRegistryConfig
+		wantErr string
+	}{
+		{
+			name:    "no name",
+			comp:    config.CompositeRegistryConfig{Operator: "AND", Registries: []string{"a"}},
+			wantErr: "no name",
+		},
+		{
+			name:    "unknown operator",
+			comp:    config.CompositeRegistryConfig{Name: "c", Operator: "XOR", Registries: []string{"a"}},
+			wantErr: "unknown operator",
+		},
+		{
+			name:    "no children",
+			comp:    config.CompositeRegistryConfig{Name: "c", Operator: "AND"},
+			wantErr: "names no child registries",
+		},
+		{
+			name:    "missing child",
+			comp:    config.CompositeRegistryConfig{Name: "c", Operator: "AND", Registries: []string{"a", "nope"}},
+			wantErr: "not configured",
+		},
+		{
+			name:    "quorum threshold missing",
+			comp:    config.CompositeRegistryConfig{Name: "c", Operator: "QUORUM", Registries: []string{"a", "b"}},
+			wantErr: "threshold 0",
+		},
+		{
+			name:    "quorum threshold above child count",
+			comp:    config.CompositeRegistryConfig{Name: "c", Operator: "QUORUM", Threshold: 5, Registries: []string{"a", "b"}},
+			wantErr: "threshold 5",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := registry.NewRegistryManager(registry.FirstMatch, 0)
+			mgr.Register(namedRegistry("a"))
+			mgr.Register(namedRegistry("b"))
+
+			cfg := &config.Config{}
+			cfg.Registries.Composite = []config.CompositeRegistryConfig{tc.comp}
+
+			err := configureCompositeRegistriesFromConfig(cfg, mgr, logging.SilentLogger())
+			if err == nil {
+				t.Fatalf("expected an error mentioning %q", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestCompositeInvalidTimeoutIsNotFatal pins the one malformed value that is
+// deliberately tolerated: a bad timeout weakens no trust rule, it just falls
+// back to the CompositeRegistry default.
+func TestCompositeInvalidTimeoutIsNotFatal(t *testing.T) {
+	mgr := registry.NewRegistryManager(registry.FirstMatch, 0)
+	mgr.Register(namedRegistry("a"))
+	mgr.Register(namedRegistry("b"))
+
+	cfg := &config.Config{}
+	cfg.Registries.Composite = []config.CompositeRegistryConfig{{
+		Name:        "c",
+		Description: "described, to exercise WithDescription",
+		Operator:    "OR",
+		Timeout:     "soon-ish",
+		Registries:  []string{"a", "b"},
+	}}
+
+	if err := configureCompositeRegistriesFromConfig(cfg, mgr, logging.SilentLogger()); err != nil {
+		t.Fatalf("an invalid timeout must not fail startup: %v", err)
+	}
+	comp := mgr.GetRegistry("c")
+	if comp == nil {
+		t.Fatal("composite was not registered")
+	}
+	if got := comp.Info().Description; got != "described, to exercise WithDescription" {
+		t.Errorf("Description = %q; WithDescription was not applied", got)
+	}
 }

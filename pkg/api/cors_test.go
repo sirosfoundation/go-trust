@@ -173,3 +173,12 @@ func TestCORSMalformedPatternNeverMatches(t *testing.T) {
 		t.Error("a schemeless Origin matched a wildcard pattern")
 	}
 }
+
+func TestCORSEnabledWithEmptyAllowlistRefusesPreflight(t *testing.T) {
+	// enable_cors true with no origins configured rejects everything. gt
+	// warns about this at startup; the behaviour itself is pinned here.
+	r := corsRouter([]string{})
+	if got := do(r, http.MethodOptions, "https://wallet.example.com").Code; got != http.StatusForbidden {
+		t.Errorf("preflight = %d, want 403", got)
+	}
+}

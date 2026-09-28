@@ -107,7 +107,9 @@ func TestConfigureSystemCertPoolRegistry(t *testing.T) {
 		Enabled: true,
 		Name:    "syspool",
 	}
-	configureSystemCertPoolRegistry(cfg, mgr, logging.SilentLogger())
+	if err := configureSystemCertPoolRegistry(cfg, mgr, logging.SilentLogger()); err != nil {
+		t.Fatalf("configureSystemCertPoolRegistry: %v", err)
+	}
 
 	if mgr.GetRegistry("syspool") == nil {
 		t.Error("system cert pool registry was not registered")
@@ -116,9 +118,9 @@ func TestConfigureSystemCertPoolRegistry(t *testing.T) {
 	// Disabled and absent must both be no-ops.
 	off := registry.NewRegistryManager(registry.FirstMatch, 0)
 	cfg.Registries.SystemCertPool.Enabled = false
-	configureSystemCertPoolRegistry(cfg, off, logging.SilentLogger())
-	configureSystemCertPoolRegistry(&config.Config{}, off, logging.SilentLogger())
-	configureSystemCertPoolRegistry(nil, off, logging.SilentLogger())
+	_ = configureSystemCertPoolRegistry(cfg, off, logging.SilentLogger())
+	_ = configureSystemCertPoolRegistry(&config.Config{}, off, logging.SilentLogger())
+	_ = configureSystemCertPoolRegistry(nil, off, logging.SilentLogger())
 	if len(off.ListRegistries()) != 0 {
 		t.Errorf("registries = %v, want none", off.ListRegistries())
 	}
@@ -162,5 +164,25 @@ func TestETSITSLConfigParsesRefreshInterval(t *testing.T) {
 	bad := &config.ETSIRegistryConfig{RefreshInterval: "every other tuesday"}
 	if got := etsiTSLConfig(bad, nil, logging.SilentLogger()).RefreshInterval; got != 0 {
 		t.Errorf("RefreshInterval = %v, want 0 for an invalid value", got)
+	}
+}
+
+func TestInstallSecurityMiddlewareCORSEnabledWithNoOrigins(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfg := &config.Config{}
+	cfg.Security.EnableCORS = true // deliberately no AllowedOrigins
+
+	r := gin.New()
+	installSecurityMiddleware(r, cfg, logging.SilentLogger())
+	r.GET("/healthz", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.Header.Set("Origin", "https://wallet.example.com")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Allow-Origin = %q; an empty allowlist must allow nothing", got)
 	}
 }

@@ -801,3 +801,49 @@ func TestExampleConfigHasNoUnknownKeys(t *testing.T) {
 		t.Errorf("example/config.yaml carries an unknown key: %s", key)
 	}
 }
+
+func TestUnknownKeyString(t *testing.T) {
+	key := UnknownKey{Line: 42, Field: "did_local", Type: "config.RegistriesConfig"}
+	if got, want := key.String(), "did_local (line 42, in config.RegistriesConfig)"; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+}
+
+func TestFindUnknownKeysIgnoresNonFieldErrors(t *testing.T) {
+	// A strict decode reports type mismatches alongside unknown fields.
+	// findUnknownKeys must return only the latter: a coerced value is not a
+	// discarded key, and reporting it as one would send an operator looking
+	// for a typo that is not there.
+	//
+	// Tested against findUnknownKeys directly rather than through
+	// LoadConfig, because the non-strict decode rejects a type mismatch too,
+	// so LoadConfig never reaches this function with such input. The filter
+	// is defensive, which is exactly why it needs pinning.
+	data := []byte(`
+registries:
+  etsi:
+    enabled: true
+    max_ref_depth: "not-a-number"
+  did_local:
+    enabled: true
+`)
+
+	keys := findUnknownKeys(data)
+	if len(keys) != 1 {
+		t.Fatalf("findUnknownKeys() = %v, want exactly the did_local entry", keys)
+	}
+	if keys[0].Field != "did_local" {
+		t.Errorf("Field = %q, want did_local", keys[0].Field)
+	}
+}
+
+func TestFindUnknownKeysOnUnparseableYAMLIsQuiet(t *testing.T) {
+	// Not valid YAML at all: LoadConfig fails first, and findUnknownKeys
+	// must not be the thing that reports it.
+	if got := findUnknownKeys([]byte("this: [is: not: yaml")); got != nil {
+		t.Errorf("findUnknownKeys() = %v, want nil", got)
+	}
+	if got := findUnknownKeys(nil); got != nil {
+		t.Errorf("findUnknownKeys(nil) = %v, want nil", got)
+	}
+}

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -150,5 +152,56 @@ func TestRegistriesScalarsKeepTheirPrefix(t *testing.T) {
 	}
 	if _, ok := paths["strategy"]; ok {
 		t.Error("strategy is documented unprefixed; an operator would write it at the wrong level")
+	}
+}
+
+// TestElemKindNarrowness pins what does NOT unwrap. Every case here would
+// otherwise produce a placeholder row documenting a path no operator can write.
+func TestElemKindNarrowness(t *testing.T) {
+	parse := func(expr string) ast.Expr {
+		e, err := parser.ParseExpr(expr)
+		if err != nil {
+			t.Fatalf("parsing %q: %v", expr, err)
+		}
+		return e
+	}
+
+	cases := []struct {
+		expr     string
+		wantKind string
+		wantType string
+	}{
+		{"map[string]*PolicyConfig", "map", "PolicyConfig"},
+		{"map[string]PolicyConfig", "map", "PolicyConfig"},
+		{"[]CompositeRegistryConfig", "slice", "CompositeRegistryConfig"},
+		{"[]*CompositeRegistryConfig", "slice", "CompositeRegistryConfig"},
+		// Nothing to recurse into.
+		{"map[string][]string", "", ""},
+		{"map[string]string", "", ""},
+		{"[]string", "", ""},
+		// A non-string key has no meaningful <name> placeholder.
+		{"map[int]PolicyConfig", "", ""},
+		// Not a container at all.
+		{"string", "", ""},
+		{"ServerConfig", "", ""},
+	}
+
+	for _, tc := range cases {
+		expr := parse(tc.expr)
+		if got := elemKind(expr); got != tc.wantKind {
+			t.Errorf("elemKind(%s) = %q, want %q", tc.expr, got, tc.wantKind)
+		}
+		if got := resolveElemTypeName(expr); got != tc.wantType {
+			t.Errorf("resolveElemTypeName(%s) = %q, want %q", tc.expr, got, tc.wantType)
+		}
+	}
+}
+
+func TestElemPlaceholder(t *testing.T) {
+	if got := elemPlaceholder("slice"); got != "[]" {
+		t.Errorf("slice placeholder = %q, want []", got)
+	}
+	if got := elemPlaceholder("map"); got != ".<name>" {
+		t.Errorf("map placeholder = %q, want .<name>", got)
 	}
 }

@@ -338,7 +338,10 @@ func main() {
 	// manager, so every registry that can be one must already be registered,
 	// including those configured via CLI flags above.
 	if cfg != nil && len(cfg.Registries.Composite) > 0 {
-		configureCompositeRegistriesFromConfig(cfg, registryMgr, logger)
+		if err := configureCompositeRegistriesFromConfig(cfg, registryMgr, logger); err != nil {
+			logger.Fatal("Failed to configure composite registries",
+				logging.F("error", err.Error()))
+		}
 	}
 
 	// Configure policies from config file
@@ -517,7 +520,10 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		registryMgr.Register(static.NewAlwaysTrustedRegistry(name))
 	}
 
-	configureSystemCertPoolRegistry(cfg, registryMgr, logger)
+	if err := configureSystemCertPoolRegistry(cfg, registryMgr, logger); err != nil {
+		logger.Fatal("Failed to configure system certificate pool registry",
+			logging.F("error", err.Error()))
+	}
 
 	// Configure never-trusted registry from config
 	if cfg.Registries.NeverTrusted != nil && cfg.Registries.NeverTrusted.Enabled {
@@ -1005,9 +1011,9 @@ func rateLimitBurst(rps int) int {
 }
 
 // configureSystemCertPoolRegistry registers the host trust store as a registry.
-func configureSystemCertPoolRegistry(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) {
+func configureSystemCertPoolRegistry(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) error {
 	if cfg == nil || cfg.Registries.SystemCertPool == nil || !cfg.Registries.SystemCertPool.Enabled {
-		return
+		return nil
 	}
 	logger.Info("Configuring system certificate pool registry from config")
 	scpCfg := cfg.Registries.SystemCertPool
@@ -1016,13 +1022,12 @@ func configureSystemCertPoolRegistry(cfg *config.Config, registryMgr *registry.R
 		Description: scpCfg.Description,
 	})
 	if err != nil {
-		logger.Fatal("Failed to create system certificate pool registry",
-			logging.F("error", err.Error()))
-		return
+		return fmt.Errorf("creating system certificate pool registry: %w", err)
 	}
 	registryMgr.Register(scpReg)
 	logger.Info("System certificate pool registry registered",
 		logging.F("name", scpReg.Info().Name))
+	return nil
 }
 
 // startETSIRefreshLoop starts background TSL refresh, matching what lote,
@@ -1082,32 +1087,31 @@ func resolutionStrategy(cfg *config.Config, logger logging.Logger) registry.Reso
 // taken: left in place it would also be evaluated standalone, and under
 // first_match could return decision=true on its own — precisely the agreement
 // an AND composite exists to require.
-func configureCompositeRegistriesFromConfig(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) {
+//
+// Returns an error rather than exiting, so the validation below is reachable
+// from tests; the caller decides that a bad composite is fatal.
+func configureCompositeRegistriesFromConfig(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) error {
 	for _, compCfg := range cfg.Registries.Composite {
 		if compCfg.Name == "" {
-			logger.Fatal("Composite registry has no name")
+			return fmt.Errorf("composite registry has no name")
 		}
 		operator, ok := compositeOperator(compCfg.Operator)
 		if !ok {
-			logger.Fatal("Composite registry has an unknown operator",
-				logging.F("composite", compCfg.Name),
-				logging.F("operator", compCfg.Operator),
-				logging.F("valid", []string{"AND", "OR", "MAJORITY", "QUORUM"}))
+			return fmt.Errorf("composite registry %q has unknown operator %q (want AND, OR, MAJORITY or QUORUM)",
+				compCfg.Name, compCfg.Operator)
 		}
 		if len(compCfg.Registries) == 0 {
-			logger.Fatal("Composite registry names no child registries",
-				logging.F("composite", compCfg.Name))
+			return fmt.Errorf("composite registry %q names no child registries", compCfg.Name)
 		}
 
 		children := make([]registry.TrustRegistry, 0, len(compCfg.Registries))
 		for _, childName := range compCfg.Registries {
 			child := registryMgr.GetRegistry(childName)
 			if child == nil {
-				// Fatal rather than skip: a composite quietly missing a
+				// An error rather than a skip: a composite quietly missing a
 				// child is a weaker trust rule than the operator wrote.
-				logger.Fatal("Composite registry names a registry that is not configured",
-					logging.F("composite", compCfg.Name),
-					logging.F("missing", childName))
+				return fmt.Errorf("composite registry %q names registry %q, which is not configured",
+					compCfg.Name, childName)
 			}
 			registryMgr.Unregister(childName)
 			children = append(children, child)
@@ -1119,10 +1123,8 @@ func configureCompositeRegistriesFromConfig(cfg *config.Config, registryMgr *reg
 		}
 		if operator == registry.LogicQUORUM {
 			if compCfg.Threshold < 1 || compCfg.Threshold > len(children) {
-				logger.Fatal("QUORUM composite needs a threshold between 1 and the number of children",
-					logging.F("composite", compCfg.Name),
-					logging.F("threshold", compCfg.Threshold),
-					logging.F("children", len(children)))
+				return fmt.Errorf("composite registry %q is QUORUM with threshold %d; want between 1 and %d, the number of children",
+					compCfg.Name, compCfg.Threshold, len(children))
 			}
 			opts = append(opts, registry.WithThreshold(compCfg.Threshold))
 		}
@@ -1130,6 +1132,8 @@ func configureCompositeRegistriesFromConfig(cfg *config.Config, registryMgr *reg
 			if timeout, err := time.ParseDuration(compCfg.Timeout); err == nil {
 				opts = append(opts, registry.WithTimeout(timeout))
 			} else {
+				// Not fatal: a bad timeout weakens nothing, it just falls
+				// back to the CompositeRegistry default.
 				logger.Warn("Invalid timeout for composite registry, using default",
 					logging.F("composite", compCfg.Name),
 					logging.F("value", compCfg.Timeout),
@@ -1144,6 +1148,7 @@ func configureCompositeRegistriesFromConfig(cfg *config.Config, registryMgr *reg
 			logging.F("operator", string(operator)),
 			logging.F("children", compCfg.Registries))
 	}
+	return nil
 }
 
 // compositeOperator parses an operator name, accepting any case so "and" and
