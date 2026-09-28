@@ -4,6 +4,24 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.22.0:start -->
+## [v0.22.0] - 2026-09-28
+
+### Added
+- Policy configuration now supports all ETSI and OpenID Federation constraint fields in YAML, including `credential_types`, `required_cert_policy_oids`, `extract_rp_identity`, `allowed_attributes`, `strict_entitlement_check`, `allow_intermediaries`, and `credential_type_trust_marks`. Previously only three of nine ETSI fields were reachable from config files, silently dropping operator-specified controls like over-request detection. (#177)
+- `require_key_binding` policy constraint now enforces that resolution-only requests (which present no key) cannot satisfy policies demanding key binding. (#177)
+
+### Fixed
+- OpenID Federation request context keys (`trust_chain`, `include_trust_chain`, `include_certificates`, `cache_control`) are now preserved through context sanitization, restoring pre-supplied trust chain optimization and response shaping that was silently dropped. (#179)
+- `cache_control` directive `max-age=0` now correctly forces revalidation instead of being treated as no constraint. (#181)
+- `cache_control` directive `no-store` now prevents cache writes as documented, not just reads. (#181)
+- Removed cgo dependency by replacing `vc/pkg/mdoc` COSE verification with `veraison/go-cose`, eliminating the need for Rust-built C libraries and dropping 26 transitive dependencies. This unblocks building against vc v0.7.20+. (#181)
+- CI lint job now runs successfully on Go 1.27 after bumping golangci-lint to v2.14.0, fixing a week-long CI outage where the linter refused to start due to Go version mismatch. (#178)
+
+### Security
+- Client-supplied `context` parameters can no longer bypass policy allowlists. Request evaluation now strips inbound context to only client-suppliable data keys before policy application, preventing injection of policy controls like `extract_rp_identity` or `required_cert_policy_oids`. The accepted set in this release is `query`, `requested_attributes`, `credential_types`, `purpose`, `doc_type`, `intermediary_x5c`, `trust_chain`, `include_trust_chain`, `include_certificates` and `cache_control` — the last four restored by #179 after #177 initially dropped them. Clients could previously forge pre-normalization `client_id` claims via `_original_subject_id`. (#177)
+<!-- release-notes:v0.22.0:end -->
+
 <!-- release-notes:v0.21.1:start -->
 ## [v0.21.1] - 2026-09-23
 
