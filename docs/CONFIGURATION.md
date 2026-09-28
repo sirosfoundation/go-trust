@@ -65,6 +65,31 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 |----------|-------------|------|-------------|
 | `policies.default_policy` | — | string | DefaultPolicy is the name of the policy to use when action.name is not specified |
 | `policies.policies` | — | map[string]*PolicyConfig (object) | Policies is a map of policy name to policy configuration |
+| `policies.policies.<name>.description` | — | string | Description provides human-readable documentation |
+| `policies.policies.<name>.registries` | — | string list | Registries limits evaluation to specific registry names. If empty, all registries are considered. |
+| `policies.policies.<name>.constraints.require_key_binding` | — | boolean | RequireKeyBinding requires that a key be provided and validated. |
+| `policies.policies.<name>.constraints.allowed_key_types` | — | string list | AllowedKeyTypes restricts accepted key types (e.g., ["x5c", "jwk"]) |
+| `policies.policies.<name>.oidfed.required_trust_marks` | — | string list | RequiredTrustMarks specifies trust mark types that MUST be present |
+| `policies.policies.<name>.oidfed.entity_types` | — | string list | EntityTypes filters by OpenID Federation entity types |
+| `policies.policies.<name>.oidfed.max_chain_depth` | — | integer | MaxChainDepth limits trust chain resolution depth |
+| `policies.policies.<name>.oidfed.credential_type_trust_marks` | — | map[string][]string (object) | CredentialTypeTrustMarks maps credential type identifiers (VCT) to the trust marks required for that type. When a request carries credential_types, the matching trust marks are added to the required set. Example: {"eu.europa.ec.eudi.pid.1": ["https://trust.eu/wallet/pid-issuer"]} |
+| `policies.policies.<name>.etsi.service_types` | — | string list | ServiceTypes filters by ETSI service type URIs |
+| `policies.policies.<name>.etsi.service_statuses` | — | string list | ServiceStatuses filters by ETSI service status URIs |
+| `policies.policies.<name>.etsi.countries` | — | string list | Countries filters by country codes (e.g., ["DE", "FR"]) |
+| `policies.policies.<name>.etsi.credential_types` | — | string list | CredentialTypes specifies credential type identifiers (e.g., SD-JWT VCT values) that the policy scopes the evaluation to. |
+| `policies.policies.<name>.etsi.required_cert_policy_oids` | — | string list | RequiredCertPolicyOIDs specifies certificate policy OIDs that MUST appear in the leaf certificate's Certificate Policies extension, used to distinguish access certificates (ETSI TS 119 411-8) from generic TLS certificates. |
+| `policies.policies.<name>.etsi.extract_rp_identity` | — | boolean | ExtractRPIdentity controls whether RP identity information (Subject DN, SANs, serial number) is extracted from the leaf certificate and returned in the response trust metadata. |
+| `policies.policies.<name>.etsi.allowed_attributes` | — | string list | AllowedAttributes lists the attribute names the RP is entitled to request. Over-request detection per TS 119 475 does not run at all unless this is set. |
+| `policies.policies.<name>.etsi.strict_entitlement_check` | — | boolean | StrictEntitlementCheck rejects over-requesting RPs instead of returning warnings alongside an allow decision. |
+| `policies.policies.<name>.etsi.allow_intermediaries` | — | boolean | AllowIntermediaries accepts intermediary/broker presentation requests and surfaces intermediary metadata. Defaults to false. |
+| `policies.policies.<name>.did.allowed_domains` | — | string list | AllowedDomains restricts DIDs to specific domains. Supports wildcards: "*.example.com" matches "sub.example.com" |
+| `policies.policies.<name>.did.required_verification_methods` | — | string list | RequiredVerificationMethods requires specific verification method types. |
+| `policies.policies.<name>.did.required_services` | — | string list | RequiredServices requires specific service types in the DID document. |
+| `policies.policies.<name>.did.require_verifiable_history` | — | boolean | RequireVerifiableHistory (did:webvh only) requires valid verifiable history. |
+| `policies.policies.<name>.mdociaca.issuer_allowlist` | — | string list | IssuerAllowlist restricts to specific credential issuers. |
+| `policies.policies.<name>.mdociaca.require_iaca_endpoint` | — | boolean | RequireIACAEndpoint requires the issuer to publish mdoc_iacas_uri. |
+| `policies.policies.<name>.fidomds3.allowed_aaguids` | — | string list | AllowedAAGUIDs restricts trust to specific AAGUIDs, regardless of MDS3 certification status. |
+| `policies.policies.<name>.fidomds3.blocked_aaguids` | — | string list | BlockedAAGUIDs denies specific AAGUIDs even if MDS3 certifies them. Only applied when AllowedAAGUIDs is empty. |
 
 ## registries.etsi
 

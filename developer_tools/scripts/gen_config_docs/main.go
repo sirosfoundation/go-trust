@@ -60,6 +60,7 @@ type FieldInfo struct {
 	Doc       string
 	InlineDoc string
 	TypeName  string // resolved struct type name, if this field references another struct
+	ElemType  string // resolved struct type name of a map's value, if the value is a struct
 }
 
 // Registry of all parsed struct types, keyed by simple type name (single package in scope).
@@ -120,6 +121,7 @@ func (r *Registry) extractStructs(file *ast.File) {
 					Doc:       cleanDoc(field.Doc),
 					InlineDoc: cleanInlineComment(field.Comment),
 					TypeName:  resolveTypeName(field.Type),
+					ElemType:  resolveMapElemTypeName(field.Type),
 				}
 				if field.Tag != nil {
 					tag := strings.Trim(field.Tag.Value, "`")
@@ -137,9 +139,9 @@ func (r *Registry) extractStructs(file *ast.File) {
 
 // resolveTypeName returns the referenced struct type name for fields that
 // point at another struct (directly or via a pointer), so the caller can
-// decide whether to recurse. Slices/maps are deliberately not unwrapped
-// here (see flattenStruct) — go-trust has no nested slice-of-struct field
-// that needs per-element expansion in the generated doc.
+// decide whether to recurse. Maps are handled separately by
+// resolveMapElemTypeName; slices are deliberately not unwrapped, since
+// go-trust has no slice-of-struct config field.
 func resolveTypeName(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -150,6 +152,25 @@ func resolveTypeName(expr ast.Expr) string {
 		return resolveTypeName(t.X)
 	}
 	return ""
+}
+
+// resolveMapElemTypeName returns the struct type name a map's values point at,
+// for fields like `Policies map[string]*PolicyConfig` whose real configuration
+// surface lives in the value type. Without this the whole of PolicyConfig
+// renders as one opaque `map[string]*PolicyConfig (object)` cell, which is how
+// every policy constraint came to be undocumented.
+//
+// Only string-keyed maps are unwrapped: the generated YAML path substitutes a
+// `<name>` placeholder for the key, which is meaningless for any other key type.
+func resolveMapElemTypeName(expr ast.Expr) string {
+	mt, ok := expr.(*ast.MapType)
+	if !ok {
+		return ""
+	}
+	if key, ok := mt.Key.(*ast.Ident); !ok || key.Name != "string" {
+		return ""
+	}
+	return resolveTypeName(mt.Value)
 }
 
 func typeString(expr ast.Expr) string {
@@ -372,6 +393,17 @@ func flattenStruct(reg *Registry, info *StructInfo, yamlPrefix, goPrefix string,
 
 		if sub := reg.Lookup(f.TypeName); sub != nil {
 			docs = append(docs, flattenStruct(reg, sub, fullYAML, fullGo, envMap, depth+1)...)
+		} else if elem := reg.Lookup(f.ElemType); elem != nil {
+			// A map of structs: document the value type once under a
+			// `<name>` placeholder standing for the map key. Env overrides
+			// cannot address a map entry, so goPrefix is not extended —
+			// envMap lookups below it correctly find nothing.
+			docs = append(docs, FieldDoc{
+				YAMLPath:    fullYAML,
+				GoType:      friendlyType(f.GoType),
+				Description: fieldDescription(f),
+			})
+			docs = append(docs, flattenStruct(reg, elem, fullYAML+".<name>", "", envMap, depth+1)...)
 		} else {
 			docs = append(docs, FieldDoc{
 				YAMLPath:    fullYAML,
