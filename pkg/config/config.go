@@ -445,7 +445,7 @@ type OIDFedPolicyConfig struct {
 // ETSIPolicyConfig contains ETSI TSL-specific policy constraints.
 // Every field here maps 1:1 onto registry.ETSIPolicyConstraints; keep the two
 // in step, because a constraint with no field on this side is not rejected by
-// the YAML decoder, it is silently discarded (see TestETSIPolicyConfigCoversConstraints).
+// the YAML decoder, it is silently discarded (see TestPolicyConfigCoversEveryConstraint).
 type ETSIPolicyConfig struct {
 	// ServiceTypes filters by ETSI service type URIs
 	ServiceTypes []string `yaml:"service_types,omitempty"`
