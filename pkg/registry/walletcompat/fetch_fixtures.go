@@ -247,10 +247,10 @@ func fetchOIDFedFixtures() (map[string]string, error) {
 	}
 
 	manifest := struct {
-		TrustAnchor   string          `json:"trust_anchor"`
-		ListFile      string          `json:"list_file"`
-		ListURL       string          `json:"list_url"`
-		Entities      []manifestEntry `json:"entities"`
+		TrustAnchor   string            `json:"trust_anchor"`
+		ListFile      string            `json:"list_file"`
+		ListURL       string            `json:"list_url"`
+		Entities      []manifestEntry   `json:"entities"`
 		SubordinateOf map[string]string `json:"subordinate_of"`
 	}{
 		TrustAnchor:   realtaBase,

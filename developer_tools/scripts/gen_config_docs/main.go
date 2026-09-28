@@ -60,6 +60,8 @@ type FieldInfo struct {
 	Doc       string
 	InlineDoc string
 	TypeName  string // resolved struct type name, if this field references another struct
+	ElemType  string // resolved struct type name of a map value or slice element, if it is a struct
+	ElemKind  string // "map" or "slice" when ElemType is set, so the path placeholder can differ
 }
 
 // Registry of all parsed struct types, keyed by simple type name (single package in scope).
@@ -120,6 +122,8 @@ func (r *Registry) extractStructs(file *ast.File) {
 					Doc:       cleanDoc(field.Doc),
 					InlineDoc: cleanInlineComment(field.Comment),
 					TypeName:  resolveTypeName(field.Type),
+					ElemType:  resolveElemTypeName(field.Type),
+					ElemKind:  elemKind(field.Type),
 				}
 				if field.Tag != nil {
 					tag := strings.Trim(field.Tag.Value, "`")
@@ -137,9 +141,9 @@ func (r *Registry) extractStructs(file *ast.File) {
 
 // resolveTypeName returns the referenced struct type name for fields that
 // point at another struct (directly or via a pointer), so the caller can
-// decide whether to recurse. Slices/maps are deliberately not unwrapped
-// here (see flattenStruct) — go-trust has no nested slice-of-struct field
-// that needs per-element expansion in the generated doc.
+// decide whether to recurse. Maps are handled separately by
+// resolveMapElemTypeName; slices are deliberately not unwrapped, since
+// go-trust has no slice-of-struct config field.
 func resolveTypeName(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -150,6 +154,59 @@ func resolveTypeName(expr ast.Expr) string {
 		return resolveTypeName(t.X)
 	}
 	return ""
+}
+
+// resolveElemTypeName returns the struct type name a container's elements
+// point at, for fields like `Policies map[string]*PolicyConfig` or
+// `Composite []CompositeRegistryConfig` whose real configuration surface lives
+// in the element type. Without this the whole of PolicyConfig rendered as one
+// opaque `map[string]*PolicyConfig (object)` cell, which is how every policy
+// constraint came to be undocumented.
+//
+// Only string-keyed maps are unwrapped: the generated YAML path substitutes a
+// `<name>` placeholder for the key, which is meaningless for any other key type.
+func resolveElemTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.MapType:
+		if key, ok := t.Key.(*ast.Ident); !ok || key.Name != "string" {
+			return ""
+		}
+		return resolveTypeName(t.Value)
+	case *ast.ArrayType:
+		return resolveTypeName(t.Elt)
+	}
+	return ""
+}
+
+// elemKind reports the container shape behind ElemType, which decides the
+// placeholder in the generated path: `<name>` for a map key, `[]` for a list
+// entry.
+func elemKind(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.MapType:
+		if key, ok := t.Key.(*ast.Ident); !ok || key.Name != "string" {
+			return ""
+		}
+		if resolveTypeName(t.Value) == "" {
+			return ""
+		}
+		return "map"
+	case *ast.ArrayType:
+		if resolveTypeName(t.Elt) == "" {
+			return ""
+		}
+		return "slice"
+	}
+	return ""
+}
+
+// elemPlaceholder is the path segment appended to a container field before its
+// element type's own fields.
+func elemPlaceholder(kind string) string {
+	if kind == "slice" {
+		return "[]"
+	}
+	return ".<name>"
 }
 
 func typeString(expr ast.Expr) string {
@@ -321,7 +378,12 @@ func cfgSelectorPath(expr ast.Expr) string {
 
 // buildSections expands each direct field of the named root struct into its
 // own section (or, for scalar root fields, a single "general" section).
-func buildSections(reg *Registry, rootName string, envMap map[string]string) []SectionDoc {
+//
+// yamlPrefix is prepended to every path. It is empty for Config itself, and
+// "registries" when RegistriesConfig is re-rooted as its own set of sections
+// — without it a scalar like registries.strategy would be documented as a
+// bare top-level `strategy`, which is not where an operator would write it.
+func buildSections(reg *Registry, rootName, yamlPrefix string, envMap map[string]string) []SectionDoc {
 	root := reg.Lookup(rootName)
 	if root == nil {
 		log.Fatalf("root struct %q not found in parsed types", rootName)
@@ -334,6 +396,9 @@ func buildSections(reg *Registry, rootName string, envMap map[string]string) []S
 		yamlKey := field.YAMLTag
 		if yamlKey == "" {
 			yamlKey = strings.ToLower(field.GoName)
+		}
+		if yamlPrefix != "" {
+			yamlKey = yamlPrefix + "." + yamlKey
 		}
 		if sub := reg.Lookup(field.TypeName); sub != nil {
 			sections = append(sections, SectionDoc{
@@ -348,11 +413,19 @@ func buildSections(reg *Registry, rootName string, envMap map[string]string) []S
 				GoType:      friendlyType(field.GoType),
 				Description: fieldDescription(field),
 			})
+			if elem := reg.Lookup(field.ElemType); elem != nil {
+				rootFields = append(rootFields,
+					flattenStruct(reg, elem, yamlKey+elemPlaceholder(field.ElemKind), "", envMap, 0)...)
+			}
 		}
 	}
 
 	if len(rootFields) > 0 {
-		sections = append([]SectionDoc{{Title: "general", Fields: rootFields}}, sections...)
+		title := "general"
+		if yamlPrefix != "" {
+			title = yamlPrefix + ".general"
+		}
+		sections = append([]SectionDoc{{Title: title, Fields: rootFields}}, sections...)
 	}
 	return sections
 }
@@ -372,6 +445,18 @@ func flattenStruct(reg *Registry, info *StructInfo, yamlPrefix, goPrefix string,
 
 		if sub := reg.Lookup(f.TypeName); sub != nil {
 			docs = append(docs, flattenStruct(reg, sub, fullYAML, fullGo, envMap, depth+1)...)
+		} else if elem := reg.Lookup(f.ElemType); elem != nil {
+			// A container of structs: document the element type once under a
+			// placeholder standing for the key (`<name>`) or list position
+			// (`[]`). Env overrides cannot address a container entry, so
+			// goPrefix is not extended — envMap lookups below it correctly
+			// find nothing.
+			docs = append(docs, FieldDoc{
+				YAMLPath:    fullYAML,
+				GoType:      friendlyType(f.GoType),
+				Description: fieldDescription(f),
+			})
+			docs = append(docs, flattenStruct(reg, elem, fullYAML+elemPlaceholder(f.ElemKind), "", envMap, depth+1)...)
 		} else {
 			docs = append(docs, FieldDoc{
 				YAMLPath:    fullYAML,
@@ -491,7 +576,7 @@ func main() {
 		log.Fatalf("error parsing env overrides: %v", err)
 	}
 
-	rootSections := buildSections(reg, "Config", envMap)
+	rootSections := buildSections(reg, "Config", "", envMap)
 
 	// "registries" is one struct field on Config but really 11 independent
 	// registry types — expand it as its own set of sections (one per
@@ -503,11 +588,8 @@ func main() {
 		}
 		sections = append(sections, s)
 	}
-	registrySections := buildSections(reg, "RegistriesConfig", envMap)
-	for i := range registrySections {
-		registrySections[i].Title = "registries." + registrySections[i].Title
-	}
-	sections = append(sections, registrySections...)
+	// buildSections already prefixes both titles and YAML paths.
+	sections = append(sections, buildSections(reg, "RegistriesConfig", "registries", envMap)...)
 
 	markdown := renderMarkdown(sections)
 

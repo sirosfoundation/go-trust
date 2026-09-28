@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -17,9 +16,6 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.Server.Port != "6001" {
 		t.Errorf("Default port = %v, want %v", cfg.Server.Port, "6001")
-	}
-	if cfg.Server.Frequency != 5*time.Minute {
-		t.Errorf("Default frequency = %v, want %v", cfg.Server.Frequency, 5*time.Minute)
 	}
 
 	// Test logging defaults
@@ -81,9 +77,6 @@ security:
 	}
 	if cfg.Server.Port != "8080" {
 		t.Errorf("Port = %v, want %v", cfg.Server.Port, "8080")
-	}
-	if cfg.Server.Frequency != 10*time.Minute {
-		t.Errorf("Frequency = %v, want %v", cfg.Server.Frequency, 10*time.Minute)
 	}
 
 	// Verify logging configuration
@@ -280,9 +273,6 @@ func TestLoadConfigWithEnvOverrides(t *testing.T) {
 	if cfg.Server.Port != "9000" {
 		t.Errorf("Port = %v, want %v", cfg.Server.Port, "9000")
 	}
-	if cfg.Server.Frequency != 15*time.Minute {
-		t.Errorf("Frequency = %v, want %v", cfg.Server.Frequency, 15*time.Minute)
-	}
 	if cfg.Logging.Level != "warn" {
 		t.Errorf("Log level = %v, want %v", cfg.Logging.Level, "warn")
 	}
@@ -335,16 +325,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "Empty port",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "", Frequency: 5 * time.Minute},
-				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
-				Security: SecurityConfig{RateLimitRPS: 100},
-			},
-			wantErr: true,
-		},
-		{
-			name: "Negative frequency",
-			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: -1 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: ""},
 				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 100},
 			},
@@ -353,7 +334,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "Invalid log level",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: 5 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "invalid", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 100},
 			},
@@ -362,25 +343,36 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "Invalid log format",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: 5 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "info", Format: "invalid", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 100},
 			},
 			wantErr: true,
 		},
 		{
-			name: "Non-positive rate limit",
+			// 0 is the documented way to disable rate limiting. It used to be
+			// rejected, which made "0 disables" impossible to configure.
+			name: "Zero rate limit disables rather than failing",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: 5 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 0},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Negative rate limit",
+			config: &Config{
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
+				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
+				Security: SecurityConfig{RateLimitRPS: -1},
 			},
 			wantErr: true,
 		},
 		{
 			name: "ETSI RequireSignature without LOTLSignerBundle",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: 5 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 100},
 				Registries: RegistriesConfig{
@@ -396,7 +388,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "ETSI RequireSignature with LOTLSignerBundle",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: 5 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 100},
 				Registries: RegistriesConfig{
@@ -688,5 +680,181 @@ policies:
 	if len(marks) != 1 || marks[0] != "https://trust.eu/wallet/pid-issuer" {
 		t.Errorf("credential_type_trust_marks = %v, want one pid-issuer entry",
 			policy.OIDFed.CredentialTypeTrustMarks)
+	}
+}
+
+func TestLoadConfigReportsUnknownKeys(t *testing.T) {
+	// Item 5 of #176: decoding is non-strict, so an unknown key is discarded
+	// rather than rejected, and a typo is indistinguishable from a real key.
+	// The keys below are the three shapes that actually bite: a renamed key
+	// (did_local -> didlocal, #173), a misspelling, and a typo nested inside
+	// map[string]*PolicyConfig, which is the case a naive strict decode of
+	// only the top level would miss.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  host: "0.0.0.0"
+  port: "8080"
+
+registries:
+  did_local:
+    enabled: true
+    methods: ["key", "jwk"]
+
+security:
+  enable_crs: true
+
+policies:
+  policies:
+    credential-verifier:
+      etsi:
+        strict_entitlment_check: true
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v; unknown keys must warn, not fail", err)
+	}
+
+	unknown := cfg.UnknownKeys()
+	byField := make(map[string]UnknownKey, len(unknown))
+	for _, k := range unknown {
+		byField[k.Field] = k
+	}
+
+	for _, want := range []struct {
+		field   string
+		line    int
+		section string
+	}{
+		{"did_local", 7, "config.RegistriesConfig"},
+		{"enable_crs", 12, "config.SecurityConfig"},
+		{"strict_entitlment_check", 18, "config.ETSIPolicyConfig"},
+	} {
+		got, ok := byField[want.field]
+		if !ok {
+			t.Errorf("%s was not reported as unknown", want.field)
+			continue
+		}
+		if got.Line != want.line {
+			t.Errorf("%s reported at line %d, want %d", want.field, got.Line, want.line)
+		}
+		if got.Type != want.section {
+			t.Errorf("%s reported in %s, want %s", want.field, got.Type, want.section)
+		}
+	}
+
+	if len(unknown) != 3 {
+		t.Errorf("UnknownKeys() = %v, want exactly 3 entries", unknown)
+	}
+}
+
+func TestLoadConfigCleanConfigReportsNothing(t *testing.T) {
+	// The converse, and the one that matters for the eventual flip to a hard
+	// error: a correct config must produce no warnings at all, or the warning
+	// becomes noise operators learn to ignore.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  host: "0.0.0.0"
+  port: "8080"
+
+registries:
+  didlocal:
+    enabled: true
+    methods: ["key", "jwk"]
+
+security:
+  enable_cors: true
+
+policies:
+  policies:
+    credential-verifier:
+      etsi:
+        strict_entitlement_check: true
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if got := cfg.UnknownKeys(); len(got) != 0 {
+		t.Errorf("UnknownKeys() = %v, want none for a correct config", got)
+	}
+}
+
+func TestExampleConfigHasNoUnknownKeys(t *testing.T) {
+	// example/config.yaml is what operators copy. If it carries a key the
+	// decoder throws away, everyone who starts from it inherits the problem.
+	// Absolute, so the path validator's traversal check does not trip on the
+	// "../.." this test needs to reach the repo root.
+	path, err := filepath.Abs(filepath.Join("..", "..", "example", "config.yaml"))
+	if err != nil {
+		t.Fatalf("resolving example/config.yaml: %v", err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig(example/config.yaml) error = %v", err)
+	}
+	for _, key := range cfg.UnknownKeys() {
+		t.Errorf("example/config.yaml carries an unknown key: %s", key)
+	}
+}
+
+func TestUnknownKeyString(t *testing.T) {
+	key := UnknownKey{Line: 42, Field: "did_local", Type: "config.RegistriesConfig"}
+	if got, want := key.String(), "did_local (line 42, in config.RegistriesConfig)"; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+}
+
+func TestFindUnknownKeysIgnoresNonFieldErrors(t *testing.T) {
+	// A strict decode reports type mismatches alongside unknown fields.
+	// findUnknownKeys must return only the latter: a coerced value is not a
+	// discarded key, and reporting it as one would send an operator looking
+	// for a typo that is not there.
+	//
+	// Tested against findUnknownKeys directly rather than through
+	// LoadConfig, because the non-strict decode rejects a type mismatch too,
+	// so LoadConfig never reaches this function with such input. The filter
+	// is defensive, which is exactly why it needs pinning.
+	data := []byte(`
+registries:
+  etsi:
+    enabled: true
+    max_ref_depth: "not-a-number"
+  did_local:
+    enabled: true
+`)
+
+	keys := findUnknownKeys(data)
+	if len(keys) != 1 {
+		t.Fatalf("findUnknownKeys() = %v, want exactly the did_local entry", keys)
+	}
+	if keys[0].Field != "did_local" {
+		t.Errorf("Field = %q, want did_local", keys[0].Field)
+	}
+}
+
+func TestFindUnknownKeysOnUnparseableYAMLIsQuiet(t *testing.T) {
+	// Not valid YAML at all: LoadConfig fails first, and findUnknownKeys
+	// must not be the thing that reports it.
+	if got := findUnknownKeys([]byte("this: [is: not: yaml")); got != nil {
+		t.Errorf("findUnknownKeys() = %v, want nil", got)
+	}
+	if got := findUnknownKeys(nil); got != nil {
+		t.Errorf("findUnknownKeys(nil) = %v, want nil", got)
 	}
 }

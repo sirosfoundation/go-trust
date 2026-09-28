@@ -3,11 +3,13 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/sirosfoundation/g119612/pkg/validation"
 	"gopkg.in/yaml.v3"
@@ -21,6 +23,84 @@ type Config struct {
 	Security   SecurityConfig   `yaml:"security"`
 	Registries RegistriesConfig `yaml:"registries"`
 	Policies   PoliciesConfig   `yaml:"policies,omitempty"`
+
+	// unknownKeys records keys present in the config file that no struct
+	// field claims. Unexported, so neither the YAML decoder nor the
+	// documentation generator sees it. Read it with UnknownKeys.
+	unknownKeys []UnknownKey
+}
+
+// UnknownKey is one config-file key that no struct field claims.
+type UnknownKey struct {
+	// Line is the 1-based line in the config file the key appears on.
+	Line int
+	// Field is the key as written in the file, e.g. "did_local".
+	Field string
+	// Type is the Go type that was being decoded, e.g. "config.RegistriesConfig".
+	Type string
+}
+
+// String renders an unknown key for a log line.
+func (u UnknownKey) String() string {
+	return fmt.Sprintf("%s (line %d, in %s)", u.Field, u.Line, u.Type)
+}
+
+// UnknownKeys returns the config-file keys that no struct field claims, in
+// file order.
+//
+// Decoding is deliberately non-strict, so an unknown key is discarded rather
+// than rejected. That is what makes a typo and a real-but-unwired key
+// indistinguishable at runtime: both look exactly like a key that worked. A
+// renamed key (did_local -> didlocal) simply stops taking effect, and the
+// failure surfaces far from the config file — as an unresolvable DID, or a
+// policy control that silently never applies.
+//
+// Callers should warn about anything returned here. From v0.24.0 an unknown
+// key is intended to be a startup error, most likely behind a config gate so
+// operators can adopt it on their own schedule.
+func (c *Config) UnknownKeys() []UnknownKey {
+	return c.unknownKeys
+}
+
+// unknownFieldRE matches yaml.v3's KnownFields error text, e.g.
+// "line 42: field did_local not found in type config.RegistriesConfig".
+var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in type (\S+)$`)
+
+// findUnknownKeys re-decodes data with KnownFields(true) purely to collect the
+// keys the authoritative decode threw away.
+//
+// Only "field X not found" errors are collected. A strict decode also reports
+// type mismatches, but the non-strict decode in LoadConfig has already
+// succeeded by the time this runs, so any such error describes a value yaml
+// coerced rather than a key that went missing, and is not this function's
+// business to report.
+func findUnknownKeys(data []byte) []UnknownKey {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
+	var probe Config
+	err := dec.Decode(&probe)
+	if err == nil {
+		return nil
+	}
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return nil
+	}
+
+	var keys []UnknownKey
+	for _, msg := range typeErr.Errors {
+		m := unknownFieldRE.FindStringSubmatch(msg)
+		if m == nil {
+			continue
+		}
+		line, convErr := strconv.Atoi(m[1])
+		if convErr != nil {
+			continue
+		}
+		keys = append(keys, UnknownKey{Line: line, Field: m[2], Type: m[3]})
+	}
+	return keys
 }
 
 // RegistriesConfig contains configuration for all trust registries.
@@ -45,9 +125,48 @@ type RegistriesConfig struct {
 	VICAL *VICALRegistryConfig `yaml:"vical,omitempty"`
 	// FIDO Alliance MDS3 registry (FIDO2/CTAP2 hardware-key attestation trust)
 	FIDOMDS3 *FIDOMDS3RegistryConfig `yaml:"fidomds3,omitempty"`
+	// System X.509 certificate pool (the host trust store)
+	SystemCertPool *SystemCertPoolRegistryConfig `yaml:"systemcertpool,omitempty"`
 	// Static test registries
 	AlwaysTrusted *StaticRegistryConfig `yaml:"always_trusted,omitempty"`
 	NeverTrusted  *StaticRegistryConfig `yaml:"never_trusted,omitempty"`
+	// Strategy selects how the registry manager combines registries:
+	// "first_match" (default), "all", "best_match" or "sequential".
+	Strategy string `yaml:"strategy,omitempty"`
+	// Composite combines already-configured registries with boolean logic.
+	// A registry named as a child is evaluated only through its composite,
+	// not also on its own.
+	Composite []CompositeRegistryConfig `yaml:"composite,omitempty"`
+}
+
+// SystemCertPoolRegistryConfig configures the registry that validates X.509
+// chains against the host's own trust store.
+type SystemCertPoolRegistryConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Name        string `yaml:"name,omitempty"`
+	Description string `yaml:"description,omitempty"`
+}
+
+// CompositeRegistryConfig combines other configured registries with boolean
+// logic, so a trust decision can require agreement between them.
+type CompositeRegistryConfig struct {
+	// Name identifies the composite, and is what a policy's `registries`
+	// list refers to.
+	Name string `yaml:"name"`
+	// Description provides human-readable documentation.
+	Description string `yaml:"description,omitempty"`
+	// Operator is how child results combine: "AND", "OR", "MAJORITY" or
+	// "QUORUM". QUORUM requires Threshold children to agree.
+	Operator string `yaml:"operator"`
+	// Threshold is the number of children that must return decision=true.
+	// QUORUM only; ignored by the other operators.
+	Threshold int `yaml:"threshold,omitempty"`
+	// Timeout bounds the whole composite evaluation, as a duration string
+	// (e.g. "5s"). Empty uses the CompositeRegistry default.
+	Timeout string `yaml:"timeout,omitempty"`
+	// Registries names the child registries, which must already be
+	// configured elsewhere under `registries`.
+	Registries []string `yaml:"registries"`
 }
 
 // ETSIRegistryConfig contains ETSI TSL registry configuration.
@@ -72,6 +191,10 @@ type ETSIRegistryConfig struct {
 	// FollowPivots enables ETSI TS 119 615 pivot LOTL processing for signer certificate rollover.
 	// When true, the registry will fetch pivot LOTLs to discover new signer certificates.
 	FollowPivots bool `yaml:"follow_pivots"`
+	// RefreshInterval is how often to re-fetch TSL data in the background,
+	// as a duration string (e.g. "6h"). Empty or zero disables background
+	// refresh, leaving the registry on whatever it loaded at startup.
+	RefreshInterval string `yaml:"refresh_interval,omitempty"`
 }
 
 // WhitelistRegistryConfig contains whitelist registry configuration.
@@ -322,7 +445,7 @@ type OIDFedPolicyConfig struct {
 // ETSIPolicyConfig contains ETSI TSL-specific policy constraints.
 // Every field here maps 1:1 onto registry.ETSIPolicyConstraints; keep the two
 // in step, because a constraint with no field on this side is not rejected by
-// the YAML decoder, it is silently discarded (see TestETSIPolicyConfigCoversConstraints).
+// the YAML decoder, it is silently discarded (see TestPolicyConfigCoversEveryConstraint).
 type ETSIPolicyConfig struct {
 	// ServiceTypes filters by ETSI service type URIs
 	ServiceTypes []string `yaml:"service_types,omitempty"`
@@ -400,11 +523,10 @@ type FIDOMDS3PolicyConfig struct {
 
 // ServerConfig contains HTTP server configuration settings.
 type ServerConfig struct {
-	Host        string        `yaml:"host"`
-	Port        string        `yaml:"port"`
-	Frequency   time.Duration `yaml:"frequency"`
-	ExternalURL string        `yaml:"external_url"` // External URL for PDP discovery (e.g., https://pdp.example.com)
-	TLS         TLSConfig     `yaml:"tls"`
+	Host        string    `yaml:"host"`
+	Port        string    `yaml:"port"`
+	ExternalURL string    `yaml:"external_url"` // External URL for PDP discovery (e.g., https://pdp.example.com)
+	TLS         TLSConfig `yaml:"tls"`
 }
 
 // TLSConfig contains TLS/HTTPS server configuration settings.
@@ -427,15 +549,24 @@ type SecurityConfig struct {
 	EnableCORS           bool     `yaml:"enable_cors"`
 	AllowedOrigins       []string `yaml:"allowed_origins"`
 	MaxResponseBodyBytes int      `yaml:"max_response_body_bytes,omitempty"` // Max HTTP response body size in bytes (default: 10MB)
+	// TrustedProxies lists the CIDRs whose X-Forwarded-For and X-Real-IP
+	// headers may be believed when determining a client's address. Empty
+	// (the default) trusts none of them, so the peer address is used.
+	//
+	// This matters because rate limiting keys on the client address: if a
+	// directly reachable client's forwarded headers were trusted, it could
+	// rotate X-Forwarded-For and get a fresh bucket on every request.
+	// Deployments behind a load balancer must list it here for per-client
+	// limiting to work at all.
+	TrustedProxies []string `yaml:"trusted_proxies,omitempty"`
 }
 
 // DefaultConfig returns a Config with sensible default values.
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Host:      "127.0.0.1",
-			Port:      "6001",
-			Frequency: 5 * time.Minute,
+			Host: "127.0.0.1",
+			Port: "6001",
 			TLS: TLSConfig{
 				Enabled:  false,
 				CertFile: "",
@@ -460,7 +591,7 @@ func DefaultConfig() *Config {
 // It returns the merged configuration or an error if loading fails.
 //
 // Environment variables override configuration file values using the GT_ prefix:
-//   - GT_HOST, GT_PORT, GT_FREQUENCY for server settings
+//   - GT_HOST, GT_PORT for server settings
 //   - GT_LOG_LEVEL, GT_LOG_FORMAT, GT_LOG_OUTPUT for logging
 //   - GT_RATE_LIMIT_RPS for security settings
 //
@@ -484,6 +615,8 @@ func LoadConfig(configPath string) (*Config, error) {
 		if err := yaml.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("failed to parse config file: %w", err)
 		}
+
+		cfg.unknownKeys = findUnknownKeys(data)
 	}
 
 	// Apply environment variable overrides
@@ -501,11 +634,6 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("GT_PORT"); v != "" {
 		cfg.Server.Port = v
-	}
-	if v := os.Getenv("GT_FREQUENCY"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.Server.Frequency = d
-		}
 	}
 	if v := os.Getenv("GT_EXTERNAL_URL"); v != "" {
 		cfg.Server.ExternalURL = v
@@ -559,10 +687,6 @@ func (c *Config) Validate() error {
 	if c.Server.Port == "" {
 		return fmt.Errorf("server port cannot be empty")
 	}
-	if c.Server.Frequency <= 0 {
-		return fmt.Errorf("server frequency must be positive")
-	}
-
 	// Validate TLS configuration
 	if c.Server.TLS.Enabled {
 		if c.Server.TLS.CertFile == "" {
@@ -592,8 +716,8 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate security configuration
-	if c.Security.RateLimitRPS <= 0 {
-		return fmt.Errorf("rate limit RPS must be positive")
+	if c.Security.RateLimitRPS < 0 {
+		return fmt.Errorf("rate limit RPS must not be negative (0 disables rate limiting)")
 	}
 
 	// Validate ETSI registry configuration

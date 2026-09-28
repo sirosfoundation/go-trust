@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -175,6 +176,8 @@ func main() {
 		logger.Info("Loaded configuration from file",
 			logging.F("file", *configFile))
 
+		warnUnknownConfigKeys(cfg, *configFile, logger)
+
 		// Validate configuration
 		if err := cfg.Validate(); err != nil {
 			logger.Fatal("Configuration validation failed",
@@ -248,7 +251,7 @@ func main() {
 	}
 
 	// Initialize RegistryManager
-	registryMgr := registry.NewRegistryManager(registry.FirstMatch, 30*time.Second)
+	registryMgr := registry.NewRegistryManager(resolutionStrategy(cfg, logger), 30*time.Second)
 	registryMgr.SetLogger(logger)
 
 	// Configure registries from config file
@@ -331,6 +334,16 @@ func main() {
 			logging.F("valid", "whitelist, always-trusted, never-trusted"))
 	}
 
+	// Composite registries last: children are resolved by name out of the
+	// manager, so every registry that can be one must already be registered,
+	// including those configured via CLI flags above.
+	if cfg != nil && len(cfg.Registries.Composite) > 0 {
+		if err := configureCompositeRegistriesFromConfig(cfg, registryMgr, logger); err != nil {
+			logger.Fatal("Failed to configure composite registries",
+				logging.F("error", err.Error()))
+		}
+	}
+
 	// Configure policies from config file
 	if cfg != nil && cfg.Policies.Policies != nil {
 		configurePoliciesFromConfig(cfg, registryMgr, logger)
@@ -368,6 +381,8 @@ func main() {
 		},
 	}))
 	r.Use(gin.Recovery())
+
+	installSecurityMiddleware(r, cfg, logger)
 
 	// Initialize metrics
 	metrics := api.NewMetrics()
@@ -424,6 +439,9 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		}
 
 		registryMgr.Register(tslRegistry)
+
+		startETSIRefreshLoop(tslRegistry, tslConfig.RefreshInterval, logger)
+
 		logger.Info("ETSI TSL registry registered from config")
 	}
 
@@ -500,6 +518,11 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			name = "always-trusted"
 		}
 		registryMgr.Register(static.NewAlwaysTrustedRegistry(name))
+	}
+
+	if err := configureSystemCertPoolRegistry(cfg, registryMgr, logger); err != nil {
+		logger.Fatal("Failed to configure system certificate pool registry",
+			logging.F("error", err.Error()))
 	}
 
 	// Configure never-trusted registry from config
@@ -920,6 +943,291 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 
 }
 
+// warnUnknownConfigKeys reports config-file keys the decoder threw away.
+//
+// Decoding is non-strict, so a stale or misspelled key is discarded rather
+// than rejected, and the consequence surfaces far from the config file — as
+// an unresolvable DID, or a policy control that silently never applies.
+// Warning is not the end state: from v0.24.0 this is intended to be a startup
+// error, most likely behind a config gate.
+func warnUnknownConfigKeys(cfg *config.Config, configFile string, logger logging.Logger) {
+	if cfg == nil {
+		return
+	}
+	unknown := cfg.UnknownKeys()
+	if len(unknown) == 0 {
+		return
+	}
+	for _, key := range unknown {
+		logger.Warn("Unknown config key ignored",
+			logging.F("key", key.Field),
+			logging.F("line", key.Line),
+			logging.F("section", key.Type))
+	}
+	logger.Warn("Unknown config keys were ignored; they configure nothing. These will be startup errors in v0.24.0",
+		logging.F("count", len(unknown)),
+		logging.F("file", configFile))
+}
+
+// installSecurityMiddleware adds CORS and rate limiting when configured.
+//
+// CORS goes on first so a rate-limited request still carries the headers a
+// browser needs to surface the real status rather than an opaque network
+// error.
+func installSecurityMiddleware(r *gin.Engine, cfg *config.Config, logger logging.Logger) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.Security.EnableCORS {
+		if len(cfg.Security.AllowedOrigins) == 0 {
+			logger.Warn("CORS is enabled but security.allowed_origins is empty; no cross-origin request can succeed")
+		}
+		r.Use(api.CORSMiddleware(cfg.Security.AllowedOrigins))
+		logger.Info("CORS enabled",
+			logging.F("allowed_origins", cfg.Security.AllowedOrigins))
+	}
+
+	if cfg.Security.RateLimitRPS > 0 {
+		// Decide whose X-Forwarded-For to believe before anything reads a
+		// client address. Gin trusts 0.0.0.0/0 by default, which would let a
+		// directly reachable client rotate the header and get a fresh bucket
+		// on every request — a rate limit that anyone can opt out of.
+		if err := r.SetTrustedProxies(cfg.Security.TrustedProxies); err != nil {
+			logger.Warn("Invalid security.trusted_proxies; trusting none",
+				logging.F("value", cfg.Security.TrustedProxies),
+				logging.F("error", err.Error()))
+			_ = r.SetTrustedProxies(nil)
+		}
+		if len(cfg.Security.TrustedProxies) == 0 {
+			logger.Info("Rate limiting keys on the peer address; no proxies are trusted",
+				logging.F("hint", "set security.trusted_proxies when running behind a load balancer"))
+		}
+
+		burst := rateLimitBurst(cfg.Security.RateLimitRPS)
+		limiter := api.NewRateLimiter(cfg.Security.RateLimitRPS, burst)
+		// Without this the per-IP map grows for the life of the process.
+		limiter.StartCleanupLoop(time.Hour, time.Hour, make(chan struct{}))
+		r.Use(exemptOperationalEndpoints(limiter.Middleware()))
+		logger.Info("Rate limiting enabled",
+			logging.F("rps", cfg.Security.RateLimitRPS),
+			logging.F("burst", burst),
+			logging.F("exempt", operationalEndpoints()))
+	}
+}
+
+// operationalEndpoints are the paths an orchestrator and a metrics scraper
+// poll, which must never be rate limited.
+func operationalEndpoints() []string {
+	return []string{"/healthz", "/readyz", "/metrics"}
+}
+
+// exemptOperationalEndpoints wraps a middleware so liveness, readiness and
+// metrics bypass it.
+//
+// Without this, a client that exhausts its bucket makes /healthz return 429
+// even though the handler guarantees 200 while the process is running, and an
+// orchestrator reading that will restart a perfectly healthy server.
+func exemptOperationalEndpoints(next gin.HandlerFunc) gin.HandlerFunc {
+	exempt := make(map[string]bool)
+	for _, path := range operationalEndpoints() {
+		exempt[path] = true
+	}
+	return func(c *gin.Context) {
+		if exempt[c.Request.URL.Path] {
+			c.Next()
+			return
+		}
+		next(c)
+	}
+}
+
+// rateLimitBurst is a tenth of the sustained rate, minimum 1, so a client can
+// absorb a short spike without being able to bank a full second's allowance
+// and spend it at once.
+func rateLimitBurst(rps int) int {
+	if burst := rps / 10; burst >= 1 {
+		return burst
+	}
+	return 1
+}
+
+// configureSystemCertPoolRegistry registers the host trust store as a registry.
+func configureSystemCertPoolRegistry(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) error {
+	if cfg == nil || cfg.Registries.SystemCertPool == nil || !cfg.Registries.SystemCertPool.Enabled {
+		return nil
+	}
+	logger.Info("Configuring system certificate pool registry from config")
+	scpCfg := cfg.Registries.SystemCertPool
+	scpReg, err := static.NewSystemCertPoolRegistry(static.SystemCertPoolConfig{
+		Name:        scpCfg.Name,
+		Description: scpCfg.Description,
+	})
+	if err != nil {
+		return fmt.Errorf("creating system certificate pool registry: %w", err)
+	}
+	registryMgr.Register(scpReg)
+	logger.Info("System certificate pool registry registered",
+		logging.F("name", scpReg.Info().Name))
+	return nil
+}
+
+// startETSIRefreshLoop starts background TSL refresh, matching what lote,
+// whitelist and fidomds3 already do. Without it the registry serves whatever
+// it loaded at startup until the process restarts, so a service revoked
+// upstream stays trusted for as long as gt happens to stay up.
+//
+// A zero interval disables refresh, and a failure to start is a warning
+// rather than fatal: stale trust data still answers, no trust data does not.
+func startETSIRefreshLoop(reg *etsi.TSLRegistry, interval time.Duration, logger logging.Logger) {
+	if reg == nil || interval <= 0 {
+		return
+	}
+	if err := reg.StartRefreshLoop(context.Background()); err != nil {
+		logger.Warn("Failed to start ETSI TSL background refresh",
+			logging.F("error", err.Error()))
+		return
+	}
+	logger.Info("ETSI TSL background refresh started",
+		logging.F("interval", interval.String()))
+}
+
+// resolutionStrategy maps registries.strategy onto a ResolutionStrategy.
+//
+// main.go previously passed registry.FirstMatch as a literal, so the three
+// other strategies in pkg/registry/strategies.go were implemented, tested and
+// unreachable.
+func resolutionStrategy(cfg *config.Config, logger logging.Logger) registry.ResolutionStrategy {
+	if cfg == nil || cfg.Registries.Strategy == "" {
+		return registry.FirstMatch
+	}
+	switch strategy := registry.ResolutionStrategy(cfg.Registries.Strategy); strategy {
+	case registry.FirstMatch, registry.AllRegistries, registry.BestMatch, registry.Sequential:
+		if logger != nil && strategy != registry.FirstMatch {
+			logger.Info("Registry resolution strategy set from config",
+				logging.F("strategy", string(strategy)))
+		}
+		return strategy
+	default:
+		if logger != nil {
+			logger.Warn("Unknown registries.strategy, falling back to first_match",
+				logging.F("value", cfg.Registries.Strategy),
+				logging.F("valid", []string{
+					string(registry.FirstMatch), string(registry.AllRegistries),
+					string(registry.BestMatch), string(registry.Sequential),
+				}))
+		}
+		return registry.FirstMatch
+	}
+}
+
+// configureCompositeRegistriesFromConfig builds CompositeRegistry instances
+// from config and swaps them in for their children.
+//
+// It must run after every other registry is registered, because children are
+// resolved by name out of the manager. Each child is unregistered as it is
+// taken: left in place it would also be evaluated standalone, and under
+// first_match could return decision=true on its own — precisely the agreement
+// an AND composite exists to require.
+//
+// Returns an error rather than exiting, so the validation below is reachable
+// from tests; the caller decides that a bad composite is fatal.
+func configureCompositeRegistriesFromConfig(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) error {
+	for _, compCfg := range cfg.Registries.Composite {
+		if compCfg.Name == "" {
+			return fmt.Errorf("composite registry has no name")
+		}
+		operator, ok := compositeOperator(compCfg.Operator)
+		if !ok {
+			return fmt.Errorf("composite registry %q has unknown operator %q (want AND, OR, MAJORITY or QUORUM)",
+				compCfg.Name, compCfg.Operator)
+		}
+		if len(compCfg.Registries) == 0 {
+			return fmt.Errorf("composite registry %q names no child registries", compCfg.Name)
+		}
+
+		children := make([]registry.TrustRegistry, 0, len(compCfg.Registries))
+		for _, childName := range compCfg.Registries {
+			// Registry names are not guaranteed unique — a config-file ETSI
+			// registry and a CLI-configured one both default to "ETSI-TSL",
+			// for instance. Taking one of two would leave the other
+			// top-level, able to allow a request on its own, which is the
+			// bypass this whole mechanism exists to prevent. There is no
+			// safe way to guess which was meant, so say so.
+			switch registryMgr.CountRegistries(childName) {
+			case 0:
+				// An error rather than a skip: a composite quietly missing a
+				// child is a weaker trust rule than the operator wrote.
+				return fmt.Errorf("composite registry %q names registry %q, which is not configured",
+					compCfg.Name, childName)
+			case 1:
+			default:
+				return fmt.Errorf("composite registry %q names registry %q, but %d registries share that name; give them distinct names",
+					compCfg.Name, childName, registryMgr.CountRegistries(childName))
+			}
+			child := registryMgr.GetRegistry(childName)
+			registryMgr.Unregister(childName)
+			children = append(children, child)
+		}
+
+		opts := []registry.CompositeOption{}
+		if compCfg.Description != "" {
+			opts = append(opts, registry.WithDescription(compCfg.Description))
+		}
+		if operator == registry.LogicQUORUM {
+			if compCfg.Threshold < 1 || compCfg.Threshold > len(children) {
+				return fmt.Errorf("composite registry %q is QUORUM with threshold %d; want between 1 and %d, the number of children",
+					compCfg.Name, compCfg.Threshold, len(children))
+			}
+			opts = append(opts, registry.WithThreshold(compCfg.Threshold))
+		}
+		if compCfg.Timeout != "" {
+			// ParseDuration accepts "0" and negatives, and either would
+			// install an already-expired context: context-aware children
+			// would then fail instantly and turn every evaluation into a
+			// denial. Not fatal, because falling back to the default
+			// weakens nothing.
+			if timeout, err := time.ParseDuration(compCfg.Timeout); err != nil {
+				logger.Warn("Invalid timeout for composite registry, using default",
+					logging.F("composite", compCfg.Name),
+					logging.F("value", compCfg.Timeout),
+					logging.F("error", err.Error()))
+			} else if timeout <= 0 {
+				logger.Warn("Non-positive timeout for composite registry, using default",
+					logging.F("composite", compCfg.Name),
+					logging.F("value", compCfg.Timeout))
+			} else {
+				opts = append(opts, registry.WithTimeout(timeout))
+			}
+		}
+
+		registryMgr.Register(registry.NewCompositeRegistryWithOptions(
+			compCfg.Name, operator, children, opts...))
+		logger.Info("Composite registry registered from config",
+			logging.F("name", compCfg.Name),
+			logging.F("operator", string(operator)),
+			logging.F("children", compCfg.Registries))
+	}
+	return nil
+}
+
+// compositeOperator parses an operator name, accepting any case so "and" and
+// "AND" both work in a config file.
+func compositeOperator(name string) (registry.LogicOperator, bool) {
+	switch registry.LogicOperator(strings.ToUpper(strings.TrimSpace(name))) {
+	case registry.LogicAND:
+		return registry.LogicAND, true
+	case registry.LogicOR:
+		return registry.LogicOR, true
+	case registry.LogicMAJORITY:
+		return registry.LogicMAJORITY, true
+	case registry.LogicQUORUM:
+		return registry.LogicQUORUM, true
+	default:
+		return "", false
+	}
+}
+
 // configurePoliciesFromConfig configures trust policies from the loaded config file.
 func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) {
 	policyMgr := registry.NewPolicyManager()
@@ -1100,6 +1408,16 @@ func etsiTSLConfig(etsiCfg *config.ETSIRegistryConfig, cryptoExt *gocryptoutil.E
 		} else if logger != nil {
 			logger.Warn("Invalid fetch_timeout for etsi registry, using default",
 				logging.F("value", etsiCfg.FetchTimeout),
+				logging.F("error", err.Error()))
+		}
+	}
+
+	if etsiCfg.RefreshInterval != "" {
+		if interval, err := time.ParseDuration(etsiCfg.RefreshInterval); err == nil {
+			tslConfig.RefreshInterval = interval
+		} else if logger != nil {
+			logger.Warn("Invalid refresh_interval for etsi registry, background refresh disabled",
+				logging.F("value", etsiCfg.RefreshInterval),
 				logging.F("error", err.Error()))
 		}
 	}
