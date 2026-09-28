@@ -4,6 +4,29 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.23.0:start -->
+## [v0.23.0] - 2026-09-28
+
+### Added
+- Configuration reference now documents the entire policy surface, including all 25 ETSI/OIDFed/DID/mDOC IACA/FIDO MDS3 constraint keys and enrichment options. Previously, `PolicyConfig` rendered as an opaque object with no detail (#183)
+- CORS middleware with origin allowlist enforcement. Wildcards follow DID policy semantics (`https://*.example.com` covers subdomains but not the apex), and credentials are never enabled since the PDP uses bearer tokens (#183)
+- Rate limiting is now wired and active. Burst is set to rps/10 (minimum 1), with a cleanup loop to prevent unbounded per-IP map growth (#183)
+- Composite registries (AND/OR/MAJORITY/QUORUM), resolution strategies (`all`, `best_match`, `sequential`), system cert pool, and ETSI background refresh intervals are now configurable. Children are automatically unregistered when added to a composite to prevent bypassing agreement requirements (#183)
+
+### Changed
+- Unknown configuration keys now log warnings with key name, line number, and section. These will become startup errors in v0.24.0 to prevent silent misconfigurations (#183)
+- `server.frequency` removed—registries already carry their own `refresh_interval`, making a second global loop redundant (#183)
+- `security.rate_limit_rps: 0` now disables rate limiting instead of failing validation. Omitting the key still leaves the default of 100, which is not the same thing (#183)
+
+### Fixed
+- Rate limiting no longer throttles `/healthz`, `/readyz` and `/metrics`. An exhausted bucket made liveness return 429 even though the handler guarantees 200 while the process runs, so an orchestrator reading it could restart a healthy server (#183)
+- A composite registry now rejects an ambiguous child name instead of taking one of two same-named registries and leaving the other registered top-level, where it could allow a request on its own — the exact bypass composite ownership exists to prevent. `Unregister` removes every match rather than the first (#183)
+- A composite `timeout` of `"0"` or a negative value now falls back to the default. Both parsed cleanly and installed an already-expired context, so context-aware children failed instantly and every composite evaluation became a denial (#183)
+
+### Security
+- **Rate limiting was bypassable.** The limiter keys on the client address, and gin trusts `0.0.0.0/0` by default, so a directly reachable client could rotate `X-Forwarded-For` and receive a fresh bucket on every request. Trusted proxies are now set explicitly from the new `security.trusted_proxies`, which is empty by default: no forwarded header is believed and the peer address is used. **Deployments behind a load balancer must list it**, or every request appears to come from the balancer and shares one bucket (#183)
+<!-- release-notes:v0.23.0:end -->
+
 <!-- release-notes:v0.22.0:start -->
 ## [v0.22.0] - 2026-09-28
 
