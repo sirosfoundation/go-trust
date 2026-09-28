@@ -168,7 +168,15 @@ jobs:
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v9
       with:
-        version: v2.12.2
+        # MUST be a golangci-lint release built with a Go >= the `go`
+        # directive in go.mod (currently 1.27). A lower one does not report
+        # findings, it refuses to start:
+        #   can't load config: the Go language version (go1.26) used to build
+        #   golangci-lint is lower than the targeted Go version (1.27)
+        # and exits 3, which surfaces only as "exit with code 3" with no job
+        # log. Check a candidate with `golangci-lint --version`, which prints
+        # the Go it was built with. Bump this whenever go.mod's Go moves.
+        version: v2.14.0
         args: --timeout=5m --tests=false
         verify: false
 
