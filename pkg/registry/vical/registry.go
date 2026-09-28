@@ -26,11 +26,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SUNET/vc/pkg/mdoc"
 	"github.com/fxamacker/cbor/v2"
 	gocryptoutil "github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
+	"github.com/sirosfoundation/go-trust/pkg/registry/coseutil"
 )
 
 // Config holds the configuration for a VICAL registry instance.
@@ -299,7 +299,7 @@ func (r *Registry) fetchAndVerifyVical(ctx context.Context) (*VICAL, error) {
 		return nil, fmt.Errorf("read VICAL body: %w", err)
 	}
 
-	sign1, err := parseUntaggedCOSESign1(body)
+	sign1, err := coseutil.ParseUntaggedSign1(body)
 	if err != nil {
 		return nil, fmt.Errorf("parse VICAL COSE_Sign1: %w", err)
 	}
@@ -314,7 +314,7 @@ func (r *Registry) fetchAndVerifyVical(ctx context.Context) (*VICAL, error) {
 	// checkout where it does check both) - always returning "no x5chain in
 	// headers" for any real, spec-conformant VICAL against the released
 	// dependency version.
-	signerChain, err := extractX5ChainFromUnprotectedHeader(sign1.Unprotected, r.config.CryptoExt)
+	signerChain, err := extractX5ChainFromUnprotectedHeader(sign1.Headers.Unprotected, r.config.CryptoExt)
 	if err != nil {
 		return nil, fmt.Errorf("extract VICAL signer x5chain: %w", err)
 	}
@@ -342,7 +342,7 @@ func (r *Registry) fetchAndVerifyVical(ctx context.Context) (*VICAL, error) {
 	// []byte{} rather than nil: see mdocrical/registry.go's identical
 	// Verify1 call for why nil silently breaks verification against the
 	// pinned vc v0.6.5 (CBOR-encodes as null, not an empty bstr).
-	if err := mdoc.Verify1(sign1, sign1.Payload, signerCert.PublicKey, []byte{}); err != nil {
+	if err := coseutil.VerifySign1(sign1, signerCert.PublicKey); err != nil {
 		return nil, fmt.Errorf("VICAL signature verification failed: %w", err)
 	}
 
@@ -484,45 +484,4 @@ func validateChainAgainstVical(chain []*x509.Certificate, infos []CertificateInf
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	})
 	return err
-}
-
-// parseUntaggedCOSESign1 decodes an untagged COSE_Sign1 four-element CBOR
-// array into a *mdoc.COSESign1 - see mdocrical's identical helper for why
-// this bypasses COSESign1.UnmarshalCBOR (which requires the tag(18)
-// wrapper VICAL/RICAL explicitly do not use).
-func parseUntaggedCOSESign1(data []byte) (*mdoc.COSESign1, error) {
-	var arr []cbor.RawMessage
-	if err := cbor.Unmarshal(data, &arr); err != nil {
-		return nil, fmt.Errorf("decode COSE_Sign1 array: %w", err)
-	}
-	if len(arr) != 4 {
-		return nil, fmt.Errorf("expected 4-element COSE_Sign1 array, got %d", len(arr))
-	}
-
-	var protected []byte
-	if err := cbor.Unmarshal(arr[0], &protected); err != nil {
-		return nil, fmt.Errorf("decode protected header bstr: %w", err)
-	}
-
-	var unprotected map[any]any
-	if err := cbor.Unmarshal(arr[1], &unprotected); err != nil {
-		return nil, fmt.Errorf("decode unprotected header map: %w", err)
-	}
-
-	var payload []byte
-	if err := cbor.Unmarshal(arr[2], &payload); err != nil {
-		return nil, fmt.Errorf("decode payload bstr: %w", err)
-	}
-
-	var signature []byte
-	if err := cbor.Unmarshal(arr[3], &signature); err != nil {
-		return nil, fmt.Errorf("decode signature bstr: %w", err)
-	}
-
-	return &mdoc.COSESign1{
-		Protected:   protected,
-		Unprotected: unprotected,
-		Payload:     payload,
-		Signature:   signature,
-	}, nil
 }

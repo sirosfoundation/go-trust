@@ -112,7 +112,10 @@ func (c *MetadataCache) Get(entityID string, trustMarks, entityTypes []string) *
 	return entry
 }
 
-// GetWithMaxAge retrieves a cached entry, respecting an explicit max-age (seconds).
+// GetWithMaxAge retrieves a cached entry, respecting an explicit max-age.
+// Callers must only use it when the request actually carried a max-age: a
+// maxAge of 0 means "nothing already stored is fresh enough", per RFC 9111
+// max-age=0, not "no constraint". Use Get when there is no max-age.
 // If maxAge > 0, the entry is only returned if it was resolved within that window.
 func (c *MetadataCache) GetWithMaxAge(entityID string, trustMarks, entityTypes []string, maxAge time.Duration) *CacheEntry {
 	c.mu.Lock()
@@ -132,8 +135,9 @@ func (c *MetadataCache) GetWithMaxAge(entityID string, trustMarks, entityTypes [
 		return nil
 	}
 
-	// Check max-age constraint
-	if maxAge > 0 && now.Sub(entry.ResolvedAt) > maxAge {
+	// Check max-age constraint. Not guarded on maxAge > 0: max-age=0 is a
+	// demand for revalidation, so every stored entry is too old for it.
+	if now.Sub(entry.ResolvedAt) > maxAge {
 		c.misses++
 		return nil
 	}
@@ -575,17 +579,33 @@ func (r *OIDFedRegistry) shouldBypassCache(req *authzen.EvaluationRequest) bool 
 	return false
 }
 
-// extractMaxAge parses max-age=N from the cache_control context field, returning the
-// duration (0 means no max-age constraint).
-func (r *OIDFedRegistry) extractMaxAge(req *authzen.EvaluationRequest) time.Duration {
+// extractMaxAge parses max-age=N from the cache_control context field. The
+// second return reports whether a max-age was present at all, which the
+// duration alone cannot: max-age=0 and "no max-age" are different requests —
+// the first demands revalidation, the second imposes no constraint — and both
+// have a zero duration.
+func (r *OIDFedRegistry) extractMaxAge(req *authzen.EvaluationRequest) (time.Duration, bool) {
 	for _, d := range parseCacheControlDirectives(req) {
 		if strings.HasPrefix(d, "max-age=") {
 			if secs, err := strconv.Atoi(strings.TrimPrefix(d, "max-age=")); err == nil && secs >= 0 {
-				return time.Duration(secs) * time.Second
+				return time.Duration(secs) * time.Second, true
 			}
 		}
 	}
-	return 0
+	return 0, false
+}
+
+// shouldSkipCacheWrite reports whether the request forbids storing the result.
+// Only no-store does: no-cache means "revalidate before use" (RFC 9111 5.2.2.4),
+// which shouldBypassCache already handles on the read side, and says nothing
+// about storing.
+func (r *OIDFedRegistry) shouldSkipCacheWrite(req *authzen.EvaluationRequest) bool {
+	for _, d := range parseCacheControlDirectives(req) {
+		if d == "no-store" {
+			return true
+		}
+	}
+	return false
 }
 
 // Evaluate performs an AuthZEN access evaluation using OpenID Federation trust chains.
@@ -619,7 +639,8 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 	// Extract constraints from request context
 	trustMarks, entityTypes, credentialTypes, includeTrustChain, includeCerts, maxDepth := r.extractConstraintsFromContext(req)
 	bypassCache := r.shouldBypassCache(req)
-	maxAge := r.extractMaxAge(req)
+	maxAge, hasMaxAge := r.extractMaxAge(req)
+	skipCacheWrite := r.shouldSkipCacheWrite(req)
 
 	// Check cache first (unless bypassed)
 	var chains []oidfed.TrustChain
@@ -627,7 +648,7 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 	now := time.Now()
 
 	if !bypassCache && r.cache != nil {
-		if maxAge > 0 {
+		if hasMaxAge {
 			cacheEntry = r.cache.GetWithMaxAge(entityID, trustMarks, entityTypes, maxAge)
 		} else {
 			cacheEntry = r.cache.Get(entityID, trustMarks, entityTypes)
@@ -699,8 +720,8 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 			chains = filtered
 		}
 
-		// Cache the result
-		if len(chains) > 0 && r.cache != nil {
+		// Cache the result, unless the request asked us not to store it.
+		if len(chains) > 0 && r.cache != nil && !skipCacheWrite {
 			r.cache.SetWithChainExpiry(entityID, trustMarks, entityTypes, chains, r.getTrustAnchorID(chains[0]))
 		}
 	}

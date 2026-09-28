@@ -735,9 +735,95 @@ func TestExtractMaxAge(t *testing.T) {
 			req := &authzen.EvaluationRequest{
 				Context: tt.context,
 			}
-			got := reg.extractMaxAge(req)
+			got, _ := reg.extractMaxAge(req)
 			if got != tt.want {
 				t.Errorf("extractMaxAge() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestExtractMaxAgePresence covers what the duration alone cannot express:
+// "max-age=0" and "no max-age" are different requests that share a zero
+// duration. Conflating them is what made max-age=0 fall through to an
+// ordinary cache read instead of forcing revalidation (issue #180).
+func TestExtractMaxAgePresence(t *testing.T) {
+	reg := &OIDFedRegistry{}
+
+	tests := []struct {
+		name        string
+		context     map[string]interface{}
+		wantPresent bool
+	}{
+		{"nil context", nil, false},
+		{"no cache_control", map[string]interface{}{}, false},
+		{"no-cache carries no max-age", map[string]interface{}{"cache_control": "no-cache"}, false},
+		{"max-age=0 is present", map[string]interface{}{"cache_control": "max-age=0"}, true},
+		{"max-age=300 is present", map[string]interface{}{"cache_control": "max-age=300"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &authzen.EvaluationRequest{Context: tt.context}
+			if _, present := reg.extractMaxAge(req); present != tt.wantPresent {
+				t.Errorf("extractMaxAge() present = %v, want %v", present, tt.wantPresent)
+			}
+		})
+	}
+}
+
+// TestGetWithMaxAgeZeroRejectsStoredEntry is the cache-level half: with
+// max-age=0 nothing already stored is fresh enough, however recently it was
+// resolved. Before the fix GetWithMaxAge short-circuited on maxAge > 0 and
+// returned the entry.
+func TestGetWithMaxAgeZeroRejectsStoredEntry(t *testing.T) {
+	c := NewMetadataCache(time.Hour, 10)
+	c.Set("https://rp.example.com", nil, nil, nil, "")
+
+	if got := c.Get("https://rp.example.com", nil, nil); got == nil {
+		t.Fatal("precondition failed: entry should be retrievable without a max-age")
+	}
+	if got := c.GetWithMaxAge("https://rp.example.com", nil, nil, 0); got != nil {
+		t.Error("max-age=0 must force revalidation, but a stored entry was returned")
+	}
+	if got := c.GetWithMaxAge("https://rp.example.com", nil, nil, time.Hour); got == nil {
+		t.Error("a generous max-age should still hit the cache")
+	}
+}
+
+// TestShouldSkipCacheWrite pins the read/write asymmetry: no-store must
+// suppress the write, no-cache must not. no-cache means "revalidate before
+// use", which is a read concern and is handled by shouldBypassCache.
+func TestShouldSkipCacheWrite(t *testing.T) {
+	reg := &OIDFedRegistry{}
+
+	tests := []struct {
+		directive string
+		wantSkip  bool
+	}{
+		{"", false},
+		{"no-cache", false},
+		{"no-store", true},
+		{"max-age=60", false},
+		{"no-cache, no-store", true},
+		{"public, no-store", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.directive, func(t *testing.T) {
+			ctx := map[string]interface{}{}
+			if tt.directive != "" {
+				ctx["cache_control"] = tt.directive
+			}
+			req := &authzen.EvaluationRequest{Context: ctx}
+			if got := reg.shouldSkipCacheWrite(req); got != tt.wantSkip {
+				t.Errorf("shouldSkipCacheWrite(%q) = %v, want %v", tt.directive, got, tt.wantSkip)
+			}
+			// no-cache and no-store both still bypass the read.
+			if tt.directive == "no-cache" || tt.directive == "no-store" {
+				if !reg.shouldBypassCache(req) {
+					t.Errorf("%q should still bypass the cache read", tt.directive)
+				}
 			}
 		})
 	}

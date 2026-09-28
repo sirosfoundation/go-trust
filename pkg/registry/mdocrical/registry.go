@@ -37,11 +37,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SUNET/vc/pkg/mdoc"
 	"github.com/fxamacker/cbor/v2"
 	gocryptoutil "github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
+	"github.com/sirosfoundation/go-trust/pkg/registry/coseutil"
+	cose "github.com/veraison/go-cose"
 )
 
 // Config holds the configuration for a RICAL registry instance.
@@ -317,7 +318,7 @@ func (r *Registry) fetchAndVerifyRical(ctx context.Context) (*RICAL, error) {
 		return nil, fmt.Errorf("read RICAL body: %w", err)
 	}
 
-	sign1, err := parseUntaggedCOSESign1(body)
+	sign1, err := coseutil.ParseUntaggedSign1(body)
 	if err != nil {
 		return nil, fmt.Errorf("parse RICAL COSE_Sign1: %w", err)
 	}
@@ -327,7 +328,7 @@ func (r *Registry) fetchAndVerifyRical(ctx context.Context) (*RICAL, error) {
 	// issuerAuth/deviceAuth COSE_Sign1 usage (and from VICAL below), where
 	// x5chain lives in the unprotected header. Confirmed directly from the
 	// spec text - do not "fix" this to match the other convention.
-	signerChain, err := extractX5ChainFromProtectedHeader(sign1.Protected, r.config.CryptoExt)
+	signerChain, err := extractX5ChainFromProtectedHeader(sign1.Headers.Protected, r.config.CryptoExt)
 	if err != nil {
 		return nil, fmt.Errorf("extract RICAL signer x5chain: %w", err)
 	}
@@ -361,7 +362,7 @@ func (r *Registry) fetchAndVerifyRical(ctx context.Context) (*RICAL, error) {
 	// (this module's go.sum version) - a real, CI-only failure this
 	// workspace's go.work masked locally by resolving vc to a newer local
 	// checkout that happens to normalize nil to empty internally.
-	if err := mdoc.Verify1(sign1, sign1.Payload, signerCert.PublicKey, []byte{}); err != nil {
+	if err := coseutil.VerifySign1(sign1, signerCert.PublicKey); err != nil {
 		return nil, fmt.Errorf("RICAL signature verification failed: %w", err)
 	}
 
@@ -569,15 +570,16 @@ func anyTrustConstraintSatisfied(constraints []TrustConstraint) bool {
 	return len(constraints) > 0
 }
 
-func extractX5ChainFromProtectedHeader(protected []byte, ext *gocryptoutil.Extensions) ([]*x509.Certificate, error) {
+// extractX5ChainFromProtectedHeader reads the signer chain from a decoded
+// COSE protected header. It takes cose.ProtectedHeader (map[any]any) rather
+// than the raw bytes: go-cose has already decoded it, and Headers.RawProtected
+// is the bstr-wrapped form, not the inner map, so re-decoding it as a map
+// fails.
+func extractX5ChainFromProtectedHeader(protected cose.ProtectedHeader, ext *gocryptoutil.Extensions) ([]*x509.Certificate, error) {
 	if len(protected) == 0 {
 		return nil, fmt.Errorf("empty protected header")
 	}
-	var hdr map[int64]interface{}
-	if err := cbor.Unmarshal(protected, &hdr); err != nil {
-		return nil, fmt.Errorf("decode protected header: %w", err)
-	}
-	return extractX5ChainFromHeaderMap(hdr, ext)
+	return extractX5ChainFromHeaderMap(coseutil.NormalizeHeaderLabels(protected), ext)
 }
 
 // extractX5ChainFromHeaderMap reads the x5chain element (COSE header label
@@ -615,47 +617,4 @@ func extractX5ChainFromHeaderMap(hdr map[int64]interface{}, ext *gocryptoutil.Ex
 		certs = append(certs, cert)
 	}
 	return certs, nil
-}
-
-// parseUntaggedCOSESign1 decodes an untagged COSE_Sign1 four-element CBOR
-// array (RFC 9052 §4.2's untagged form) into a *mdoc.COSESign1. The
-// vc/pkg/mdoc COSESign1.UnmarshalCBOR method requires the CBOR tag(18)
-// wrapper, which RICAL/VICAL explicitly do not use ("the untagged
-// COSE_Sign1 structure", per F.3.2/C.1.7.1) - so the array is decoded
-// directly here instead of going through that method.
-func parseUntaggedCOSESign1(data []byte) (*mdoc.COSESign1, error) {
-	var arr []cbor.RawMessage
-	if err := cbor.Unmarshal(data, &arr); err != nil {
-		return nil, fmt.Errorf("decode COSE_Sign1 array: %w", err)
-	}
-	if len(arr) != 4 {
-		return nil, fmt.Errorf("expected 4-element COSE_Sign1 array, got %d", len(arr))
-	}
-
-	var protected []byte
-	if err := cbor.Unmarshal(arr[0], &protected); err != nil {
-		return nil, fmt.Errorf("decode protected header bstr: %w", err)
-	}
-
-	var unprotected map[any]any
-	if err := cbor.Unmarshal(arr[1], &unprotected); err != nil {
-		return nil, fmt.Errorf("decode unprotected header map: %w", err)
-	}
-
-	var payload []byte
-	if err := cbor.Unmarshal(arr[2], &payload); err != nil {
-		return nil, fmt.Errorf("decode payload bstr: %w", err)
-	}
-
-	var signature []byte
-	if err := cbor.Unmarshal(arr[3], &signature); err != nil {
-		return nil, fmt.Errorf("decode signature bstr: %w", err)
-	}
-
-	return &mdoc.COSESign1{
-		Protected:   protected,
-		Unprotected: unprotected,
-		Payload:     payload,
-		Signature:   signature,
-	}, nil
 }

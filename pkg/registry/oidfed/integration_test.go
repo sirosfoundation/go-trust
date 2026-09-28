@@ -114,6 +114,11 @@ func TestOIDFedRegistry_UntrustedEntity(t *testing.T) {
 
 // TestOIDFedRegistry_InvalidTrustAnchor tests that invalid trust anchors are handled.
 func TestOIDFedRegistry_InvalidTrustAnchor(t *testing.T) {
+	// Skip if SKIP_NETWORK_TESTS env var is set
+	if os.Getenv("SKIP_NETWORK_TESTS") != "" {
+		t.Skip("Skipping network test (SKIP_NETWORK_TESTS set)")
+	}
+
 	// Create OIDF registry with non-existent trust anchor
 	reg, err := oidfed.NewOIDFedRegistry(oidfed.Config{
 		TrustAnchors: []oidfed.TrustAnchorConfig{
