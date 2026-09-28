@@ -75,6 +75,43 @@ security:
 # in order and uses the first match (FirstMatch strategy).
 
 registries:
+  # How the manager combines registries. Default "first_match".
+  #   first_match — return as soon as any registry allows (fastest)
+  #   all         — consult every applicable registry
+  #   best_match  — prefer the most specific match
+  #   sequential  — consult registries strictly in configured order
+  # strategy: first_match
+
+  # ---------------------------------------------------------------------------
+  # System certificate pool (the host trust store)
+  # ---------------------------------------------------------------------------
+  # Validates X.509 chains against the operating system's own CA bundle.
+  # Useful for ordinary TLS/WebPKI identities; it says nothing about
+  # qualified status, so pair it with a TSL registry rather than replacing one.
+  # systemcertpool:
+  #   enabled: true
+  #   name: "system-cert-pool"
+
+  # ---------------------------------------------------------------------------
+  # Composite registries (boolean combinations)
+  # ---------------------------------------------------------------------------
+  # Require agreement between registries. A registry named as a child is
+  # evaluated ONLY through its composite - it is removed from the top-level
+  # set, so it cannot also answer on its own and satisfy first_match alone.
+  #
+  # Nesting is possible: name one composite as another's child, listing the
+  # inner one first.
+  # composite:
+  #   - name: "qualified-and-listed"
+  #     description: "Must be in the TSL *and* on our own whitelist"
+  #     operator: AND          # AND | OR | MAJORITY | QUORUM
+  #     timeout: "5s"
+  #     registries: ["ETSI-TSL", "whitelist"]
+  #   - name: "two-of-three"
+  #     operator: QUORUM
+  #     threshold: 2           # QUORUM only; 1..len(registries)
+  #     registries: ["ETSI-TSL", "whitelist", "oidfed-registry"]
+
   # ---------------------------------------------------------------------------
   # ETSI TSL Registry (X.509 certificate trust)
   # ---------------------------------------------------------------------------
@@ -123,6 +160,12 @@ registries:
     # When true, process ETSI TS 119 615 pivot LOTLs for signer certificate rollover.
     # Requires allow_network_access to be true.
     follow_pivots: false
+
+    # How often to re-fetch TSL data in the background. Omitted or zero means
+    # the registry serves whatever it loaded at startup until the process
+    # restarts, so a service revoked upstream stays trusted for as long as gt
+    # stays up. Requires allow_network_access.
+    # refresh_interval: "6h"
 
   # ---------------------------------------------------------------------------
   # OpenID Federation Registry (entity trust chains)

@@ -463,6 +463,41 @@ func sanitizeRequestContext(ctx map[string]interface{}, logger logging.Logger) m
 	return clean
 }
 
+// GetRegistry returns the registered registry with the given Info().Name, or
+// nil if none matches.
+func (m *RegistryManager) GetRegistry(name string) TrustRegistry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, reg := range m.registries {
+		if reg.Info().Name == name {
+			return reg
+		}
+	}
+	return nil
+}
+
+// Unregister removes the registry with the given Info().Name and reports
+// whether one was removed.
+//
+// This exists so a CompositeRegistry can take ownership of its children: a
+// child left registered alongside its parent would also be consulted on its
+// own, and under FirstMatch could return decision=true by itself — exactly
+// the agreement an AND composite was configured to require.
+func (m *RegistryManager) Unregister(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i, reg := range m.registries {
+		if reg.Info().Name != name {
+			continue
+		}
+		m.registries = append(m.registries[:i], m.registries[i+1:]...)
+		return true
+	}
+	return false
+}
+
 // SupportedResourceTypes returns the union of all resource types supported by registered registries
 func (m *RegistryManager) SupportedResourceTypes() []string {
 	m.mu.RLock()

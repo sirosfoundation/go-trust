@@ -125,9 +125,48 @@ type RegistriesConfig struct {
 	VICAL *VICALRegistryConfig `yaml:"vical,omitempty"`
 	// FIDO Alliance MDS3 registry (FIDO2/CTAP2 hardware-key attestation trust)
 	FIDOMDS3 *FIDOMDS3RegistryConfig `yaml:"fidomds3,omitempty"`
+	// System X.509 certificate pool (the host trust store)
+	SystemCertPool *SystemCertPoolRegistryConfig `yaml:"systemcertpool,omitempty"`
 	// Static test registries
 	AlwaysTrusted *StaticRegistryConfig `yaml:"always_trusted,omitempty"`
 	NeverTrusted  *StaticRegistryConfig `yaml:"never_trusted,omitempty"`
+	// Strategy selects how the registry manager combines registries:
+	// "first_match" (default), "all", "best_match" or "sequential".
+	Strategy string `yaml:"strategy,omitempty"`
+	// Composite combines already-configured registries with boolean logic.
+	// A registry named as a child is evaluated only through its composite,
+	// not also on its own.
+	Composite []CompositeRegistryConfig `yaml:"composite,omitempty"`
+}
+
+// SystemCertPoolRegistryConfig configures the registry that validates X.509
+// chains against the host's own trust store.
+type SystemCertPoolRegistryConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Name        string `yaml:"name,omitempty"`
+	Description string `yaml:"description,omitempty"`
+}
+
+// CompositeRegistryConfig combines other configured registries with boolean
+// logic, so a trust decision can require agreement between them.
+type CompositeRegistryConfig struct {
+	// Name identifies the composite, and is what a policy's `registries`
+	// list refers to.
+	Name string `yaml:"name"`
+	// Description provides human-readable documentation.
+	Description string `yaml:"description,omitempty"`
+	// Operator is how child results combine: "AND", "OR", "MAJORITY" or
+	// "QUORUM". QUORUM requires Threshold children to agree.
+	Operator string `yaml:"operator"`
+	// Threshold is the number of children that must return decision=true.
+	// QUORUM only; ignored by the other operators.
+	Threshold int `yaml:"threshold,omitempty"`
+	// Timeout bounds the whole composite evaluation, as a duration string
+	// (e.g. "5s"). Empty uses the CompositeRegistry default.
+	Timeout string `yaml:"timeout,omitempty"`
+	// Registries names the child registries, which must already be
+	// configured elsewhere under `registries`.
+	Registries []string `yaml:"registries"`
 }
 
 // ETSIRegistryConfig contains ETSI TSL registry configuration.
@@ -152,6 +191,10 @@ type ETSIRegistryConfig struct {
 	// FollowPivots enables ETSI TS 119 615 pivot LOTL processing for signer certificate rollover.
 	// When true, the registry will fetch pivot LOTLs to discover new signer certificates.
 	FollowPivots bool `yaml:"follow_pivots"`
+	// RefreshInterval is how often to re-fetch TSL data in the background,
+	// as a duration string (e.g. "6h"). Empty or zero disables background
+	// refresh, leaving the registry on whatever it loaded at startup.
+	RefreshInterval string `yaml:"refresh_interval,omitempty"`
 }
 
 // WhitelistRegistryConfig contains whitelist registry configuration.

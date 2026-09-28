@@ -20,7 +20,8 @@ func parseConfigPackage(t *testing.T) *Registry {
 func flattenedPaths(t *testing.T) map[string]FieldDoc {
 	t.Helper()
 	reg := parseConfigPackage(t)
-	sections := buildSections(reg, "Config", map[string]string{})
+	sections := buildSections(reg, "Config", "", map[string]string{})
+	sections = append(sections, buildSections(reg, "RegistriesConfig", "registries", map[string]string{})...)
 	paths := make(map[string]FieldDoc)
 	for _, sec := range sections {
 		for _, f := range sec.Fields {
@@ -80,9 +81,9 @@ func TestDocumentedFieldsCarryDescriptions(t *testing.T) {
 	}
 }
 
-// TestResolveMapElemTypeName pins the narrow contract: string-keyed maps of
-// structs unwrap, everything else stays a leaf.
-func TestResolveMapElemTypeName(t *testing.T) {
+// TestResolveElemTypeName pins the narrow contract: string-keyed maps and
+// slices of structs unwrap, everything else stays a leaf.
+func TestResolveElemTypeName(t *testing.T) {
 	reg := parseConfigPackage(t)
 
 	policies := reg.Lookup("PoliciesConfig")
@@ -107,7 +108,7 @@ func TestResolveMapElemTypeName(t *testing.T) {
 	}
 
 	// A map of non-structs must not be unwrapped — there is nothing to recurse
-	// into, and a <name> placeholder row would be noise.
+	// into, and a placeholder row would be noise.
 	etsi := reg.Lookup("OIDFedPolicyConfig")
 	if etsi == nil {
 		t.Fatal("OIDFedPolicyConfig not found")
@@ -116,5 +117,38 @@ func TestResolveMapElemTypeName(t *testing.T) {
 		if f.YAMLTag == "credential_type_trust_marks" && f.ElemType != "" {
 			t.Errorf("ElemType = %q for map[string][]string, want empty", f.ElemType)
 		}
+	}
+}
+
+// TestSliceOfStructsIsDocumented is the sibling of the map case: composite
+// registries and OIDFed trust anchors are both []struct, and rendered as an
+// opaque "... list" cell until the generator learned to unwrap them.
+func TestSliceOfStructsIsDocumented(t *testing.T) {
+	paths := flattenedPaths(t)
+
+	for _, path := range []string{
+		"registries.composite[].name",
+		"registries.composite[].operator",
+		"registries.composite[].threshold",
+		"registries.composite[].registries",
+		"registries.oidfed.trust_anchors[].entity_id",
+	} {
+		if _, ok := paths[path]; !ok {
+			t.Errorf("%s is absent from the generated reference", path)
+		}
+	}
+}
+
+// TestRegistriesScalarsKeepTheirPrefix guards the re-rooting of
+// RegistriesConfig: a scalar there must document as registries.strategy, not
+// a bare top-level strategy, which is not where an operator would write it.
+func TestRegistriesScalarsKeepTheirPrefix(t *testing.T) {
+	paths := flattenedPaths(t)
+
+	if _, ok := paths["registries.strategy"]; !ok {
+		t.Error("registries.strategy is absent")
+	}
+	if _, ok := paths["strategy"]; ok {
+		t.Error("strategy is documented unprefixed; an operator would write it at the wrong level")
 	}
 }
