@@ -933,27 +933,35 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 		}
 
 		// Convert constraints
-		if policyCfg.Constraints != nil && len(policyCfg.Constraints.AllowedKeyTypes) > 0 {
+		if policyCfg.Constraints != nil {
 			policy.Constraints = registry.PolicyConstraints{
-				AllowedKeyTypes: policyCfg.Constraints.AllowedKeyTypes,
+				AllowedKeyTypes:   policyCfg.Constraints.AllowedKeyTypes,
+				RequireKeyBinding: policyCfg.Constraints.RequireKeyBinding,
 			}
 		}
 
 		// Convert ETSI constraints
 		if policyCfg.ETSI != nil {
 			policy.ETSI = &registry.ETSIPolicyConstraints{
-				ServiceTypes:    policyCfg.ETSI.ServiceTypes,
-				ServiceStatuses: policyCfg.ETSI.ServiceStatuses,
-				Countries:       policyCfg.ETSI.Countries,
+				ServiceTypes:           policyCfg.ETSI.ServiceTypes,
+				ServiceStatuses:        policyCfg.ETSI.ServiceStatuses,
+				Countries:              policyCfg.ETSI.Countries,
+				CredentialTypes:        policyCfg.ETSI.CredentialTypes,
+				RequiredCertPolicyOIDs: policyCfg.ETSI.RequiredCertPolicyOIDs,
+				ExtractRPIdentity:      policyCfg.ETSI.ExtractRPIdentity,
+				AllowedAttributes:      policyCfg.ETSI.AllowedAttributes,
+				StrictEntitlementCheck: policyCfg.ETSI.StrictEntitlementCheck,
+				AllowIntermediaries:    policyCfg.ETSI.AllowIntermediaries,
 			}
 		}
 
 		// Convert OpenID Federation constraints
 		if policyCfg.OIDFed != nil {
 			policy.OIDFed = &registry.OIDFedPolicyConstraints{
-				RequiredTrustMarks: policyCfg.OIDFed.RequiredTrustMarks,
-				EntityTypes:        policyCfg.OIDFed.EntityTypes,
-				MaxChainDepth:      policyCfg.OIDFed.MaxChainDepth,
+				RequiredTrustMarks:       policyCfg.OIDFed.RequiredTrustMarks,
+				EntityTypes:              policyCfg.OIDFed.EntityTypes,
+				MaxChainDepth:            policyCfg.OIDFed.MaxChainDepth,
+				CredentialTypeTrustMarks: policyCfg.OIDFed.CredentialTypeTrustMarks,
 			}
 		}
 

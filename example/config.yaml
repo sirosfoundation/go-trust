@@ -442,6 +442,17 @@ policies:
     credential-verifier:
       description: "Trust requirements for credential verifiers"
 
+      # Everything under a policy is a server-side control. A client cannot
+      # enable any of it by sending the same keys in the request context or in
+      # action.parameters: both are filtered down to the data-carrying keys
+      # (query, requested_attributes, credential_types, purpose, doc_type,
+      # intermediary_x5c) before any registry sees them.
+      # constraints:
+      #   allowed_key_types: ["x5c"]
+      #   # Reject resolution-only requests, which return resolved metadata
+      #   # without any key having been presented.
+      #   require_key_binding: true
+
       etsi:
         service_types:
           # Web authentication services
@@ -451,11 +462,44 @@ policies:
         service_statuses:
           - "http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted"
 
+        # RP access certificate handling, per ETSI TS 119 411-8 / TS 119 475.
+
+        # Require an access-certificate policy OID on the leaf, so a generic
+        # TLS certificate from the same CA is not accepted as an RP credential.
+        # required_cert_policy_oids:
+        #   - "0.4.0.194112.1.0"
+
+        # Return Subject DN, SANs and serial in trust_metadata.rp_identity.
+        # extract_rp_identity: true
+
+        # Over-request detection: the attributes this RP is entitled to ask
+        # for. Detection does not run at all unless this is set - the
+        # requested attributes come from the client, the entitled ones can
+        # only come from here.
+        # allowed_attributes:
+        #   - "given_name"
+        #   - "family_name"
+
+        # Reject an over-requesting RP instead of allowing it with warnings
+        # attached to the response.
+        # strict_entitlement_check: true
+
+        # Accept intermediary/broker presentations and surface intermediary
+        # metadata. The intermediary chain is not itself validated against a
+        # trust store yet.
+        # allow_intermediaries: true
+
       oidfed:
         entity_types:
           - "openid_relying_party"
         required_trust_marks:
           - "https://dc4eu.eu/tm/verifier"
+
+        # Additional trust marks required only for specific credential types,
+        # merged into required_trust_marks when the request names the type.
+        # credential_type_trust_marks:
+        #   eu.europa.ec.eudi.pid.1:
+        #     - "https://trust.eu/wallet/pid-issuer"
 
       did:
         allowed_domains:

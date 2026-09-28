@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -113,6 +114,14 @@ func (m *RegistryManager) Evaluate(ctx context.Context, req *authzen.EvaluationR
 		}, nil
 	}
 
+	// Strip the inbound context down to the keys a client is allowed to set,
+	// before anything else reads or writes it. request.Context is how policy
+	// constraints reach the registries, so an unsanitized one lets a client
+	// write its own policy: the action.parameters allowlist would guard one
+	// door and leave the adjacent one open. It is also how internal state such
+	// as _original_subject_id travels, which a client must not be able to forge.
+	req.Context = sanitizeRequestContext(req.Context, logger)
+
 	// Preserve the pre-normalization Subject.ID before rewriting it below.
 	// Registries that need the raw OpenID4VP client_id_scheme claim (e.g. to
 	// verify a presented certificate is actually bound to the claimed
@@ -139,6 +148,23 @@ func (m *RegistryManager) Evaluate(ctx context.Context, req *authzen.EvaluationR
 	} else {
 		logger.Debug("Evaluate: no policy matched",
 			logging.F("action", policyCtx.ActionName))
+	}
+
+	// Enforce RequireKeyBinding at the entry layer: a policy that demands key
+	// binding must not be satisfiable by a resolution-only request, which
+	// returns resolved metadata without any key having been presented.
+	if policyCtx.Policy != nil && policyCtx.Policy.Constraints.RequireKeyBinding && req.IsResolutionOnlyRequest() {
+		logger.Debug("Evaluate: resolution-only request rejected by policy",
+			logging.F("policy", policyCtx.Policy.Name))
+		return &authzen.EvaluationResponse{
+			Decision: false,
+			Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{
+					"error":  "policy requires key binding; resolution-only requests are not accepted",
+					"policy": policyCtx.Policy.Name,
+				},
+			},
+		}, nil
 	}
 
 	// Enforce AllowedKeyTypes at the entry layer before routing to registries
@@ -242,23 +268,25 @@ func (m *RegistryManager) resolvePolicyContext(req *authzen.EvaluationRequest) *
 	return policyCtx
 }
 
-// applyPolicyToRequest applies policy constraints to the request context.
-// This allows registries to read policy constraints from the request.
-// Action parameters from the request are merged first, then policy constraints are applied.
-// Policy constraints take precedence over action parameters for the same key.
+// applyPolicyToRequest populates request.Context, the server-controlled channel
+// registries read policy constraints from.
+//
+// Order matters: allowlisted action.parameters are merged in first (they are
+// client-supplied data), then policy constraints, so policy wins on a collision.
+// Callers are responsible for having sanitized the inbound context first;
+// RegistryManager.Evaluate does so before it touches the request at all.
 func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, policyCtx *PolicyContext) {
-	// Initialize context if needed
+	// Evaluate has already stripped the inbound context to client-suppliable
+	// keys; from here on req.Context is server-controlled.
 	if req.Context == nil {
 		req.Context = make(map[string]interface{})
 	}
 
-	// Merge action.parameters into context (client-supplied constraints).
-	// Only allowlisted keys are accepted to prevent clients from injecting
-	// security-sensitive policy controls (e.g., strict_entitlement_check,
-	// allow_intermediaries, required_cert_policy_oids).
+	// Merge action.parameters into context (client-supplied data), through the
+	// same allowlist for the same reason.
 	if req.Action != nil && req.Action.Parameters != nil {
 		for k, v := range req.Action.Parameters {
-			if allowedActionParameterKey(k) {
+			if clientSuppliableContextKey(k) {
 				req.Context[k] = v
 			}
 		}
@@ -360,23 +388,57 @@ func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, p
 	req.Context["_policy"] = policyCtx.Policy.Name
 }
 
-// allowedActionParameterKeys lists context keys that may be set via
-// action.parameters. Keys not in this set are silently dropped to prevent
-// clients from injecting security-sensitive policy controls.
-var allowedActionParameterKeys = map[string]bool{
+// clientSuppliableContextKeys lists the request-context keys a client is
+// allowed to set, whether it sends them in request.Context or in
+// action.parameters. Everything else in the context namespace is a policy
+// control and may only be written server-side by applyPolicyToRequest.
+//
+// The dividing line is data versus control: these keys describe *what the RP
+// is asking for*, which only the client knows. Keys such as
+// allowed_attributes, strict_entitlement_check, allow_intermediaries,
+// required_cert_policy_oids or extract_rp_identity decide *what the server
+// permits*, and a client that could set those would be writing its own policy.
+var clientSuppliableContextKeys = map[string]bool{
 	// Data-carrying parameters (what the RP is requesting)
 	"query":                true, // DCQL query for over-request detection
 	"requested_attributes": true, // explicit attribute list
 	"credential_types":     true, // credential type identifiers
+	// Both of these are safe in a client's hands. doc_type only ever narrows:
+	// supplying it can deny, omitting it skips the VICAL docType check.
+	// intermediary_x5c is read only when the policy has set allow_intermediaries.
+	"doc_type":         true, // mdoc doctype, filters VICAL entries
+	"intermediary_x5c": true, // the intermediary's own certificate chain
 
 	// Informational / audit
 	"purpose": true, // presentation purpose
 }
 
-// allowedActionParameterKey returns true if the key may flow from
-// action.parameters into the request context.
-func allowedActionParameterKey(key string) bool {
-	return allowedActionParameterKeys[key]
+// clientSuppliableContextKey returns true if the key may flow from a client
+// request into the request context.
+func clientSuppliableContextKey(key string) bool {
+	return clientSuppliableContextKeys[key]
+}
+
+// sanitizeRequestContext returns a context containing only the keys a client
+// is permitted to set. It always returns a non-nil, freshly allocated map, so
+// the policy values written afterwards cannot alias the caller's map.
+func sanitizeRequestContext(ctx map[string]interface{}, logger logging.Logger) map[string]interface{} {
+	clean := make(map[string]interface{}, len(ctx))
+	var dropped []string
+	for k, v := range ctx {
+		if clientSuppliableContextKey(k) {
+			clean[k] = v
+			continue
+		}
+		dropped = append(dropped, k)
+	}
+	if len(dropped) > 0 && logger != nil {
+		// Key names only: the values are attacker-controlled and may be large.
+		sort.Strings(dropped)
+		logger.Debug("Evaluate: dropped non-client context keys",
+			logging.F("keys", dropped))
+	}
+	return clean
 }
 
 // SupportedResourceTypes returns the union of all resource types supported by registered registries
