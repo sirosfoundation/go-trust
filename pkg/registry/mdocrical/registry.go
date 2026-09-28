@@ -27,21 +27,23 @@ package mdocrical
 
 import (
 	"context"
+	"crypto"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/SUNET/vc/pkg/mdoc"
 	"github.com/fxamacker/cbor/v2"
 	gocryptoutil "github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
+	cose "github.com/veraison/go-cose"
 )
 
 // Config holds the configuration for a RICAL registry instance.
@@ -327,7 +329,7 @@ func (r *Registry) fetchAndVerifyRical(ctx context.Context) (*RICAL, error) {
 	// issuerAuth/deviceAuth COSE_Sign1 usage (and from VICAL below), where
 	// x5chain lives in the unprotected header. Confirmed directly from the
 	// spec text - do not "fix" this to match the other convention.
-	signerChain, err := extractX5ChainFromProtectedHeader(sign1.Protected, r.config.CryptoExt)
+	signerChain, err := extractX5ChainFromProtectedHeader(sign1.Headers.Protected, r.config.CryptoExt)
 	if err != nil {
 		return nil, fmt.Errorf("extract RICAL signer x5chain: %w", err)
 	}
@@ -361,7 +363,7 @@ func (r *Registry) fetchAndVerifyRical(ctx context.Context) (*RICAL, error) {
 	// (this module's go.sum version) - a real, CI-only failure this
 	// workspace's go.work masked locally by resolving vc to a newer local
 	// checkout that happens to normalize nil to empty internally.
-	if err := mdoc.Verify1(sign1, sign1.Payload, signerCert.PublicKey, []byte{}); err != nil {
+	if err := verifySign1(sign1, signerCert.PublicKey); err != nil {
 		return nil, fmt.Errorf("RICAL signature verification failed: %w", err)
 	}
 
@@ -569,15 +571,37 @@ func anyTrustConstraintSatisfied(constraints []TrustConstraint) bool {
 	return len(constraints) > 0
 }
 
-func extractX5ChainFromProtectedHeader(protected []byte, ext *gocryptoutil.Extensions) ([]*x509.Certificate, error) {
+// extractX5ChainFromProtectedHeader reads the signer chain from a decoded
+// COSE protected header. It takes cose.ProtectedHeader (map[any]any) rather
+// than the raw bytes: go-cose has already decoded it, and Headers.RawProtected
+// is the bstr-wrapped form, not the inner map, so re-decoding it as a map
+// fails.
+func extractX5ChainFromProtectedHeader(protected cose.ProtectedHeader, ext *gocryptoutil.Extensions) ([]*x509.Certificate, error) {
 	if len(protected) == 0 {
 		return nil, fmt.Errorf("empty protected header")
 	}
-	var hdr map[int64]interface{}
-	if err := cbor.Unmarshal(protected, &hdr); err != nil {
-		return nil, fmt.Errorf("decode protected header: %w", err)
+	return extractX5ChainFromHeaderMap(normalizeHeaderLabels(protected), ext)
+}
+
+// normalizeHeaderLabels narrows a COSE header map to the integer labels this
+// package cares about. COSE labels may decode as any integer type (or as a
+// text string, for private-use labels), so each key is coerced rather than
+// type-asserted to int64.
+func normalizeHeaderLabels(hdr map[any]any) map[int64]interface{} {
+	out := make(map[int64]interface{}, len(hdr))
+	for k, v := range hdr {
+		switch key := k.(type) {
+		case int64:
+			out[key] = v
+		case int:
+			out[int64(key)] = v
+		case uint64:
+			if key <= math.MaxInt64 {
+				out[int64(key)] = v
+			}
+		}
 	}
-	return extractX5ChainFromHeaderMap(hdr, ext)
+	return out
 }
 
 // extractX5ChainFromHeaderMap reads the x5chain element (COSE header label
@@ -618,44 +642,35 @@ func extractX5ChainFromHeaderMap(hdr map[int64]interface{}, ext *gocryptoutil.Ex
 }
 
 // parseUntaggedCOSESign1 decodes an untagged COSE_Sign1 four-element CBOR
-// array (RFC 9052 §4.2's untagged form) into a *mdoc.COSESign1. The
-// vc/pkg/mdoc COSESign1.UnmarshalCBOR method requires the CBOR tag(18)
-// wrapper, which RICAL/VICAL explicitly do not use ("the untagged
-// COSE_Sign1 structure", per F.3.2/C.1.7.1) - so the array is decoded
-// directly here instead of going through that method.
-func parseUntaggedCOSESign1(data []byte) (*mdoc.COSESign1, error) {
-	var arr []cbor.RawMessage
-	if err := cbor.Unmarshal(data, &arr); err != nil {
-		return nil, fmt.Errorf("decode COSE_Sign1 array: %w", err)
+// array (RFC 9052 §4.2's untagged form). RICAL/VICAL explicitly use the
+// untagged form ("the untagged COSE_Sign1 structure", per F.3.2/C.1.7.1),
+// which is why this is cose.UntaggedSign1Message rather than
+// cose.Sign1Message: the latter requires the CBOR tag(18) wrapper.
+func parseUntaggedCOSESign1(data []byte) (*cose.UntaggedSign1Message, error) {
+	var msg cose.UntaggedSign1Message
+	if err := msg.UnmarshalCBOR(data); err != nil {
+		return nil, fmt.Errorf("decode COSE_Sign1: %w", err)
 	}
-	if len(arr) != 4 {
-		return nil, fmt.Errorf("expected 4-element COSE_Sign1 array, got %d", len(arr))
-	}
+	return &msg, nil
+}
 
-	var protected []byte
-	if err := cbor.Unmarshal(arr[0], &protected); err != nil {
-		return nil, fmt.Errorf("decode protected header bstr: %w", err)
+// verifySign1 checks a COSE_Sign1 signature against pubKey, with a
+// zero-length external_aad as F.3.2/C.1.7.1 require. The algorithm comes
+// from the protected header, which is where COSE requires it to be when
+// there is no externally supplied data.
+func verifySign1(msg *cose.UntaggedSign1Message, pubKey crypto.PublicKey) error {
+	alg, err := msg.Headers.Protected.Algorithm()
+	if err != nil {
+		return fmt.Errorf("read alg from protected header: %w", err)
 	}
-
-	var unprotected map[any]any
-	if err := cbor.Unmarshal(arr[1], &unprotected); err != nil {
-		return nil, fmt.Errorf("decode unprotected header map: %w", err)
+	verifier, err := cose.NewVerifier(alg, pubKey)
+	if err != nil {
+		return fmt.Errorf("build %v verifier: %w", alg, err)
 	}
-
-	var payload []byte
-	if err := cbor.Unmarshal(arr[2], &payload); err != nil {
-		return nil, fmt.Errorf("decode payload bstr: %w", err)
-	}
-
-	var signature []byte
-	if err := cbor.Unmarshal(arr[3], &signature); err != nil {
-		return nil, fmt.Errorf("decode signature bstr: %w", err)
-	}
-
-	return &mdoc.COSESign1{
-		Protected:   protected,
-		Unprotected: unprotected,
-		Payload:     payload,
-		Signature:   signature,
-	}, nil
+	// external_aad is a zero-length bstr. go-cose normalizes nil to empty
+	// itself (sign1.go toBeSigned), so both spellings hash the same
+	// Sig_structure here — unlike a hand-rolled encoder, where a nil []byte
+	// boxed in an `any` becomes CBOR null (0xf6) rather than an empty byte
+	// string (0x40) and verification then always fails.
+	return msg.Verify([]byte{}, verifier)
 }

@@ -16,6 +16,7 @@ package vical
 
 import (
 	"context"
+	"crypto"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -26,11 +27,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SUNET/vc/pkg/mdoc"
 	"github.com/fxamacker/cbor/v2"
 	gocryptoutil "github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
+	cose "github.com/veraison/go-cose"
 )
 
 // Config holds the configuration for a VICAL registry instance.
@@ -314,7 +315,7 @@ func (r *Registry) fetchAndVerifyVical(ctx context.Context) (*VICAL, error) {
 	// checkout where it does check both) - always returning "no x5chain in
 	// headers" for any real, spec-conformant VICAL against the released
 	// dependency version.
-	signerChain, err := extractX5ChainFromUnprotectedHeader(sign1.Unprotected, r.config.CryptoExt)
+	signerChain, err := extractX5ChainFromUnprotectedHeader(sign1.Headers.Unprotected, r.config.CryptoExt)
 	if err != nil {
 		return nil, fmt.Errorf("extract VICAL signer x5chain: %w", err)
 	}
@@ -342,7 +343,7 @@ func (r *Registry) fetchAndVerifyVical(ctx context.Context) (*VICAL, error) {
 	// []byte{} rather than nil: see mdocrical/registry.go's identical
 	// Verify1 call for why nil silently breaks verification against the
 	// pinned vc v0.6.5 (CBOR-encodes as null, not an empty bstr).
-	if err := mdoc.Verify1(sign1, sign1.Payload, signerCert.PublicKey, []byte{}); err != nil {
+	if err := verifySign1(sign1, signerCert.PublicKey); err != nil {
 		return nil, fmt.Errorf("VICAL signature verification failed: %w", err)
 	}
 
@@ -487,42 +488,32 @@ func validateChainAgainstVical(chain []*x509.Certificate, infos []CertificateInf
 }
 
 // parseUntaggedCOSESign1 decodes an untagged COSE_Sign1 four-element CBOR
-// array into a *mdoc.COSESign1 - see mdocrical's identical helper for why
-// this bypasses COSESign1.UnmarshalCBOR (which requires the tag(18)
-// wrapper VICAL/RICAL explicitly do not use).
-func parseUntaggedCOSESign1(data []byte) (*mdoc.COSESign1, error) {
-	var arr []cbor.RawMessage
-	if err := cbor.Unmarshal(data, &arr); err != nil {
-		return nil, fmt.Errorf("decode COSE_Sign1 array: %w", err)
+// array. VICAL uses the untagged form (C.1.7.1), which is why this is
+// cose.UntaggedSign1Message rather than cose.Sign1Message: the latter
+// requires the CBOR tag(18) wrapper.
+func parseUntaggedCOSESign1(data []byte) (*cose.UntaggedSign1Message, error) {
+	var msg cose.UntaggedSign1Message
+	if err := msg.UnmarshalCBOR(data); err != nil {
+		return nil, fmt.Errorf("decode COSE_Sign1: %w", err)
 	}
-	if len(arr) != 4 {
-		return nil, fmt.Errorf("expected 4-element COSE_Sign1 array, got %d", len(arr))
-	}
+	return &msg, nil
+}
 
-	var protected []byte
-	if err := cbor.Unmarshal(arr[0], &protected); err != nil {
-		return nil, fmt.Errorf("decode protected header bstr: %w", err)
+// verifySign1 checks a COSE_Sign1 signature against pubKey, with a
+// zero-length external_aad as C.1.7.1 requires. Mirrors mdocrical's
+// identical helper — the two registries keep private copies of these
+// helpers rather than sharing a package, as they already did before.
+func verifySign1(msg *cose.UntaggedSign1Message, pubKey crypto.PublicKey) error {
+	alg, err := msg.Headers.Protected.Algorithm()
+	if err != nil {
+		return fmt.Errorf("read alg from protected header: %w", err)
 	}
-
-	var unprotected map[any]any
-	if err := cbor.Unmarshal(arr[1], &unprotected); err != nil {
-		return nil, fmt.Errorf("decode unprotected header map: %w", err)
+	verifier, err := cose.NewVerifier(alg, pubKey)
+	if err != nil {
+		return fmt.Errorf("build %v verifier: %w", alg, err)
 	}
-
-	var payload []byte
-	if err := cbor.Unmarshal(arr[2], &payload); err != nil {
-		return nil, fmt.Errorf("decode payload bstr: %w", err)
-	}
-
-	var signature []byte
-	if err := cbor.Unmarshal(arr[3], &signature); err != nil {
-		return nil, fmt.Errorf("decode signature bstr: %w", err)
-	}
-
-	return &mdoc.COSESign1{
-		Protected:   protected,
-		Unprotected: unprotected,
-		Payload:     payload,
-		Signature:   signature,
-	}, nil
+	// go-cose normalizes a nil external_aad to an empty bstr itself, so
+	// this cannot repeat the CBOR-null-vs-empty-bstr trap a hand-rolled
+	// encoder is prone to.
+	return msg.Verify([]byte{}, verifier)
 }
