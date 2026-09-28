@@ -387,6 +387,35 @@ func main() {
 	}))
 	r.Use(gin.Recovery())
 
+	// CORS, before rate limiting, so a rejected request still carries the
+	// headers a browser needs to surface the real status rather than an
+	// opaque network error.
+	if cfg != nil && cfg.Security.EnableCORS {
+		if len(cfg.Security.AllowedOrigins) == 0 {
+			logger.Warn("CORS is enabled but security.allowed_origins is empty; no cross-origin request can succeed")
+		}
+		r.Use(api.CORSMiddleware(cfg.Security.AllowedOrigins))
+		logger.Info("CORS enabled",
+			logging.F("allowed_origins", cfg.Security.AllowedOrigins))
+	}
+
+	if cfg != nil && cfg.Security.RateLimitRPS > 0 {
+		// Burst is a tenth of the sustained rate (at least 1), so a client
+		// can absorb a short spike without being able to bank a full
+		// second's allowance and spend it at once.
+		burst := cfg.Security.RateLimitRPS / 10
+		if burst < 1 {
+			burst = 1
+		}
+		limiter := api.NewRateLimiter(cfg.Security.RateLimitRPS, burst)
+		// Without this the per-IP map grows for the life of the process.
+		limiter.StartCleanupLoop(time.Hour, time.Hour, make(chan struct{}))
+		r.Use(limiter.Middleware())
+		logger.Info("Rate limiting enabled",
+			logging.F("rps", cfg.Security.RateLimitRPS),
+			logging.F("burst", burst))
+	}
+
 	// Initialize metrics
 	metrics := api.NewMetrics()
 	serverCtx.Metrics = metrics

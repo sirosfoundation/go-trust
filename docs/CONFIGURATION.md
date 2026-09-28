@@ -36,7 +36,6 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 |----------|-------------|------|-------------|
 | `server.host` | `GT_HOST` | string |  |
 | `server.port` | `GT_PORT` | string |  |
-| `server.frequency` | `GT_FREQUENCY` | duration |  |
 | `server.external_url` | `GT_EXTERNAL_URL` | string | External URL for PDP discovery (e.g., https://pdp.example.com) |
 | `server.tls.enabled` | `GT_TLS_ENABLED` | boolean | Enable TLS/HTTPS |
 | `server.tls.cert_file` | `GT_TLS_CERT_FILE` | string | Path to TLS certificate file |

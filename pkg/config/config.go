@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/sirosfoundation/g119612/pkg/validation"
 	"gopkg.in/yaml.v3"
@@ -481,11 +480,10 @@ type FIDOMDS3PolicyConfig struct {
 
 // ServerConfig contains HTTP server configuration settings.
 type ServerConfig struct {
-	Host        string        `yaml:"host"`
-	Port        string        `yaml:"port"`
-	Frequency   time.Duration `yaml:"frequency"`
-	ExternalURL string        `yaml:"external_url"` // External URL for PDP discovery (e.g., https://pdp.example.com)
-	TLS         TLSConfig     `yaml:"tls"`
+	Host        string    `yaml:"host"`
+	Port        string    `yaml:"port"`
+	ExternalURL string    `yaml:"external_url"` // External URL for PDP discovery (e.g., https://pdp.example.com)
+	TLS         TLSConfig `yaml:"tls"`
 }
 
 // TLSConfig contains TLS/HTTPS server configuration settings.
@@ -514,9 +512,8 @@ type SecurityConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Host:      "127.0.0.1",
-			Port:      "6001",
-			Frequency: 5 * time.Minute,
+			Host: "127.0.0.1",
+			Port: "6001",
 			TLS: TLSConfig{
 				Enabled:  false,
 				CertFile: "",
@@ -541,7 +538,7 @@ func DefaultConfig() *Config {
 // It returns the merged configuration or an error if loading fails.
 //
 // Environment variables override configuration file values using the GT_ prefix:
-//   - GT_HOST, GT_PORT, GT_FREQUENCY for server settings
+//   - GT_HOST, GT_PORT for server settings
 //   - GT_LOG_LEVEL, GT_LOG_FORMAT, GT_LOG_OUTPUT for logging
 //   - GT_RATE_LIMIT_RPS for security settings
 //
@@ -584,11 +581,6 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("GT_PORT"); v != "" {
 		cfg.Server.Port = v
-	}
-	if v := os.Getenv("GT_FREQUENCY"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.Server.Frequency = d
-		}
 	}
 	if v := os.Getenv("GT_EXTERNAL_URL"); v != "" {
 		cfg.Server.ExternalURL = v
@@ -642,10 +634,6 @@ func (c *Config) Validate() error {
 	if c.Server.Port == "" {
 		return fmt.Errorf("server port cannot be empty")
 	}
-	if c.Server.Frequency <= 0 {
-		return fmt.Errorf("server frequency must be positive")
-	}
-
 	// Validate TLS configuration
 	if c.Server.TLS.Enabled {
 		if c.Server.TLS.CertFile == "" {

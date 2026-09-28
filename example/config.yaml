@@ -50,11 +50,19 @@ logging:
 # Security Configuration
 # =============================================================================
 security:
-  # Rate limiting (requests per second per IP)
-  # Set to 0 to disable
+  # Rate limiting, per client IP. 0 (or omitted) disables it entirely.
+  # Burst is a tenth of this, minimum 1, so a client can absorb a short
+  # spike without banking a whole second's allowance to spend at once.
   rate_limit_rps: 100
 
-  # CORS configuration
+  # CORS. Only needed when a browser calls the PDP directly; server-to-server
+  # callers are unaffected. With enable_cors true and an empty allowed_origins
+  # no cross-origin request can succeed, which gt warns about at startup.
+  #
+  # An origin is scheme + host + port, matched case-insensitively.
+  # "https://*.example.com" matches a subdomain but NOT the apex and NOT a
+  # port, so list those explicitly. The literal "*" allows any origin.
+  # Credentials are never enabled: the PDP uses bearer tokens, not cookies.
   enable_cors: true
   allowed_origins:
     - "https://example.com"

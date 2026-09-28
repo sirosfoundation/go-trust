@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -17,9 +16,6 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.Server.Port != "6001" {
 		t.Errorf("Default port = %v, want %v", cfg.Server.Port, "6001")
-	}
-	if cfg.Server.Frequency != 5*time.Minute {
-		t.Errorf("Default frequency = %v, want %v", cfg.Server.Frequency, 5*time.Minute)
 	}
 
 	// Test logging defaults
@@ -81,9 +77,6 @@ security:
 	}
 	if cfg.Server.Port != "8080" {
 		t.Errorf("Port = %v, want %v", cfg.Server.Port, "8080")
-	}
-	if cfg.Server.Frequency != 10*time.Minute {
-		t.Errorf("Frequency = %v, want %v", cfg.Server.Frequency, 10*time.Minute)
 	}
 
 	// Verify logging configuration
@@ -280,9 +273,6 @@ func TestLoadConfigWithEnvOverrides(t *testing.T) {
 	if cfg.Server.Port != "9000" {
 		t.Errorf("Port = %v, want %v", cfg.Server.Port, "9000")
 	}
-	if cfg.Server.Frequency != 15*time.Minute {
-		t.Errorf("Frequency = %v, want %v", cfg.Server.Frequency, 15*time.Minute)
-	}
 	if cfg.Logging.Level != "warn" {
 		t.Errorf("Log level = %v, want %v", cfg.Logging.Level, "warn")
 	}
@@ -335,16 +325,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "Empty port",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "", Frequency: 5 * time.Minute},
-				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
-				Security: SecurityConfig{RateLimitRPS: 100},
-			},
-			wantErr: true,
-		},
-		{
-			name: "Negative frequency",
-			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: -1 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: ""},
 				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 100},
 			},
@@ -353,7 +334,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "Invalid log level",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: 5 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "invalid", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 100},
 			},
@@ -362,7 +343,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "Invalid log format",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: 5 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "info", Format: "invalid", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 100},
 			},
@@ -371,7 +352,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "Non-positive rate limit",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: 5 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 0},
 			},
@@ -380,7 +361,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "ETSI RequireSignature without LOTLSignerBundle",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: 5 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 100},
 				Registries: RegistriesConfig{
@@ -396,7 +377,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "ETSI RequireSignature with LOTLSignerBundle",
 			config: &Config{
-				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001", Frequency: 5 * time.Minute},
+				Server:   ServerConfig{Host: "127.0.0.1", Port: "6001"},
 				Logging:  LoggingConfig{Level: "info", Format: "text", Output: "stdout"},
 				Security: SecurityConfig{RateLimitRPS: 100},
 				Registries: RegistriesConfig{
