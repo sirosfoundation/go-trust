@@ -175,6 +175,24 @@ func main() {
 		logger.Info("Loaded configuration from file",
 			logging.F("file", *configFile))
 
+		// Warn about keys the decoder threw away. Decoding is non-strict, so
+		// a stale or misspelled key is discarded rather than rejected, and
+		// the consequence surfaces far from the config file - as an
+		// unresolvable DID, or a policy control that silently never applies.
+		// Warning is not the end state: from v0.24.0 this is intended to be
+		// a startup error, most likely behind a config gate.
+		if unknown := cfg.UnknownKeys(); len(unknown) > 0 {
+			for _, key := range unknown {
+				logger.Warn("Unknown config key ignored",
+					logging.F("key", key.Field),
+					logging.F("line", key.Line),
+					logging.F("section", key.Type))
+			}
+			logger.Warn("Unknown config keys were ignored; they configure nothing. These will be startup errors in v0.24.0",
+				logging.F("count", len(unknown)),
+				logging.F("file", *configFile))
+		}
+
 		// Validate configuration
 		if err := cfg.Validate(); err != nil {
 			logger.Fatal("Configuration validation failed",

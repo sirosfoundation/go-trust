@@ -3,8 +3,11 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +24,84 @@ type Config struct {
 	Security   SecurityConfig   `yaml:"security"`
 	Registries RegistriesConfig `yaml:"registries"`
 	Policies   PoliciesConfig   `yaml:"policies,omitempty"`
+
+	// unknownKeys records keys present in the config file that no struct
+	// field claims. Unexported, so neither the YAML decoder nor the
+	// documentation generator sees it. Read it with UnknownKeys.
+	unknownKeys []UnknownKey
+}
+
+// UnknownKey is one config-file key that no struct field claims.
+type UnknownKey struct {
+	// Line is the 1-based line in the config file the key appears on.
+	Line int
+	// Field is the key as written in the file, e.g. "did_local".
+	Field string
+	// Type is the Go type that was being decoded, e.g. "config.RegistriesConfig".
+	Type string
+}
+
+// String renders an unknown key for a log line.
+func (u UnknownKey) String() string {
+	return fmt.Sprintf("%s (line %d, in %s)", u.Field, u.Line, u.Type)
+}
+
+// UnknownKeys returns the config-file keys that no struct field claims, in
+// file order.
+//
+// Decoding is deliberately non-strict, so an unknown key is discarded rather
+// than rejected. That is what makes a typo and a real-but-unwired key
+// indistinguishable at runtime: both look exactly like a key that worked. A
+// renamed key (did_local -> didlocal) simply stops taking effect, and the
+// failure surfaces far from the config file — as an unresolvable DID, or a
+// policy control that silently never applies.
+//
+// Callers should warn about anything returned here. From v0.24.0 an unknown
+// key is intended to be a startup error, most likely behind a config gate so
+// operators can adopt it on their own schedule.
+func (c *Config) UnknownKeys() []UnknownKey {
+	return c.unknownKeys
+}
+
+// unknownFieldRE matches yaml.v3's KnownFields error text, e.g.
+// "line 42: field did_local not found in type config.RegistriesConfig".
+var unknownFieldRE = regexp.MustCompile(`^line (\d+): field (\S+) not found in type (\S+)$`)
+
+// findUnknownKeys re-decodes data with KnownFields(true) purely to collect the
+// keys the authoritative decode threw away.
+//
+// Only "field X not found" errors are collected. A strict decode also reports
+// type mismatches, but the non-strict decode in LoadConfig has already
+// succeeded by the time this runs, so any such error describes a value yaml
+// coerced rather than a key that went missing, and is not this function's
+// business to report.
+func findUnknownKeys(data []byte) []UnknownKey {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
+	var probe Config
+	err := dec.Decode(&probe)
+	if err == nil {
+		return nil
+	}
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return nil
+	}
+
+	var keys []UnknownKey
+	for _, msg := range typeErr.Errors {
+		m := unknownFieldRE.FindStringSubmatch(msg)
+		if m == nil {
+			continue
+		}
+		line, convErr := strconv.Atoi(m[1])
+		if convErr != nil {
+			continue
+		}
+		keys = append(keys, UnknownKey{Line: line, Field: m[2], Type: m[3]})
+	}
+	return keys
 }
 
 // RegistriesConfig contains configuration for all trust registries.
@@ -484,6 +565,8 @@ func LoadConfig(configPath string) (*Config, error) {
 		if err := yaml.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("failed to parse config file: %w", err)
 		}
+
+		cfg.unknownKeys = findUnknownKeys(data)
 	}
 
 	// Apply environment variable overrides

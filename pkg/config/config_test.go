@@ -690,3 +690,133 @@ policies:
 			policy.OIDFed.CredentialTypeTrustMarks)
 	}
 }
+
+func TestLoadConfigReportsUnknownKeys(t *testing.T) {
+	// Item 5 of #176: decoding is non-strict, so an unknown key is discarded
+	// rather than rejected, and a typo is indistinguishable from a real key.
+	// The keys below are the three shapes that actually bite: a renamed key
+	// (did_local -> didlocal, #173), a misspelling, and a typo nested inside
+	// map[string]*PolicyConfig, which is the case a naive strict decode of
+	// only the top level would miss.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  host: "0.0.0.0"
+  port: "8080"
+
+registries:
+  did_local:
+    enabled: true
+    methods: ["key", "jwk"]
+
+security:
+  enable_crs: true
+
+policies:
+  policies:
+    credential-verifier:
+      etsi:
+        strict_entitlment_check: true
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v; unknown keys must warn, not fail", err)
+	}
+
+	unknown := cfg.UnknownKeys()
+	byField := make(map[string]UnknownKey, len(unknown))
+	for _, k := range unknown {
+		byField[k.Field] = k
+	}
+
+	for _, want := range []struct {
+		field   string
+		line    int
+		section string
+	}{
+		{"did_local", 7, "config.RegistriesConfig"},
+		{"enable_crs", 12, "config.SecurityConfig"},
+		{"strict_entitlment_check", 18, "config.ETSIPolicyConfig"},
+	} {
+		got, ok := byField[want.field]
+		if !ok {
+			t.Errorf("%s was not reported as unknown", want.field)
+			continue
+		}
+		if got.Line != want.line {
+			t.Errorf("%s reported at line %d, want %d", want.field, got.Line, want.line)
+		}
+		if got.Type != want.section {
+			t.Errorf("%s reported in %s, want %s", want.field, got.Type, want.section)
+		}
+	}
+
+	if len(unknown) != 3 {
+		t.Errorf("UnknownKeys() = %v, want exactly 3 entries", unknown)
+	}
+}
+
+func TestLoadConfigCleanConfigReportsNothing(t *testing.T) {
+	// The converse, and the one that matters for the eventual flip to a hard
+	// error: a correct config must produce no warnings at all, or the warning
+	// becomes noise operators learn to ignore.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  host: "0.0.0.0"
+  port: "8080"
+
+registries:
+  didlocal:
+    enabled: true
+    methods: ["key", "jwk"]
+
+security:
+  enable_cors: true
+
+policies:
+  policies:
+    credential-verifier:
+      etsi:
+        strict_entitlement_check: true
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if got := cfg.UnknownKeys(); len(got) != 0 {
+		t.Errorf("UnknownKeys() = %v, want none for a correct config", got)
+	}
+}
+
+func TestExampleConfigHasNoUnknownKeys(t *testing.T) {
+	// example/config.yaml is what operators copy. If it carries a key the
+	// decoder throws away, everyone who starts from it inherits the problem.
+	// Absolute, so the path validator's traversal check does not trip on the
+	// "../.." this test needs to reach the repo root.
+	path, err := filepath.Abs(filepath.Join("..", "..", "example", "config.yaml"))
+	if err != nil {
+		t.Fatalf("resolving example/config.yaml: %v", err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig(example/config.yaml) error = %v", err)
+	}
+	for _, key := range cfg.UnknownKeys() {
+		t.Errorf("example/config.yaml carries an unknown key: %s", key)
+	}
+}
