@@ -246,3 +246,65 @@ func TestEvaluate_RequireKeyBinding(t *testing.T) {
 		assert.True(t, resp.Decision)
 	})
 }
+
+// TestEvaluate_PreservesOIDFedRequestContext guards the OpenID Federation
+// request data against the sanitizer. These keys are read by OIDFedRegistry
+// (a pre-supplied trust chain per OID4VP 5.9.3.6, two response-shaping flags
+// and a freshness hint), and dropping them changes behaviour silently: the
+// chain is re-resolved from scratch and the response quietly loses content.
+//
+// The failure mode has no error and no log at the call site, so only a test
+// catches it. Caught in review of #177 before it shipped.
+func TestEvaluate_PreservesOIDFedRequestContext(t *testing.T) {
+	var captured map[string]interface{}
+	mgr := newCapturingManager(t, &captured)
+
+	chain := []interface{}{"eyJleGFtcGxlIjoibGVhZiJ9", "eyJleGFtcGxlIjoiYW5jaG9yIn0"}
+	req := x5cRequest(map[string]interface{}{
+		"trust_chain":          chain,
+		"include_trust_chain":  true,
+		"include_certificates": true,
+		"cache_control":        "max-age=60",
+	})
+
+	_, err := mgr.Evaluate(context.Background(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, chain, captured["trust_chain"],
+		"a verifier's pre-supplied trust chain must reach OIDFedRegistry; it is "+
+			"validated there against configured anchors, not trusted on sight")
+	assert.Equal(t, true, captured["include_trust_chain"])
+	assert.Equal(t, true, captured["include_certificates"])
+	assert.Equal(t, "max-age=60", captured["cache_control"])
+}
+
+// TestClientSuppliableKeysExcludePolicyControls is the other half: adding a
+// key to the allowlist must never hand a client a policy control. Listed
+// explicitly so that widening the allowlist has to be a deliberate act.
+func TestClientSuppliableKeysExcludePolicyControls(t *testing.T) {
+	policyControls := []string{
+		"allowed_attributes",
+		"strict_entitlement_check",
+		"allow_intermediaries",
+		"required_cert_policy_oids",
+		"extract_rp_identity",
+		"service_types",
+		"service_statuses",
+		"countries",
+		"required_trust_marks",
+		"allowed_entity_types",
+		"credential_type_trust_marks",
+		"allowed_domains",
+		"required_services",
+		"issuer_allowlist",
+		"allowed_aaguids",
+		"blocked_aaguids",
+		"max_chain_depth",
+		"_original_subject_id",
+		"_policy",
+	}
+	for _, k := range policyControls {
+		assert.Falsef(t, clientSuppliableContextKey(k),
+			"%q is a server-side policy control and must not be client-suppliable", k)
+	}
+}
