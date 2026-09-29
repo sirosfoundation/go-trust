@@ -85,8 +85,9 @@ make clean          # Remove build artifacts
 ### Testing
 
 ```bash
-make test           # Run all tests with race detection
-make test-all       # Run all tests including integration tests
+make test           # Run all tests with race detection (network tests skipped)
+make test-network   # Run all tests INCLUDING ones that reach live trust infrastructure
+make test-all       # Run everything: unit, network and integration tests
 make bench          # Run all benchmarks
 make bench-api      # Run API benchmarks only
 ```
@@ -152,6 +153,43 @@ go test -race ./...
 # Integration tests
 make test-integration
 ```
+
+### Network Tests
+
+Some tests resolve real OpenID Federation entities and fetch live TSLs. They
+are skipped when `SKIP_NETWORK_TESTS` is set to any non-empty value, which
+`make test` does — so a plain `make test` works offline and matches what CI
+runs.
+
+```bash
+make test                      # network tests skipped (the default)
+make test-network              # run them for real
+make test-all                  # everything: network + integration
+
+# The direct form, if you want to skip network tests without the rest of
+# what `make test` does (Go version check, race detector, -count=1,
+# coverage profile and summary):
+SKIP_NETWORK_TESTS=1 go test ./...
+```
+
+Running them without the variable **needs working DNS and outbound HTTPS to
+third-party infrastructure**, so a failure there may be upstream rather than
+yours. `.github/workflows/go.yml` sets `SKIP_NETWORK_TESTS=1`; the nightly
+`network-tests.yml` job deliberately does not, and is also triggerable on a
+PR by adding the `run-network-tests` label.
+
+When adding a test that reaches the network, guard it the way the existing
+ones do — in the test, or in the helper that builds the registry, so every
+caller inherits it:
+
+```go
+if os.Getenv("SKIP_NETWORK_TESTS") != "" {
+	t.Skip("Skipping network test (SKIP_NETWORK_TESTS set)")
+}
+```
+
+Check for non-empty rather than `== "1"`: the two must agree, or one package
+skips while another quietly keeps calling out.
 
 ### Writing Tests
 

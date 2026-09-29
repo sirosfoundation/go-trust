@@ -43,8 +43,14 @@ help: ## help information about make commands
 
 .PHONY: test
 test: check-go-version ## run tests with coverage, race detection, and timeout
-	go test -v -race -timeout 10m -count=1 -p 4 -coverprofile=cover.out -covermode=atomic ./... && \
+	SKIP_NETWORK_TESTS=1 go test -v -race -timeout 10m -count=1 -p 4 -coverprofile=cover.out -covermode=atomic ./... && \
 	go tool cover -func=cover.out | tail -n 1 | awk '{ print "Total coverage: " $$3 }'
+
+.PHONY: test-network
+test-network: check-go-version ## run tests INCLUDING the ones that reach live trust infrastructure
+	@echo "Running the full suite with network tests enabled."
+	@echo "These reach real federations and TSLs, so failures may be upstream rather than yours."
+	go test -v -race -timeout 10m -count=1 ./...
 
 .PHONY: test-integration
 test-integration: check-go-version build ## run integration tests (start real servers, make HTTP requests)
@@ -53,7 +59,7 @@ test-integration: check-go-version build ## run integration tests (start real se
 	go test -tags=integration -v -timeout 5m -count=1 ./cmd/gt/...
 
 .PHONY: test-all
-test-all: test test-integration ## run all tests including integration tests
+test-all: test-network test-integration ## run everything: unit, network and integration tests
 
 .PHONY: build
 build: check-go-version swagger ## build the server binary
