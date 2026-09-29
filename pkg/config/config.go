@@ -390,7 +390,9 @@ type PoliciesConfig struct {
 	// applies when action policies are configured or this flag is set.
 	FailClosedOnUnknownAction bool `yaml:"fail_closed_on_unknown_action,omitempty"`
 
-	// Policies is a map of policy name to policy configuration
+	// Policies is a map of policy name to policy configuration. Example for the
+	// signer of a Token Status List (action.name "status-list-signer"):
+	// status-list-signer: {constraints: {require_key_binding: true, allowed_key_types: [x5c, jwk]}, registries: [status-signer-anchors]}
 	Policies map[string]*PolicyConfig `yaml:"policies,omitempty"`
 }
 

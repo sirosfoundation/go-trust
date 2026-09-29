@@ -67,7 +67,7 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 |----------|-------------|------|-------------|
 | `policies.default_policy` | — | string | DefaultPolicy is the name of the policy to use when action.name is not specified |
 | `policies.fail_closed_on_unknown_action` | — | boolean | FailClosedOnUnknownAction denies requests whose action.name has no matching policy instead of judging them by default_policy. Unknown names are logged once per name either way (at most 256 distinct names are tracked; later new names are denied or defaulted without a log line). Only applies when action policies are configured or this flag is set. |
-| `policies.policies` | — | map[string]*PolicyConfig (object) | Policies is a map of policy name to policy configuration |
+| `policies.policies` | — | map[string]*PolicyConfig (object) | Policies is a map of policy name to policy configuration. Example for the signer of a Token Status List (action.name "status-list-signer"): status-list-signer: {constraints: {require_key_binding: true, allowed_key_types: [x5c, jwk]}, registries: [status-signer-anchors]} |
 | `policies.policies.<name>.description` | — | string | Description provides human-readable documentation |
 | `policies.policies.<name>.registries` | — | string list | Registries limits evaluation to specific registry names. If empty, all registries are considered. |
 | `policies.policies.<name>.constraints.require_key_binding` | — | boolean | RequireKeyBinding requires that a key be provided and validated. |
