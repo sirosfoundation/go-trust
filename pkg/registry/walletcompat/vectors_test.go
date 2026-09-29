@@ -255,9 +255,12 @@ func buildRegistryCatalogue(t *testing.T) []registryEntry {
 	// Fixture-backed registries (offline, deterministic)
 	entries = append(entries, buildFixtureRegistries(t)...)
 
-	skipNetwork := os.Getenv("SKIP_NETWORK_TESTS") == "1"
-	if skipNetwork {
-		t.Log("SKIP_NETWORK_TESTS=1 — skipping network-backed registries")
+	// Any non-empty value disables network tests, matching the check every
+	// guard in pkg/registry/oidfed uses. Requiring exactly "1" here meant
+	// SKIP_NETWORK_TESTS=true gated oidfed but silently left this package
+	// reaching live federations — the two halves have to agree.
+	if os.Getenv("SKIP_NETWORK_TESTS") != "" {
+		t.Log("SKIP_NETWORK_TESTS set — skipping network-backed registries")
 		return entries
 	}
 
