@@ -1,0 +1,7 @@
+# Code owners for go-trust.
+#
+# The default-branch ruleset sets require_code_owner_review, but no CODEOWNERS
+# file existed, so the rule had no owners to demand and was silently inert.
+# This makes it real.
+
+* @leifj
