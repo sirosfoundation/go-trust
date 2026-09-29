@@ -345,7 +345,7 @@ func main() {
 	}
 
 	// Configure policies from config file
-	if cfg != nil && cfg.Policies.Policies != nil {
+	if policiesConfigured(cfg) {
 		configurePoliciesFromConfig(cfg, registryMgr, logger)
 	}
 
@@ -1226,6 +1226,13 @@ func compositeOperator(name string) (registry.LogicOperator, bool) {
 	default:
 		return "", false
 	}
+}
+
+// policiesConfigured reports whether the config asks for action-based policy
+// handling: policy entries, or fail-closed on its own (which must take effect
+// even before any policy is defined).
+func policiesConfigured(cfg *config.Config) bool {
+	return cfg != nil && (cfg.Policies.Policies != nil || cfg.Policies.FailClosedOnUnknownAction)
 }
 
 // configurePoliciesFromConfig configures trust policies from the loaded config file.

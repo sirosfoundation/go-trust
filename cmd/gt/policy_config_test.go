@@ -164,6 +164,12 @@ func assertNoZeroFields(t *testing.T, name string, v reflect.Value) {
 func TestConfigurePolicies_FailClosedWithoutPolicies(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Policies.FailClosedOnUnknownAction = true
+	if !policiesConfigured(cfg) {
+		t.Fatal("startup would skip policy configuration for a fail-closed-only config")
+	}
+	if policiesConfigured(&config.Config{}) || policiesConfigured(nil) {
+		t.Fatal("empty config must not enable policy handling")
+	}
 
 	mgr := registry.NewRegistryManager(registry.FirstMatch, 10*time.Second)
 	configurePoliciesFromConfig(cfg, mgr, logging.SilentLogger())
