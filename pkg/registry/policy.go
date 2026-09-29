@@ -4,6 +4,11 @@ package registry
 
 import "sync"
 
+// maxWarnedUnknownActions bounds the warning-deduplication set. action.name is
+// client-controlled, so the set must not grow with attacker-chosen values; once
+// full, further unknown names are not individually warned about.
+const maxWarnedUnknownActions = 256
+
 // Policy defines a trust evaluation policy that can be selected via action.name.
 // Policies allow server-side configuration of trust requirements without
 // clients needing to know about underlying trust infrastructure.
@@ -183,8 +188,10 @@ type PolicyManager struct {
 	// denied rather than judged by the default policy.
 	failClosedOnUnknownAction bool
 	// warnedUnknown records unknown action names already reported, so the
-	// warning is emitted once per name rather than once per request.
-	warnedUnknown sync.Map
+	// warning is emitted once per name rather than once per request. Bounded
+	// by maxWarnedUnknownActions.
+	warnedMu      sync.Mutex
+	warnedUnknown map[string]struct{}
 }
 
 // SetFailClosedOnUnknownAction controls what happens when a request names an
@@ -210,10 +217,21 @@ func (pm *PolicyManager) IsUnknownAction(actionName string) bool {
 }
 
 // firstUnknownWarning returns true only the first time it is called for
-// actionName.
+// actionName, and never once the bounded set is full.
 func (pm *PolicyManager) firstUnknownWarning(actionName string) bool {
-	_, loaded := pm.warnedUnknown.LoadOrStore(actionName, struct{}{})
-	return !loaded
+	pm.warnedMu.Lock()
+	defer pm.warnedMu.Unlock()
+	if _, seen := pm.warnedUnknown[actionName]; seen {
+		return false
+	}
+	if len(pm.warnedUnknown) >= maxWarnedUnknownActions {
+		return false
+	}
+	if pm.warnedUnknown == nil {
+		pm.warnedUnknown = make(map[string]struct{})
+	}
+	pm.warnedUnknown[actionName] = struct{}{}
+	return true
 }
 
 // NewPolicyManager creates a new PolicyManager.

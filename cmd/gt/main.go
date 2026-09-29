@@ -1322,8 +1322,13 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 		}
 	}
 
-	if policyCount > 0 {
+	// Install the manager even with no policies when fail-closed is on, so an
+	// operator can enable it before defining any policy and have every named
+	// action denied.
+	if policyCount > 0 || cfg.Policies.FailClosedOnUnknownAction {
 		registryMgr.SetPolicyManager(policyMgr)
+	}
+	if policyCount > 0 {
 		logger.Info("Trust policies configured from config file",
 			logging.F("count", policyCount),
 			logging.F("policies", policyMgr.ListPolicies()))

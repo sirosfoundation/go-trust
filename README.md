@@ -616,12 +616,17 @@ denies rather than silently falling through to the default.
 
 ### Trust anchors for `status-list-signer`
 
-No dedicated registry type is needed. Status-list signers are ordinary x5c/jwk
-keys, so the existing registries apply: ETSI TSL / LoTE / OIDF where the
-service is listed, or a `whitelist` registry for a private status service
-(list the service origin, and pin its CA via `additional_trusted_roots` with
-`trust_x509_via_system_ca: true`). Note that the latter also accepts the
-system CA pool; a strictly pinned-CA-only registry is not provided.
+No dedicated registry type is needed for services that publish keys. Status-list
+signers are ordinary x5c/jwk keys, so the existing registries apply: ETSI TSL /
+LoTE / OIDF where the service is listed, or a `whitelist` registry listing the
+service origin (its `iss`, or the list URI's origin) so that its JWKS is
+discovered and the presented key is matched against it.
+
+Not supported: pinning a CA for a private HTTPS status service that publishes no
+JWKS. The whitelist registry's `additional_trusted_roots` path only applies to
+non-HTTP(S) subjects (e.g. `x509_san_dns:`), and an HTTPS subject with no cached
+keys is denied. That would need a new pinned-root registry; it is not part of
+this change.
 
 ### Credential Types in LoTE
 

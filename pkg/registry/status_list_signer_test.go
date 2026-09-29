@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -89,4 +90,13 @@ func TestUnknownActionWarnsOncePerName(t *testing.T) {
 	assert.True(t, pm.firstUnknownWarning("a"))
 	assert.False(t, pm.firstUnknownWarning("a"))
 	assert.True(t, pm.firstUnknownWarning("b"))
+}
+
+func TestUnknownActionWarningSetIsBounded(t *testing.T) {
+	pm := NewPolicyManager()
+	for i := 0; i < maxWarnedUnknownActions*2; i++ {
+		pm.firstUnknownWarning(fmt.Sprintf("a-%d", i))
+	}
+	assert.Len(t, pm.warnedUnknown, maxWarnedUnknownActions)
+	assert.False(t, pm.firstUnknownWarning("brand-new"))
 }
