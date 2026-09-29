@@ -158,3 +158,27 @@ func assertNoZeroFields(t *testing.T, name string, v reflect.Value) {
 		}
 	}
 }
+
+// Fail-closed must take effect even before any policy is defined, so an
+// operator can enable it ahead of rolling out new action policies.
+func TestConfigurePolicies_FailClosedWithoutPolicies(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Policies.FailClosedOnUnknownAction = true
+	if !policiesConfigured(cfg) {
+		t.Fatal("startup would skip policy configuration for a fail-closed-only config")
+	}
+	if policiesConfigured(&config.Config{}) || policiesConfigured(nil) {
+		t.Fatal("empty config must not enable policy handling")
+	}
+
+	mgr := registry.NewRegistryManager(registry.FirstMatch, 10*time.Second)
+	configurePoliciesFromConfig(cfg, mgr, logging.SilentLogger())
+
+	pm := mgr.GetPolicyManager()
+	if pm == nil {
+		t.Fatal("policy manager not installed")
+	}
+	if !pm.FailClosedOnUnknownAction() {
+		t.Fatal("fail-closed not applied")
+	}
+}

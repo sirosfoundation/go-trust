@@ -519,6 +519,19 @@ policies:
       registries:
         - "oidfed-registry"
 
+    # Policy for the signer of an IETF Token Status List (action.name
+    # "status-list-signer", trustapi.RoleStatusListSigner). The signer is often
+    # not the credential issuer (e.g. an external status service), so it is
+    # evaluated as its own action. go-wallet-backend asks this first and falls
+    # back to "credential-issuer".
+    status-list-signer:
+      description: "Trust requirements for Token Status List signers"
+      constraints:
+        require_key_binding: true      # a key must be presented; no resolution-only answers
+        allowed_key_types: [x5c, jwk]
+      registries:
+        - "status-signer-anchors"      # e.g. a whitelist registry, see below
+
     # Policy for mDL issuers
     mdl-issuer:
       description: "Trust requirements for mDL/mDOC issuers"
@@ -583,6 +596,47 @@ policies:
         credential_types:
           - "eu.europa.ec.eudi.pid.1"
 ```
+
+### Unknown action names
+
+By default a request whose `action.name` has no policy is judged by
+`default_policy` (or, with no default, by all registries unconstrained), and the
+first occurrence of each unknown name is logged as a warning. To refuse such
+requests instead, set:
+
+```yaml
+policies:
+  fail_closed_on_unknown_action: true
+```
+
+Enable this once every action your clients send has a policy - in particular
+before go-wallet-backend runs with `presentation.status_check` set to
+`enforce-revoked` or `strict`, so that a missing `status-list-signer` policy
+denies rather than silently falling through to the default.
+
+### Trust anchors for `status-list-signer`
+
+No dedicated registry type is needed for services that publish keys. Status-list
+signers are ordinary x5c/jwk keys, so the existing registries apply: ETSI TSL /
+LoTE / OIDF where the service is listed, or a `whitelist` registry listing the
+service origin (its `iss`, or the list URI's origin) so that its JWKS is
+discovered and the presented key is matched against it. The legacy `issuers`
+list only maps issuer-style actions, so use a named list with an explicit
+action mapping:
+
+```yaml
+lists:
+  status-signers:
+    - https://status.example.com
+actions:
+  status-list-signer: status-signers
+```
+
+Not supported: pinning a CA for a private HTTPS status service that publishes no
+JWKS. The whitelist registry's `additional_trusted_roots` path only applies to
+non-HTTP(S) subjects (e.g. `x509_san_dns:`), and an HTTPS subject with no cached
+keys is denied. That would need a new pinned-root registry; it is not part of
+this change.
 
 ### Credential Types in LoTE
 

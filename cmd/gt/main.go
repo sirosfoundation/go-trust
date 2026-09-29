@@ -345,7 +345,7 @@ func main() {
 	}
 
 	// Configure policies from config file
-	if cfg != nil && cfg.Policies.Policies != nil {
+	if policiesConfigured(cfg) {
 		configurePoliciesFromConfig(cfg, registryMgr, logger)
 	}
 
@@ -1228,6 +1228,13 @@ func compositeOperator(name string) (registry.LogicOperator, bool) {
 	}
 }
 
+// policiesConfigured reports whether the config asks for action-based policy
+// handling: policy entries, or fail-closed on its own (which must take effect
+// even before any policy is defined).
+func policiesConfigured(cfg *config.Config) bool {
+	return cfg != nil && (cfg.Policies.Policies != nil || cfg.Policies.FailClosedOnUnknownAction)
+}
+
 // configurePoliciesFromConfig configures trust policies from the loaded config file.
 func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) {
 	policyMgr := registry.NewPolicyManager()
@@ -1307,6 +1314,8 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 			logging.F("description", policyCfg.Description))
 	}
 
+	policyMgr.SetFailClosedOnUnknownAction(cfg.Policies.FailClosedOnUnknownAction)
+
 	// Set default policy if specified
 	if cfg.Policies.DefaultPolicy != "" {
 		defaultPolicy := policyMgr.GetPolicy(cfg.Policies.DefaultPolicy)
@@ -1320,8 +1329,13 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 		}
 	}
 
-	if policyCount > 0 {
+	// Install the manager even with no policies when fail-closed is on, so an
+	// operator can enable it before defining any policy and have every named
+	// action denied.
+	if policyCount > 0 || cfg.Policies.FailClosedOnUnknownAction {
 		registryMgr.SetPolicyManager(policyMgr)
+	}
+	if policyCount > 0 {
 		logger.Info("Trust policies configured from config file",
 			logging.F("count", policyCount),
 			logging.F("policies", policyMgr.ListPolicies()))

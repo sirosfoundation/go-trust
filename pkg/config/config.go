@@ -383,7 +383,16 @@ type PoliciesConfig struct {
 	// DefaultPolicy is the name of the policy to use when action.name is not specified
 	DefaultPolicy string `yaml:"default_policy,omitempty"`
 
-	// Policies is a map of policy name to policy configuration
+	// FailClosedOnUnknownAction denies requests whose action.name has no
+	// matching policy instead of judging them by default_policy. Unknown
+	// names are logged once per name either way (at most 256 distinct names are
+	// tracked; later new names are denied or defaulted without a log line). Only
+	// applies when action policies are configured or this flag is set.
+	FailClosedOnUnknownAction bool `yaml:"fail_closed_on_unknown_action,omitempty"`
+
+	// Policies is a map of policy name to policy configuration. Example for the
+	// signer of a Token Status List (action.name "status-list-signer"):
+	// status-list-signer: {constraints: {require_key_binding: true, allowed_key_types: [x5c, jwk]}, registries: [status-signer-anchors]}
 	Policies map[string]*PolicyConfig `yaml:"policies,omitempty"`
 }
 

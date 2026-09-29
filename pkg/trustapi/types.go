@@ -46,6 +46,10 @@ const (
 	RoleCredentialIssuer Role = "credential-issuer"
 	// RoleCredentialVerifier indicates an OpenID4VP credential verifier.
 	RoleCredentialVerifier Role = "credential-verifier"
+	// RoleStatusListSigner indicates the key signs an IETF Token Status List.
+	// The signer is not necessarily the credential issuer, so it is evaluated
+	// as its own AuthZEN action.name.
+	RoleStatusListSigner Role = "status-list-signer"
 	// RoleAny indicates no specific role constraint.
 	RoleAny Role = ""
 )
