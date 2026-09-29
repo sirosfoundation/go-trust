@@ -4,6 +4,18 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.23.1:start -->
+## [v0.23.1] - 2026-09-29
+
+### Fixed
+
+- `make test` now skips network tests by default, matching CI behavior. Previously it would fail offline while CI passed because the Makefile didn't set `SKIP_NETWORK_TESTS`, causing contributors running the documented test command to hit timeouts that CI never saw. A new `make test-network` target runs the full suite including live federation lookups. (#185)
+
+### Changed
+
+- Network test guards now check for any non-empty `SKIP_NETWORK_TESTS` value instead of requiring exactly `"1"`. This removes a trap where `SKIP_NETWORK_TESTS=true` would gate `oidfed` tests but silently leave `walletcompat` tests hitting live endpoints. (#185)
+<!-- release-notes:v0.23.1:end -->
+
 <!-- release-notes:v0.23.0:start -->
 ## [v0.23.0] - 2026-09-28
 
