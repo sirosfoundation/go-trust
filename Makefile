@@ -59,7 +59,7 @@ test-integration: check-go-version build ## run integration tests (start real se
 	go test -tags=integration -v -timeout 5m -count=1 ./cmd/gt/...
 
 .PHONY: test-all
-test-all: test test-integration ## run all tests including integration tests
+test-all: test-network test-integration ## run everything: unit, network and integration tests
 
 .PHONY: build
 build: check-go-version swagger ## build the server binary

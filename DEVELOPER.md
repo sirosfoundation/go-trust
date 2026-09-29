@@ -87,7 +87,7 @@ make clean          # Remove build artifacts
 ```bash
 make test           # Run all tests with race detection (network tests skipped)
 make test-network   # Run all tests INCLUDING ones that reach live trust infrastructure
-make test-all       # Run all tests including integration tests
+make test-all       # Run everything: unit, network and integration tests
 make bench          # Run all benchmarks
 make bench-api      # Run API benchmarks only
 ```
@@ -164,7 +164,12 @@ runs.
 ```bash
 make test                      # network tests skipped (the default)
 make test-network              # run them for real
-SKIP_NETWORK_TESTS=1 go test ./...   # equivalent to make test
+make test-all                  # everything: network + integration
+
+# The direct form, if you want to skip network tests without the rest of
+# what `make test` does (Go version check, race detector, -count=1,
+# coverage profile and summary):
+SKIP_NETWORK_TESTS=1 go test ./...
 ```
 
 Running them without the variable **needs working DNS and outbound HTTPS to
