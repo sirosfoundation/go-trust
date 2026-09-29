@@ -7,6 +7,9 @@
 <!-- release-notes:v0.23.1:start -->
 ## [v0.23.1] - 2026-09-29
 
+Developer tooling only — nothing in `pkg/` or `cmd/` ships differently from
+v0.23.0, so there is no reason to upgrade a deployment for this.
+
 ### Fixed
 
 - `make test` now skips network tests by default, matching CI behavior. Previously it would fail offline while CI passed because the Makefile didn't set `SKIP_NETWORK_TESTS`, causing contributors running the documented test command to hit timeouts that CI never saw. A new `make test-network` target runs the full suite including live federation lookups. (#185)
@@ -14,6 +17,16 @@
 ### Changed
 
 - Network test guards now check for any non-empty `SKIP_NETWORK_TESTS` value instead of requiring exactly `"1"`. This removes a trap where `SKIP_NETWORK_TESTS=true` would gate `oidfed` tests but silently leave `walletcompat` tests hitting live endpoints. (#185)
+- `make test-all` now depends on `test-network` rather than `test`, so it still means *all*. Skipping network tests in `test` would otherwise have silently narrowed it, dropping exactly the cases most likely to break. (#185)
+- DEVELOPER.md documents the network-test convention, which appeared in no contributor-facing document before. (#185)
+
+> [!NOTE]
+> For anyone auditing this area: the `oidfed` network tests are correctly
+> gated and always were. #181's caveat naming `TestOIDFedRegistry_MultipleTrustAnchors`
+> and `TestOIDFedRegistry_CrossFederationReject` as ungated went stale when
+> #181 itself merged — the guard it added to `newRealtaRegistry` covers
+> `_CrossFederationReject` through the helper, and `_MultipleTrustAnchors`
+> performs no network I/O at all.
 <!-- release-notes:v0.23.1:end -->
 
 <!-- release-notes:v0.23.0:start -->
