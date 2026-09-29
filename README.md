@@ -620,7 +620,17 @@ No dedicated registry type is needed for services that publish keys. Status-list
 signers are ordinary x5c/jwk keys, so the existing registries apply: ETSI TSL /
 LoTE / OIDF where the service is listed, or a `whitelist` registry listing the
 service origin (its `iss`, or the list URI's origin) so that its JWKS is
-discovered and the presented key is matched against it.
+discovered and the presented key is matched against it. The legacy `issuers`
+list only maps issuer-style actions, so use a named list with an explicit
+action mapping:
+
+```yaml
+lists:
+  status-signers:
+    - https://status.example.com
+actions:
+  status-list-signer: status-signers
+```
 
 Not supported: pinning a CA for a private HTTPS status service that publishes no
 JWKS. The whitelist registry's `additional_trusted_roots` path only applies to

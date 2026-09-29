@@ -156,8 +156,14 @@ func (m *RegistryManager) Evaluate(ctx context.Context, req *authzen.EvaluationR
 			}, nil
 		}
 		if pm.firstUnknownWarning(policyCtx.ActionName) {
-			logger.Warn("Evaluate: no policy defined for action; using default policy",
-				logging.F("action", policyCtx.ActionName))
+			if policyCtx.Policy != nil {
+				logger.Warn("Evaluate: no policy defined for action; using default policy",
+					logging.F("action", policyCtx.ActionName),
+					logging.F("default_policy", policyCtx.Policy.Name))
+			} else {
+				logger.Warn("Evaluate: no policy defined for action and no default policy; evaluating all registries WITHOUT policy constraints",
+					logging.F("action", policyCtx.ActionName))
+			}
 		}
 	}
 
