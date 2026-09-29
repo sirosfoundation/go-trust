@@ -519,6 +519,19 @@ policies:
       registries:
         - "oidfed-registry"
 
+    # Policy for the signer of an IETF Token Status List (action.name
+    # "status-list-signer", trustapi.RoleStatusListSigner). The signer is often
+    # not the credential issuer (e.g. an external status service), so it is
+    # evaluated as its own action. go-wallet-backend asks this first and falls
+    # back to "credential-issuer".
+    status-list-signer:
+      description: "Trust requirements for Token Status List signers"
+      constraints:
+        require_key_binding: true      # a key must be presented; no resolution-only answers
+        allowed_key_types: [x5c, jwk]
+      registries:
+        - "status-signer-anchors"      # e.g. a whitelist registry, see below
+
     # Policy for mDL issuers
     mdl-issuer:
       description: "Trust requirements for mDL/mDOC issuers"
@@ -583,6 +596,32 @@ policies:
         credential_types:
           - "eu.europa.ec.eudi.pid.1"
 ```
+
+### Unknown action names
+
+By default a request whose `action.name` has no policy is judged by
+`default_policy` (or, with no default, by all registries unconstrained), and the
+first occurrence of each unknown name is logged as a warning. To refuse such
+requests instead, set:
+
+```yaml
+policies:
+  fail_closed_on_unknown_action: true
+```
+
+Enable this once every action your clients send has a policy - in particular
+before go-wallet-backend runs with `presentation.status_check` set to
+`enforce-revoked` or `strict`, so that a missing `status-list-signer` policy
+denies rather than silently falling through to the default.
+
+### Trust anchors for `status-list-signer`
+
+No dedicated registry type is needed. Status-list signers are ordinary x5c/jwk
+keys, so the existing registries apply: ETSI TSL / LoTE / OIDF where the
+service is listed, or a `whitelist` registry for a private status service
+(list the service origin, and pin its CA via `additional_trusted_roots` with
+`trust_x509_via_system_ca: true`). Note that the latter also accepts the
+system CA pool; a strictly pinned-CA-only registry is not provided.
 
 ### Credential Types in LoTE
 

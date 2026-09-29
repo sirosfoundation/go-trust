@@ -383,6 +383,11 @@ type PoliciesConfig struct {
 	// DefaultPolicy is the name of the policy to use when action.name is not specified
 	DefaultPolicy string `yaml:"default_policy,omitempty"`
 
+	// FailClosedOnUnknownAction denies requests whose action.name has no
+	// matching policy instead of judging them by default_policy. Unknown
+	// names are logged once per name either way.
+	FailClosedOnUnknownAction bool `yaml:"fail_closed_on_unknown_action,omitempty"`
+
 	// Policies is a map of policy name to policy configuration
 	Policies map[string]*PolicyConfig `yaml:"policies,omitempty"`
 }

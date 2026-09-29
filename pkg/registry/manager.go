@@ -139,6 +139,28 @@ func (m *RegistryManager) Evaluate(ctx context.Context, req *authzen.EvaluationR
 	// Resolve policy from action.name
 	policyCtx := m.resolvePolicyContext(req)
 
+	if pm := m.GetPolicyManager(); pm != nil && pm.IsUnknownAction(policyCtx.ActionName) {
+		if pm.FailClosedOnUnknownAction() {
+			if pm.firstUnknownWarning(policyCtx.ActionName) {
+				logger.Warn("Evaluate: no policy defined for action; denying (fail-closed)",
+					logging.F("action", policyCtx.ActionName))
+			}
+			return &authzen.EvaluationResponse{
+				Decision: false,
+				Context: &authzen.EvaluationResponseContext{
+					Reason: map[string]interface{}{
+						"error":  "no policy defined for action",
+						"action": policyCtx.ActionName,
+					},
+				},
+			}, nil
+		}
+		if pm.firstUnknownWarning(policyCtx.ActionName) {
+			logger.Warn("Evaluate: no policy defined for action; using default policy",
+				logging.F("action", policyCtx.ActionName))
+		}
+	}
+
 	if policyCtx.Policy != nil {
 		logger.Debug("Evaluate: policy resolved",
 			logging.F("policy", policyCtx.Policy.Name),

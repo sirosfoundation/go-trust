@@ -1307,6 +1307,8 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 			logging.F("description", policyCfg.Description))
 	}
 
+	policyMgr.SetFailClosedOnUnknownAction(cfg.Policies.FailClosedOnUnknownAction)
+
 	// Set default policy if specified
 	if cfg.Policies.DefaultPolicy != "" {
 		defaultPolicy := policyMgr.GetPolicy(cfg.Policies.DefaultPolicy)
