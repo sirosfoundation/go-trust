@@ -466,7 +466,7 @@ func (r *Registry) allow(country string, path []*x509.Certificate, at time.Time)
 		"csca_subject": csca.Subject.String(),
 		"dsc_sha256":   fingerprint(dsc),
 		"country":      country,
-		"signing_time": at.UTC().Format(time.RFC3339),
+		"signing_time": at.UTC().Format(time.RFC3339Nano),
 	}
 	if len(links) > 0 {
 		admin["link_sha256"] = links

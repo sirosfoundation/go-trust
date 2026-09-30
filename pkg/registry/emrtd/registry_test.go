@@ -418,8 +418,14 @@ func TestEvaluate_Revocation(t *testing.T) {
 		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeRevoked)
 	})
 	t.Run("revocation regardless of signing time before revocation date", func(t *testing.T) {
-		r := build(t, map[string][]byte{"a.crl": mkCRL(t, csca, dsc)})
-		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, map[string]interface{}{"signing_time": "2020-06-01T00:00:00Z"})), CodeRevoked)
+		// Valid since 2010, revoked (per the CRL entry) on 2020-01-01; the
+		// document was signed in 2019, before the revocation date, and is still
+		// denied: staleness or dates never un-revoke a certificate.
+		ds := dscSpec("DSC early", "SE")
+		ds.notBefore, ds.notAfter = t2010, t2040
+		early := issue(t, ds, newKey(t, kindP256), csca)
+		r := build(t, map[string][]byte{"a.crl": mkCRL(t, csca, early)})
+		requireDeny(t, eval(t, r, req("SWE", []*node{early}, map[string]interface{}{"signing_time": "2019-06-01T00:00:00Z"})), CodeRevoked)
 	})
 	t.Run("CRL signed by someone else is ignored", func(t *testing.T) {
 		other := newCSCA(t, kindP256, "CSCA", "SE") // same DN, different key
@@ -1036,4 +1042,24 @@ func TestExplicitECParameters(t *testing.T) {
 		assert.ElementsMatch(t, []string{"DEU", "HUN"}, r.Countries())
 		assert.Len(t, r.Info().TrustAnchors, 2)
 	})
+}
+
+func TestSigningTimePrecisionPreserved(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	s := dscSpec("DSC", "SE")
+	s.notBefore, s.notAfter = t2010, t2012
+	dsc := issue(t, s, newKey(t, kindP256), csca)
+	r := newReg(t, map[string][]*node{"SWE": {csca}})
+
+	// Allowed response echoes the instant that was used, fractional part included.
+	resp := eval(t, r, req("SWE", []*node{dsc}, map[string]interface{}{"signing_time": "2011-06-01T00:00:00.123456789Z"}))
+	require.True(t, resp.Decision, "%v", resp.Context.Reason)
+	admin := resp.Context.Reason["admin"].(map[string]interface{})
+	assert.Equal(t, "2011-06-01T00:00:00.123456789Z", admin["signing_time"])
+
+	// Denial detail at the notAfter boundary shows the sub-second instant, so it
+	// cannot read as equal to the limit it was denied against.
+	resp = eval(t, r, req("SWE", []*node{dsc}, map[string]interface{}{"signing_time": "2012-01-01T00:00:00.5Z"}))
+	requireDeny(t, resp, CodeExpired)
+	assert.Contains(t, resp.Context.Reason["error"], "2012-01-01T00:00:00.5Z")
 }

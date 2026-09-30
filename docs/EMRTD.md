@@ -118,8 +118,12 @@ number of countries and anchors actually loaded, which can be lower than the num
    "country": "SWE", "signing_time": "...", "link_sha256": ["..."]}}}}
 ```
 
-`link_sha256` appears only when link certificates were used. On deny the machine-readable `code` is in
-`context.reason.code` (also `context.reason.admin.code`), with human-readable detail in `context.reason.error`:
+`link_sha256` appears only when link certificates were used. When the **emrtd registry** denies (with the
+documented policy, where it is the only registry), the machine-readable `code` is in `context.reason.code` (also
+`context.reason.admin.code`), with human-readable detail in `context.reason.error`. A request can also be
+rejected before the registry runs (request validation, a policy check), in which case only `context.reason.error`
+is present, and with several denying registries the codes can remain nested in the per-registry results. Always
+decide trust from `decision`, never from the presence of a code:
 
 | Code | Meaning |
 |------|---------|

@@ -213,11 +213,11 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*x50
 	for _, c := range path {
 		if at.Before(c.NotBefore) {
 			return r.deny(CodeNotYetValid, fmt.Sprintf("%q is not valid before %s (evaluated at %s)",
-				c.Subject.String(), c.NotBefore.Format(time.RFC3339), at.Format(time.RFC3339)))
+				c.Subject.String(), c.NotBefore.Format(time.RFC3339Nano), at.Format(time.RFC3339Nano)))
 		}
 		if at.After(c.NotAfter) {
 			return r.deny(CodeExpired, fmt.Sprintf("%q expired %s (evaluated at %s)",
-				c.Subject.String(), c.NotAfter.Format(time.RFC3339), at.Format(time.RFC3339)))
+				c.Subject.String(), c.NotAfter.Format(time.RFC3339Nano), at.Format(time.RFC3339Nano)))
 		}
 	}
 
