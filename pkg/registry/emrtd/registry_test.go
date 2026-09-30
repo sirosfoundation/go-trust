@@ -640,6 +640,13 @@ func TestCountryDirectorySymlinkRejected(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "symlink")
 	})
+	t.Run("dangling crls country symlink", func(t *testing.T) {
+		anchors, crls, _ := build(t)
+		require.NoError(t, os.Symlink(filepath.Join(crls, "nowhere"), filepath.Join(crls, "SWE")))
+		_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "symlink")
+	})
 	t.Run("symlinked root and file symlinks stay supported", func(t *testing.T) {
 		anchors, _, _ := build(t)
 		link := filepath.Join(filepath.Dir(anchors), "current")

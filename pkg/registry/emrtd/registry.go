@@ -527,8 +527,13 @@ func countryDirs(root string) ([]string, error) {
 	var dirs []string
 	for _, e := range entries {
 		if e.Type()&os.ModeSymlink != 0 {
-			if st, err := os.Stat(filepath.Join(root, e.Name())); err == nil && st.IsDir() {
-				return nil, fmt.Errorf("emrtd: %s/%s is a symlink to a directory; country directories must be real directories (a symlinked root is fine)", root, e.Name())
+			// A link that is a directory, or that cannot be resolved but is
+			// named like a country, may stand for that country's data: refuse.
+			// Only an unresolvable link with an unrelated name is ignored.
+			st, err := os.Stat(filepath.Join(root, e.Name()))
+			_, isCountry := alpha3ToAlpha2[e.Name()]
+			if (err == nil && st.IsDir()) || (err != nil && isCountry) {
+				return nil, fmt.Errorf("emrtd: %s/%s is a symlink to a directory (or one that cannot be resolved); country directories must be real directories (a symlinked root is fine)", root, e.Name())
 			}
 			continue
 		}
