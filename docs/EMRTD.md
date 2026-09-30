@@ -156,6 +156,11 @@ A caller must treat anything other than `decision: true` as not trusted, includi
 - Revocation is strict: any entry on a CRL whose signature verifies against the issuer denies the
   certificate, regardless of revocation date and even if the CRL is past `nextUpdate`. CRLs that fail
   signature verification are ignored; with no CRL for an issuer nothing is denied.
+- A directory under `crls_dir` that is not an upper-case alpha-3 code but contains `.crl` files (for example
+  `crls_dir/swe`) is refused at load, as is a `.crl` entry that is not a regular file (a directory, say).
+- With `watch: true`, file changes are picked up from file-system events, and the resolved (symlink-free)
+  location of both roots is also re-checked every 30 seconds, so swapping a symlink in any ancestor directory
+  (`/data/current -> v2` with `anchors_dir: /data/current/anchors`) is noticed within that interval.
 - Indirect CRLs (`issuingDistributionPoint` with `indirectCRL` true, or an unparsable one) are refused at load:
   delegated CRL issuers and per-entry certificate issuers are not supported, so such a list would be silently
   ignored.

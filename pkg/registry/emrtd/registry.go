@@ -90,6 +90,9 @@ const maxCertB64Len = 32 * 1024
 // touches many files) into a single reload.
 const defaultReloadDebounce = 250 * time.Millisecond
 
+// defaultRootCheckInterval is how often resolved root locations are compared.
+const defaultRootCheckInterval = 30 * time.Second
+
 // Config configures an eMRTD registry.
 type Config struct {
 	// Name is the registry name (default "emrtd-csca").
@@ -107,6 +110,12 @@ type Config struct {
 	CryptoExt *cryptoutil.Extensions
 	// Logger receives load and decision logs (default slog.Default()).
 	Logger *slog.Logger
+	// RootCheckInterval is how often the resolved (symlink-free) location of
+	// anchors_dir and crls_dir is re-checked when Watch is on; a change, for
+	// example an ancestor directory that is a symlink being swapped, triggers
+	// a reload (default 30s). File watches cannot see such a swap.
+	RootCheckInterval time.Duration
+
 	// ReloadDebounce is the quiet period after a file event before reloading
 	// (default 250ms). A sustained stream of events cannot postpone the reload
 	// beyond maxReloadDelayFactor times this value after the first event.
@@ -156,6 +165,9 @@ func New(cfg Config) (*Registry, error) {
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
+	}
+	if cfg.RootCheckInterval <= 0 {
+		cfg.RootCheckInterval = defaultRootCheckInterval
 	}
 	if cfg.ReloadDebounce <= 0 {
 		cfg.ReloadDebounce = defaultReloadDebounce
@@ -716,16 +728,28 @@ func (r *Registry) loadCRLs() (map[string][]*crlData, error) {
 	}
 	out := map[string][]*crlData{}
 	for _, country := range dirs {
-		if _, ok := alpha3ToAlpha2[country]; !ok {
-			r.log.Error("emrtd: skipping CRL directory that is not an alpha-3 code", "dir", country)
-			continue
-		}
 		entries, err := os.ReadDir(filepath.Join(r.cfg.CRLsDir, country))
 		if err != nil {
 			return nil, err
 		}
+		if _, ok := alpha3ToAlpha2[country]; !ok {
+			// A directory that is not a country but holds CRLs (crls_dir/swe
+			// instead of crls_dir/SWE) would silently drop those revocations
+			// from the published snapshot: fail the load. Empty or unrelated
+			// directories are still only logged.
+			for _, e := range entries {
+				if strings.EqualFold(filepath.Ext(e.Name()), ".crl") {
+					return nil, fmt.Errorf("emrtd: %s/%s contains CRL files but %q is not an ISO 3166-1 alpha-3 code (upper case, e.g. SWE)", r.cfg.CRLsDir, country, country)
+				}
+			}
+			r.log.Error("emrtd: skipping CRL directory that is not an alpha-3 code", "dir", country)
+			continue
+		}
 		for _, e := range entries {
-			if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".crl") {
+			// Filter on the suffix only: a directory named x.crl (a CRL file
+			// replaced by a directory) must reach requireRegularFile and fail
+			// the load, not be skipped into a snapshot missing that CRL.
+			if !strings.EqualFold(filepath.Ext(e.Name()), ".crl") {
 				continue
 			}
 			f := filepath.Join(r.cfg.CRLsDir, country, e.Name())
@@ -879,7 +903,32 @@ func (r *Registry) retryInterval() time.Duration {
 	return 10 * time.Second
 }
 
+// resolvedRoots returns the symlink-free locations of the configured roots,
+// joined, with a marker for one that cannot be resolved (so its disappearance
+// and reappearance both register as changes).
+func (r *Registry) resolvedRoots() string {
+	var parts []string
+	for _, root := range []string{r.cfg.AnchorsDir, r.cfg.CRLsDir} {
+		if root == "" {
+			continue
+		}
+		p, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			p = "!unresolved:" + root
+		}
+		parts = append(parts, p)
+	}
+	return strings.Join(parts, "\x00")
+}
+
 func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
+	// Directory watches follow the inodes they were armed on, so a symlink in
+	// an ANCESTOR of a root that is swapped (old target left intact) raises no
+	// event on any watched directory. Poll the resolved locations and treat a
+	// change like a file event.
+	lastResolved := r.resolvedRoots()
+	poll := time.NewTicker(r.cfg.RootCheckInterval)
+	defer poll.Stop()
 	var timer *time.Timer
 	var fire <-chan time.Time
 	var burstStart time.Time // first event of the pending burst; zero when none
@@ -913,6 +962,12 @@ func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
 				timer.Stop()
 			}
 			return
+		case <-poll.C:
+			if cur := r.resolvedRoots(); cur != lastResolved {
+				lastResolved = cur
+				r.log.Info("emrtd: anchors/CRL location changed, scheduling reload")
+				armDebounce()
+			}
 		case ev, ok := <-w.Events:
 			if !ok {
 				return

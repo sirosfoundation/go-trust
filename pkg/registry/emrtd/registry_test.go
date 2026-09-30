@@ -484,6 +484,31 @@ func TestEvaluate_Revocation(t *testing.T) {
 		err = mk([]byte{0x30, 0x04, 0x84, 0x02, 0xff, 0xff})
 		require.Error(t, err)
 	})
+	t.Run("CRLs under a non-country directory name are refused, not dropped", func(t *testing.T) {
+		anchors, crls := t.TempDir(), t.TempDir()
+		writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
+		require.NoError(t, os.MkdirAll(filepath.Join(crls, "swe"), 0o755)) // lower case: not an alpha-3 code
+		require.NoError(t, os.WriteFile(filepath.Join(crls, "swe", "a.crl"), mkCRL(t, csca, dsc), 0o644))
+		_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not an ISO 3166-1 alpha-3")
+	})
+	t.Run("a CRL replaced by a directory fails the reload and keeps the previous CRLs", func(t *testing.T) {
+		anchors, crls := t.TempDir(), t.TempDir()
+		writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
+		require.NoError(t, os.MkdirAll(filepath.Join(crls, "SWE"), 0o755))
+		crlPath := filepath.Join(crls, "SWE", "a.crl")
+		require.NoError(t, os.WriteFile(crlPath, mkCRL(t, csca, dsc), 0o644))
+		r, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger(), Now: func() time.Time { return tNow }})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = r.Close() })
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeRevoked)
+
+		require.NoError(t, os.Remove(crlPath))
+		require.NoError(t, os.Mkdir(crlPath, 0o755)) // "a.crl" is now a directory
+		require.Error(t, r.Refresh(context.Background()))
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeRevoked) // still revoked
+	})
 	t.Run("delta CRL is refused at load (a base may be missing)", func(t *testing.T) {
 		val, err := asn1.Marshal(big.NewInt(1)) // BaseCRLNumber
 		require.NoError(t, err)
@@ -1210,4 +1235,63 @@ func TestAnchorsDirMetacharactersAreLiteral(t *testing.T) {
 	assert.Empty(t, r.Info().TrustAnchors, "the sibling directory must not be read")
 	resp := eval(t, r, req("SWE", []*node{dsc}, nil))
 	require.False(t, resp.Decision, "a certificate from anchors1 must not be trusted via anchors[1]")
+}
+
+// A symlink in an ANCESTOR of the roots (anchors_dir=/base/current/anchors,
+// current -> v1) swapped atomically with the old tree left intact raises no
+// event on any watched directory; the resolved-location poll catches it.
+func TestWatch_AncestorSymlinkSwap(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	revoking := func() []byte {
+		der, err := x509.CreateRevocationList(testRand{}, &x509.RevocationList{
+			Number: big.NewInt(1), ThisUpdate: t2020, NextUpdate: t2040,
+			RevokedCertificateEntries: []x509.RevocationListEntry{{SerialNumber: dsc.cert.SerialNumber, RevocationTime: t2020}},
+		}, csca.cert, csca.key.ec)
+		require.NoError(t, err)
+		return der
+	}
+
+	for _, tc := range []struct {
+		name    string
+		v2Trees func(t *testing.T, v2 string) // what the replacement tree holds
+		want    string                        // denial code after the swap
+	}{
+		{"anchors replaced by an empty tree", func(t *testing.T, v2 string) {
+			require.NoError(t, os.MkdirAll(filepath.Join(v2, "anchors", "SWE"), 0o755))
+			require.NoError(t, os.MkdirAll(filepath.Join(v2, "crls", "SWE"), 0o755))
+		}, CodeUnknownCountry},
+		{"new CRL appears in the replacement tree", func(t *testing.T, v2 string) {
+			writeAnchors(t, filepath.Join(v2, "anchors"), map[string][]*node{"SWE": {csca}})
+			require.NoError(t, os.MkdirAll(filepath.Join(v2, "crls", "SWE"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(v2, "crls", "SWE", "a.crl"), revoking(), 0o644))
+		}, CodeRevoked},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := t.TempDir()
+			v1, v2 := filepath.Join(base, "v1"), filepath.Join(base, "v2")
+			writeAnchors(t, filepath.Join(v1, "anchors"), map[string][]*node{"SWE": {csca}})
+			require.NoError(t, os.MkdirAll(filepath.Join(v1, "crls", "SWE"), 0o755))
+			tc.v2Trees(t, v2)
+			link := filepath.Join(base, "current")
+			require.NoError(t, os.Symlink(v1, link))
+
+			r, err := New(Config{
+				AnchorsDir: filepath.Join(link, "anchors"), CRLsDir: filepath.Join(link, "crls"),
+				Watch: true, ReloadDebounce: 20 * time.Millisecond, RootCheckInterval: 30 * time.Millisecond,
+				Logger: quietLogger(), Now: func() time.Time { return tNow },
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = r.Close() })
+			require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
+
+			tmp := filepath.Join(base, "current.tmp")
+			require.NoError(t, os.Symlink(v2, tmp))
+			require.NoError(t, os.Rename(tmp, link)) // v1 stays intact
+			require.Eventually(t, func() bool {
+				resp := eval(t, r, req("SWE", []*node{dsc}, nil))
+				return !resp.Decision && code(resp) == tc.want
+			}, 5*time.Second, 20*time.Millisecond)
+		})
+	}
 }
