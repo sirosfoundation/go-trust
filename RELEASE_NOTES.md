@@ -4,6 +4,18 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.23.2:start -->
+## [v0.23.2] - 2026-09-29
+
+### Added
+- New `trustapi.RoleStatusListSigner` role constant for status-list signing operations, with documented policy examples and enforcement tests (#189)
+- `policies.fail_closed_on_unknown_action` configuration option (default `false`) to deny requests with unrecognized action names instead of falling back to the default policy (#189)
+
+### Changed
+- CODEOWNERS file added to enforce the existing code-owner review requirement in branch protection rules, which was previously configured but inert (#187)
+- Unknown action names are now logged once per name; operators can opt into fail-closed behavior for stricter policy enforcement (#189)
+<!-- release-notes:v0.23.2:end -->
+
 <!-- release-notes:v0.23.1:start -->
 ## [v0.23.1] - 2026-09-29
 
