@@ -27,8 +27,8 @@ policies:
         require_key_binding: true
         allowed_key_types: [x5c]
       emrtd:                        # optional, see "Path length"
-        path_len_mode: ignore       # ignore (default) | enforce
-        path_len_override: 1        # optional; implies enforce
+        path_len_mode: enforce      # ignore (default) | enforce
+        path_len_override: 1        # optional; implies enforce, so not valid with "ignore"
 ```
 
 | Key | Required | Meaning |
