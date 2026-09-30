@@ -169,8 +169,11 @@ func (r *Registry) buildPaths(s *search, dsc *x509.Certificate, extras []*x509.C
 			if inPath(path, e) || isAnchor(e) {
 				continue
 			}
-			signed, _ := check(cur, e)
+			signed, named := check(cur, e)
 			if !signed {
+				// A supplied link that names the issuer but does not verify
+				// is an invalid chain, not a missing issuer.
+				nameMatched = nameMatched || named
 				continue
 			}
 			if !canIssue(e) {

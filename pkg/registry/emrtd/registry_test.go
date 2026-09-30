@@ -822,3 +822,42 @@ func TestEvaluate_SubjectTypeMustBeKey(t *testing.T) {
 	rq.Subject.Type = "url"
 	requireDeny(t, eval(t, r, rq), CodeMalformedRequest)
 }
+
+func TestEvaluate_SameNameSuppliedLinkWithWrongKeyIsChainInvalid(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	other := issue(t, cscaSpec("Other CA", "SE"), newKey(t, kindP256), nil)
+	impostor := issue(t, cscaSpec("Other CA", "SE"), newKey(t, kindP256), nil) // same name, different key
+	dsc := newDSC(t, kindP256, other, "SE")
+	r := newReg(t, map[string][]*node{"SWE": {csca}})
+	requireDeny(t, eval(t, r, req("SWE", []*node{dsc, impostor}, nil)), CodeChainInvalid)
+}
+
+func TestEvaluate_TooManyCertificatesRejectedUpFront(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	r := newReg(t, map[string][]*node{"SWE": {csca}})
+	rq := req("SWE", nil, nil)
+	keys := make([]interface{}, maxRequestCerts+1)
+	for i := range keys {
+		keys[i] = 7 // never inspected: the count is checked first
+	}
+	rq.Resource.Key = keys
+	resp := eval(t, r, rq)
+	requireDeny(t, resp, CodeMalformedRequest)
+	assert.Contains(t, resp.Context.Reason["error"], "maximum")
+}
+
+func TestNew_ReloadsAfterWatchesArmed(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	root := t.TempDir()
+	writeAnchors(t, root, map[string][]*node{"SWE": {csca}})
+	// The anchor is removed after the initial load but before New returns;
+	// the reconciling reload must pick that up.
+	r, err := New(Config{
+		AnchorsDir: root, Watch: true, Logger: quietLogger(), Now: func() time.Time { return tNow },
+		afterArm: func() { _ = os.Remove(filepath.Join(root, "SWE", fingerprint(csca.cert)+".pem")) },
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Close() })
+	requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeUnknownCountry)
+}

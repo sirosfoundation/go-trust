@@ -107,6 +107,8 @@ type Config struct {
 	// ReloadDebounce is the quiet period after a file event before reloading
 	// (default 250ms).
 	ReloadDebounce time.Duration
+
+	afterArm func() // test hook: runs after watches are armed, before the reconciling reload
 	// Now overrides the clock (tests).
 	Now func() time.Time
 }
@@ -168,6 +170,15 @@ func New(cfg Config) (*Registry, error) {
 	}
 	if cfg.Watch {
 		if err := r.startWatching(); err != nil {
+			return nil, err
+		}
+		// Changes between the initial load and the watches being armed
+		// generate no event; reconcile once now.
+		if cfg.afterArm != nil {
+			cfg.afterArm()
+		}
+		if err := r.reload(); err != nil {
+			_ = r.Close()
 			return nil, err
 		}
 	}
@@ -365,6 +376,9 @@ func (r *Registry) parseChain(key interface{}) ([]*x509.Certificate, error) {
 	case []string:
 		b64 = v
 	case []interface{}:
+		if len(v) > maxRequestCerts {
+			return nil, fmt.Errorf("resource.key has %d certificates, maximum is %d", len(v), maxRequestCerts)
+		}
 		for _, item := range v {
 			s, ok := item.(string)
 			if !ok {
