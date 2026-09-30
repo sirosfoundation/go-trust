@@ -873,7 +873,7 @@ func (r *Registry) startWatching() error {
 	// happens before the goroutine first runs must still register as a change
 	// against the location the first load used. A swap between that load and
 	// this capture is covered by the reconciling reload New runs after arming.
-	resolved := r.resolvedRoots()
+	resolved := r.currentRootState()
 	if err := r.armWatches(w); err != nil {
 		_ = w.Close()
 		r.watcher = nil
@@ -950,7 +950,9 @@ func (r *Registry) relevantEvent(name string) bool {
 			continue
 		}
 		root = filepath.Clean(root)
-		if name == root || filepath.Dir(name) == root || filepath.Dir(filepath.Dir(name)) == root {
+		// The root's parent itself counts too: replacing that directory in
+		// place (MOVE_SELF/DELETE_SELF on its watch) is named after it.
+		if name == filepath.Dir(root) || name == root || filepath.Dir(name) == root || filepath.Dir(filepath.Dir(name)) == root {
 			return true
 		}
 	}
@@ -971,11 +973,37 @@ func (r *Registry) retryInterval() time.Duration {
 	return 10 * time.Second
 }
 
-// resolvedRoots returns the symlink-free locations of the configured roots,
-// joined, with a marker for one that cannot be resolved (so its disappearance
-// and reappearance both register as changes).
-func (r *Registry) resolvedRoots() string {
+// rootState identifies where the configured roots currently live: their
+// symlink-free paths AND the identity (device/inode) of each directory. The
+// path alone misses an ancestor directory that is replaced in place by a real
+// directory at the same path, old tree kept; the identity catches it.
+type rootState struct {
+	resolved string
+	infos    []os.FileInfo // nil entry: root not statable
+}
+
+// sameAs reports whether two states describe the same directories.
+func (a rootState) sameAs(b rootState) bool {
+	if a.resolved != b.resolved || len(a.infos) != len(b.infos) {
+		return false
+	}
+	for i := range a.infos {
+		if (a.infos[i] == nil) != (b.infos[i] == nil) {
+			return false
+		}
+		if a.infos[i] != nil && !os.SameFile(a.infos[i], b.infos[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// currentRootState reads the state of the configured roots. A root that
+// cannot be resolved or statted gets a marker, so its disappearance and
+// reappearance both register as changes.
+func (r *Registry) currentRootState() rootState {
 	var parts []string
+	var st rootState
 	for _, root := range []string{r.cfg.AnchorsDir, r.cfg.CRLsDir} {
 		if root == "" {
 			continue
@@ -985,15 +1013,22 @@ func (r *Registry) resolvedRoots() string {
 			p = "!unresolved:" + root
 		}
 		parts = append(parts, p)
+		info, err := os.Stat(root)
+		if err != nil {
+			info = nil
+		}
+		st.infos = append(st.infos, info)
 	}
-	return strings.Join(parts, "\x00")
+	st.resolved = strings.Join(parts, "\x00")
+	return st
 }
 
-func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}, lastResolved string) {
+func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}, last rootState) {
 	// Directory watches follow the inodes they were armed on, so a symlink in
 	// an ANCESTOR of a root that is swapped (old target left intact) raises no
-	// event on any watched directory. Poll the resolved locations and treat a
-	// change like a file event.
+	// event on any watched directory, and neither does a real ancestor
+	// directory replaced in place. Poll the roots' resolved locations and
+	// directory identities and treat a change like a file event.
 	poll := time.NewTicker(r.cfg.RootCheckInterval)
 	defer poll.Stop()
 	var timer *time.Timer
@@ -1030,8 +1065,8 @@ func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}, lastReso
 			}
 			return
 		case <-poll.C:
-			if cur := r.resolvedRoots(); cur != lastResolved {
-				lastResolved = cur
+			if cur := r.currentRootState(); !cur.sameAs(last) {
+				last = cur
 				r.log.Info("emrtd: anchors/CRL location changed, scheduling reload")
 				armDebounce()
 			}

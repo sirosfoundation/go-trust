@@ -163,7 +163,8 @@ A caller must treat anything other than `decision: true` as not trusted, includi
   `crls_dir/swe`) is refused at load, as is a `.crl` entry that is not a regular file (a directory, say).
 - With `watch: true`, file changes are picked up from file-system events, and the resolved (symlink-free)
   location of both roots is also re-checked every 30 seconds, so swapping a symlink in any ancestor directory
-  (`/data/current -> v2` with `anchors_dir: /data/current/anchors`) is noticed within that interval.
+  (`/data/current -> v2` with `anchors_dir: /data/current/anchors`) is noticed within that interval. The poll also compares each root's directory identity, so replacing an ancestor
+  directory in place with a new real directory is noticed the same way.
 - A `.crl` file is one raw DER CRL, or PEM with one or more CRL blocks (all of them are used). The file must
   hold nothing but well-formed PEM blocks separated by whitespace; junk or a malformed block anywhere (which a
   PEM reader would silently skip) fails the load.

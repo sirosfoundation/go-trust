@@ -1063,10 +1063,10 @@ func TestWatch_SymlinkSwap(t *testing.T) {
 
 func TestRelevantEvent(t *testing.T) {
 	r := &Registry{cfg: Config{AnchorsDir: "/a/anchors", CRLsDir: "/a/crls"}}
-	for _, n := range []string{"/a/anchors", "/a/anchors/SWE", "/a/anchors/SWE/x.pem", "/a/crls/SWE/y.crl"} {
+	for _, n := range []string{"/a", "/a/anchors", "/a/anchors/SWE", "/a/anchors/SWE/x.pem", "/a/crls/SWE/y.crl"} {
 		assert.True(t, r.relevantEvent(n), n)
 	}
-	for _, n := range []string{"/a/other", "/a/other/file", "/a/anchors/SWE/deeper/file"} {
+	for _, n := range []string{"/", "/a/other", "/a/other/file", "/a/anchors/SWE/deeper/file"} {
 		assert.False(t, r.relevantEvent(n), n)
 	}
 }
@@ -1360,4 +1360,45 @@ func TestEvaluate_ResourceIDMustMatchSubjectID(t *testing.T) {
 		})
 	}
 	require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
+}
+
+// Replacing a real ancestor directory IN PLACE (old tree kept, no symlink) must
+// be noticed too. Two shapes: the root's parent itself (the event path:
+// MOVE_SELF on its watch) and a higher ancestor (no event at all on any watched
+// inode, so only the root identity poll can see it).
+func TestWatch_InPlaceAncestorReplacement(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+
+	for _, tc := range []struct {
+		name     string
+		depth    string // path from the swapped directory down to anchors/
+		interval time.Duration
+	}{
+		{"root's parent replaced (event path)", "anchors", time.Hour},
+		{"higher ancestor replaced (identity poll)", filepath.Join("b", "anchors"), 30 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := t.TempDir()
+			cur, old, next := filepath.Join(base, "cur"), filepath.Join(base, "old"), filepath.Join(base, "next")
+			anchors := filepath.Join(cur, tc.depth)
+			writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
+			// the replacement has the same layout but no anchors
+			require.NoError(t, os.MkdirAll(filepath.Join(next, tc.depth, "SWE"), 0o755))
+
+			r, err := New(Config{
+				AnchorsDir: anchors, Watch: true, ReloadDebounce: 20 * time.Millisecond, RootCheckInterval: tc.interval,
+				Logger: quietLogger(), Now: func() time.Time { return tNow },
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = r.Close() })
+			require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
+
+			require.NoError(t, os.Rename(cur, old))  // old tree stays intact
+			require.NoError(t, os.Rename(next, cur)) // a new real directory takes its path
+			require.Eventually(t, func() bool {
+				return !eval(t, r, req("SWE", []*node{dsc}, nil)).Decision
+			}, 5*time.Second, 20*time.Millisecond)
+		})
+	}
 }
