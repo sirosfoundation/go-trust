@@ -1140,3 +1140,13 @@ func TestCRLSignatureVerdictsMemoized(t *testing.T) {
 	}
 	assert.Len(t, vc, 2)
 }
+
+func TestInfoTrustAnchorsAreACopy(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	r := newReg(t, map[string][]*node{"SWE": {csca}})
+	first := r.Info().TrustAnchors
+	require.Len(t, first, 1)
+	want := first[0]
+	first[0] = "tampered"
+	assert.Equal(t, want, r.Info().TrustAnchors[0], "mutating a returned Info must not change the registry's metadata")
+}

@@ -223,10 +223,11 @@ func (r *Registry) Refresh(context.Context) error { return r.reload() }
 // Info implements registry.TrustRegistry.
 func (r *Registry) Info() registry.RegistryInfo {
 	// The fingerprint list is precomputed per snapshot (Info is called on
-	// every routed request); callers must not mutate it.
+	// every routed request) and copied out, so a caller that edits the
+	// returned slice cannot change later responses or race with readers.
 	var anchors []string
 	if s := r.snap.Load(); s != nil {
-		anchors = s.fingerprints
+		anchors = append([]string(nil), s.fingerprints...)
 	}
 	return registry.RegistryInfo{
 		Name:         r.cfg.Name,
