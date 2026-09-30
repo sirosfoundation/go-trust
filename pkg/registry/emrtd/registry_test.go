@@ -456,6 +456,34 @@ func TestEvaluate_Revocation(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "filed under DEU")
 	})
+	t.Run("indirect CRL is refused at load", func(t *testing.T) {
+		mk := func(idp []byte) error {
+			der, err := x509.CreateRevocationList(testRand{}, &x509.RevocationList{
+				Number: big.NewInt(1), ThisUpdate: t2020, NextUpdate: t2040,
+				ExtraExtensions: []pkix.Extension{{Id: oidIssuingDistPoint, Critical: true, Value: idp}},
+			}, csca.cert, csca.key.ec)
+			require.NoError(t, err)
+			anchors, crls := t.TempDir(), t.TempDir()
+			writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
+			require.NoError(t, os.MkdirAll(filepath.Join(crls, "SWE"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(crls, "SWE", "i.crl"), der, 0o644))
+			_, err = New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+			return err
+		}
+		// IDP ::= SEQUENCE { onlyContainsUserCerts [1] TRUE, indirectCRL [4] TRUE }
+		err := mk([]byte{0x30, 0x06, 0x81, 0x01, 0xff, 0x84, 0x01, 0xff})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "indirect CRL")
+		// indirectCRL [4] FALSE, and a direct IDP without it, are fine
+		require.NoError(t, mk([]byte{0x30, 0x03, 0x84, 0x01, 0x00}))
+		require.NoError(t, mk([]byte{0x30, 0x03, 0x81, 0x01, 0xff}))
+		// malformed IDP fails closed
+		err = mk([]byte{0x04, 0x00})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "issuingDistributionPoint")
+		err = mk([]byte{0x30, 0x04, 0x84, 0x02, 0xff, 0xff})
+		require.Error(t, err)
+	})
 	t.Run("delta CRL is refused at load (a base may be missing)", func(t *testing.T) {
 		val, err := asn1.Marshal(big.NewInt(1)) // BaseCRLNumber
 		require.NoError(t, err)

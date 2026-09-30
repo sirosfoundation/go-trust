@@ -120,7 +120,10 @@ number of countries and anchors actually loaded, which can be lower than the num
 
 `link_sha256` appears only when link certificates were used. When the **emrtd registry** denies (with the
 documented policy, where it is the only registry), the machine-readable `code` is in `context.reason.code` (also
-`context.reason.admin.code`), with human-readable detail in `context.reason.error`. A request can also be
+`context.reason.admin.code`), with the human-readable explanation in `context.reason.admin.detail`. Through the
+manager, `context.reason.error` can be the manager's generic "no registry returned positive match"; the
+registry's own `error` text is then in `context.reason.admin.detail` (or in the nested per-registry result when
+several registries deny). A request can also be
 rejected before the registry runs (request validation, a policy check), in which case only `context.reason.error`
 is present, and with several denying registries the codes can remain nested in the per-registry results. Always
 decide trust from `decision`, never from the presence of a code:
@@ -153,6 +156,9 @@ A caller must treat anything other than `decision: true` as not trusted, includi
 - Revocation is strict: any entry on a CRL whose signature verifies against the issuer denies the
   certificate, regardless of revocation date and even if the CRL is past `nextUpdate`. CRLs that fail
   signature verification are ignored; with no CRL for an issuer nothing is denied.
+- Indirect CRLs (`issuingDistributionPoint` with `indirectCRL` true, or an unparsable one) are refused at load:
+  delegated CRL issuers and per-entry certificate issuers are not supported, so such a list would be silently
+  ignored.
 - A CRL whose issuer name carries a country `C` that does not match its `crls_dir/<ALPHA3>` directory is refused at
   load (it would otherwise be silently ignored for its own state).
 - Delta CRLs (`deltaCRLIndicator`) are not supported and are refused like an unparsable CRL: a delta checked
@@ -198,7 +204,8 @@ name) does not count against the limit. Examples, for DSC -> link -> CSCA (one l
 | 0 | different name | override 1 | allowed |
 | any / none | different name | override 0 | `chain_invalid` |
 
-A violation is denied as `chain_invalid` with the offending certificate and the counts in `context.reason.error`.
+A violation is denied as `chain_invalid` with the offending certificate and the counts in `context.reason.admin.detail` (also `context.reason.error` when the
+registry is called directly).
 Other candidate paths are still tried, so a chain that satisfies the limit through another route is accepted.
 
 The mode and override are server-side policy controls: the manager drops any client-supplied

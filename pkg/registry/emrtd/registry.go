@@ -562,7 +562,42 @@ func (c *crlData) isRevoked(serial *big.Int) bool {
 	return ok
 }
 
-var oidDeltaCRLIndicator = asn1.ObjectIdentifier{2, 5, 29, 27}
+var (
+	oidDeltaCRLIndicator = asn1.ObjectIdentifier{2, 5, 29, 27}
+	oidIssuingDistPoint  = asn1.ObjectIdentifier{2, 5, 29, 28}
+)
+
+// isIndirectCRL reports whether the CRL's issuingDistributionPoint extension
+// (RFC 5280 5.2.5) sets indirectCRL [4] BOOLEAN to true. A present but
+// malformed extension is an error, so the caller fails closed.
+func isIndirectCRL(crl *x509.RevocationList) (bool, error) {
+	for _, ext := range crl.Extensions {
+		if !ext.Id.Equal(oidIssuingDistPoint) {
+			continue
+		}
+		var seq asn1.RawValue
+		if rest, err := asn1.Unmarshal(ext.Value, &seq); err != nil || len(rest) != 0 ||
+			seq.Class != asn1.ClassUniversal || seq.Tag != asn1.TagSequence || !seq.IsCompound {
+			return false, errors.New("not a SEQUENCE")
+		}
+		body := seq.Bytes
+		for len(body) > 0 {
+			var el asn1.RawValue
+			rest, err := asn1.Unmarshal(body, &el)
+			if err != nil {
+				return false, err
+			}
+			if el.Class == asn1.ClassContextSpecific && el.Tag == 4 {
+				if len(el.Bytes) != 1 {
+					return false, errors.New("indirectCRL is not a BOOLEAN")
+				}
+				return el.Bytes[0] != 0, nil
+			}
+			body = rest
+		}
+	}
+	return false, nil
+}
 
 // countryDirs lists the per-country subdirectories of an anchors or CRLs root.
 // A symlink to a directory is REJECTED rather than ignored: DirEntry.IsDir is
@@ -716,6 +751,14 @@ func (r *Registry) loadCRLs() (map[string][]*crlData, error) {
 				if !countryMatches(country, c) {
 					return nil, fmt.Errorf("emrtd: CRL %s is issued by C=%q but filed under %s; move it to the right country directory", f, c, country)
 				}
+			}
+			// An indirect CRL may be signed by a delegated issuer and name a
+			// different issuer per entry. Neither is supported: it would be
+			// silently ignored by the issuer-scoped lookup, so refuse it.
+			if indirect, err := isIndirectCRL(crl); err != nil {
+				return nil, fmt.Errorf("emrtd: CRL %s has an unparsable issuingDistributionPoint extension: %w", f, err)
+			} else if indirect {
+				return nil, fmt.Errorf("emrtd: CRL %s is an indirect CRL (issuingDistributionPoint indirectCRL=true); indirect CRLs are not supported", f)
 			}
 			// A delta CRL lists only changes since a base CRL. Checked on its
 			// own it would look like a complete list and let a certificate
