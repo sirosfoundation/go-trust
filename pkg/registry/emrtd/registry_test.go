@@ -1083,3 +1083,19 @@ func TestSigningTimePrecisionPreserved(t *testing.T) {
 	requireDeny(t, resp, CodeExpired)
 	assert.Contains(t, resp.Context.Reason["error"], "2012-01-01T00:00:00.5Z")
 }
+
+func TestCRLDataIndexesSerials(t *testing.T) {
+	c := newCRLData(&x509.RevocationList{RevokedCertificateEntries: []x509.RevocationListEntry{
+		{SerialNumber: big.NewInt(7)}, {SerialNumber: big.NewInt(-3)}, {SerialNumber: new(big.Int).Lsh(big.NewInt(1), 100)},
+	}})
+	assert.True(t, c.isRevoked(big.NewInt(7)))
+	assert.True(t, c.isRevoked(big.NewInt(-3)))
+	assert.True(t, c.isRevoked(new(big.Int).Lsh(big.NewInt(1), 100)))
+	assert.False(t, c.isRevoked(big.NewInt(8)))
+	assert.False(t, newCRLData(&x509.RevocationList{}).isRevoked(big.NewInt(1)))
+}
+
+func TestCountryDirsInspectFailureFailsLoad(t *testing.T) {
+	_, err := countryDirs(filepath.Join(t.TempDir(), "missing"))
+	require.Error(t, err)
+}

@@ -45,6 +45,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
@@ -123,9 +124,9 @@ type anchor struct {
 
 // snapshot is an immutable view of loaded trust data, swapped atomically.
 type snapshot struct {
-	anchors      map[string][]*anchor              // alpha-3 -> anchors
-	crls         map[string][]*x509.RevocationList // alpha-3 -> CRLs
-	fingerprints []string                          // sorted anchor SHA-256s, for Info
+	anchors      map[string][]*anchor  // alpha-3 -> anchors
+	crls         map[string][]*crlData // alpha-3 -> CRLs
+	fingerprints []string              // sorted anchor SHA-256s, for Info
 }
 
 // Registry implements registry.TrustRegistry for eMRTD DSC validation.
@@ -496,7 +497,7 @@ func (r *Registry) reload() error {
 	if err != nil {
 		return err
 	}
-	crls := map[string][]*x509.RevocationList{}
+	crls := map[string][]*crlData{}
 	if r.cfg.CRLsDir != "" {
 		if crls, err = r.loadCRLs(); err != nil {
 			return err
@@ -538,6 +539,27 @@ func requireRegularFile(path string) error {
 	return nil
 }
 
+// crlData is a parsed CRL plus an index of its revoked serial numbers, built
+// once at load time so each evaluation does a map lookup instead of scanning
+// a possibly large national list.
+type crlData struct {
+	*x509.RevocationList
+	revoked map[string]struct{}
+}
+
+func newCRLData(l *x509.RevocationList) *crlData {
+	idx := make(map[string]struct{}, len(l.RevokedCertificateEntries))
+	for _, e := range l.RevokedCertificateEntries {
+		idx[e.SerialNumber.String()] = struct{}{}
+	}
+	return &crlData{RevocationList: l, revoked: idx}
+}
+
+func (c *crlData) isRevoked(serial *big.Int) bool {
+	_, ok := c.revoked[serial.String()]
+	return ok
+}
+
 var oidDeltaCRLIndicator = asn1.ObjectIdentifier{2, 5, 29, 27}
 
 // countryDirs lists the per-country subdirectories of an anchors or CRLs root.
@@ -553,19 +575,29 @@ func countryDirs(root string) ([]string, error) {
 	}
 	var dirs []string
 	for _, e := range entries {
-		if e.Type()&os.ModeSymlink != 0 {
+		// Inspect every entry with Lstat rather than trusting DirEntry.Type():
+		// some filesystems report no type (0), which would hide both a
+		// symlink and a real country directory, and loading would succeed
+		// without that country's data. An entry that cannot be inspected
+		// fails the load.
+		p := filepath.Join(root, e.Name())
+		lst, err := os.Lstat(p)
+		if err != nil {
+			return nil, fmt.Errorf("emrtd: inspecting %s: %w", p, err)
+		}
+		if lst.Mode()&os.ModeSymlink != 0 {
 			// A link named like a country stands for that country's data
 			// whatever it resolves to (directory, file, nothing): refuse. Any
 			// link that does resolve to a directory is refused too. Only an
 			// unrelated non-directory link is ignored.
-			st, err := os.Stat(filepath.Join(root, e.Name()))
+			st, err := os.Stat(p)
 			_, isCountry := alpha3ToAlpha2[e.Name()]
 			if isCountry || (err == nil && st.IsDir()) {
-				return nil, fmt.Errorf("emrtd: %s/%s is a symlink; country directories must be real directories (a symlinked root is fine)", root, e.Name())
+				return nil, fmt.Errorf("emrtd: %s is a symlink; country directories must be real directories (a symlinked root is fine)", p)
 			}
 			continue
 		}
-		if e.IsDir() {
+		if lst.IsDir() {
 			dirs = append(dirs, e.Name())
 		}
 	}
@@ -624,12 +656,12 @@ func (r *Registry) loadAnchors() (map[string][]*anchor, error) {
 	return out, nil
 }
 
-func (r *Registry) loadCRLs() (map[string][]*x509.RevocationList, error) {
+func (r *Registry) loadCRLs() (map[string][]*crlData, error) {
 	dirs, err := countryDirs(r.cfg.CRLsDir)
 	if err != nil {
 		return nil, fmt.Errorf("emrtd: reading crls_dir: %w", err)
 	}
-	out := map[string][]*x509.RevocationList{}
+	out := map[string][]*crlData{}
 	for _, country := range dirs {
 		if _, ok := alpha3ToAlpha2[country]; !ok {
 			r.log.Error("emrtd: skipping CRL directory that is not an alpha-3 code", "dir", country)
@@ -668,7 +700,7 @@ func (r *Registry) loadCRLs() (map[string][]*x509.RevocationList, error) {
 					return nil, fmt.Errorf("emrtd: CRL %s is a delta CRL (deltaCRLIndicator); delta CRLs are not supported, provide complete CRLs", f)
 				}
 			}
-			out[country] = append(out[country], crl)
+			out[country] = append(out[country], newCRLData(crl))
 		}
 	}
 	return out, nil
@@ -700,36 +732,49 @@ func (r *Registry) startWatching() error {
 // Paths that are no longer wanted are dropped, so repeated swaps cannot
 // accumulate watches towards the kernel limit.
 func (r *Registry) armWatches(w *fsnotify.Watcher) error {
-	var want []string
-	for _, root := range []string{r.cfg.AnchorsDir, r.cfg.CRLsDir} {
-		if root == "" {
-			continue
+	wanted := map[string]bool{}
+	rearm := func(p string) error {
+		_ = w.Remove(p) // ignore "not watched": the point is to drop a stale inode
+		wanted[p] = true
+		if err := w.Add(p); err != nil {
+			return fmt.Errorf("emrtd: watching %s: %w", p, err)
 		}
+		return nil
+	}
+	var roots []string
+	for _, root := range []string{r.cfg.AnchorsDir, r.cfg.CRLsDir} {
+		if root != "" {
+			roots = append(roots, root)
+		}
+	}
+	// Roots first, country directories second: the root watch must be in
+	// place BEFORE the directory set is enumerated, so a country created in
+	// between raises an event (and a re-arm) instead of slipping through
+	// with neither a watch nor an event. The parent directory is watched too:
+	// a root that is a symlink is swapped (or the tree replaced) by changing
+	// its directory entry, which only the parent sees.
+	for _, root := range roots {
+		if err := rearm(filepath.Dir(filepath.Clean(root))); err != nil {
+			return err
+		}
+		if err := rearm(root); err != nil {
+			return err
+		}
+	}
+	for _, root := range roots {
 		dirs, err := countryDirs(root)
 		if err != nil {
 			return err
 		}
-		// The parent directory is watched too: a root that is a symlink is
-		// swapped (or the tree replaced) by changing its directory entry,
-		// which only the parent sees.
-		want = append(want, filepath.Dir(filepath.Clean(root)), root)
 		for _, d := range dirs {
-			want = append(want, filepath.Join(root, d))
+			if err := rearm(filepath.Join(root, d)); err != nil {
+				return err
+			}
 		}
-	}
-	wanted := make(map[string]bool, len(want))
-	for _, p := range want {
-		wanted[p] = true
 	}
 	for _, p := range w.WatchList() {
 		if !wanted[p] {
 			_ = w.Remove(p)
-		}
-	}
-	for p := range wanted {
-		_ = w.Remove(p) // ignore "not watched": the point is to drop a stale inode
-		if err := w.Add(p); err != nil {
-			return fmt.Errorf("emrtd: watching %s: %w", p, err)
 		}
 	}
 	return nil

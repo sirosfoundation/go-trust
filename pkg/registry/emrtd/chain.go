@@ -202,7 +202,7 @@ func hasKeyUsageExt(c *x509.Certificate) bool {
 
 // checkPath applies path-length, time, key-usage and revocation checks to a
 // candidate path. It returns nil when the path is acceptable.
-func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*x509.RevocationList, pl pathLenPolicy) *authzen.EvaluationResponse {
+func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crlData, pl pathLenPolicy) *authzen.EvaluationResponse {
 	if d := r.checkPathLen(path, pl); d != nil {
 		return d
 	}
@@ -256,10 +256,8 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*x50
 			if r.ext.CheckSignature(issuer, crl.SignatureAlgorithm, crl.RawTBSRevocationList, crl.Signature) != nil {
 				continue
 			}
-			for _, e := range crl.RevokedCertificateEntries {
-				if e.SerialNumber.Cmp(cert.SerialNumber) == 0 {
-					return r.deny(CodeRevoked, fmt.Sprintf("%q (serial %s) is revoked by CRL", cert.Subject.String(), cert.SerialNumber))
-				}
+			if crl.isRevoked(cert.SerialNumber) {
+				return r.deny(CodeRevoked, fmt.Sprintf("%q (serial %s) is revoked by CRL", cert.Subject.String(), cert.SerialNumber))
 			}
 		}
 	}
