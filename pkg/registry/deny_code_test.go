@@ -199,3 +199,44 @@ func TestDuplicateRegistryNames_AllowAdminSurvivesDeny(t *testing.T) {
 		})
 	}
 }
+
+// nilResponseRegistry returns (nil, nil) from Evaluate.
+type nilResponseRegistry struct{ *mockRegistry }
+
+func (nilResponseRegistry) Evaluate(context.Context, *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	return nil, nil
+}
+
+// A registry that returns (nil, nil) leaves an all_results entry with no
+// "decision"; it must not be counted as a second denial and hide the code of
+// the one registry that really denied.
+func TestAllResultsDenyCodeIgnoresNilResponses(t *testing.T) {
+	denier := &mockRegistry{
+		name: "denier", resourceTypes: []string{"x5c"}, healthy: true,
+		evaluateResponse: &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{
+			Reason: map[string]interface{}{"code": "expired", "admin": map[string]interface{}{"code": "expired"}},
+		}},
+	}
+	silent := &nilResponseRegistry{mockRegistry: &mockRegistry{name: "silent", resourceTypes: []string{"x5c"}, healthy: true}}
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+	}
+	for _, strat := range []ResolutionStrategy{AllRegistries, BestMatch} {
+		t.Run(string(strat), func(t *testing.T) {
+			mgr := NewRegistryManager(strat, 5*time.Second)
+			mgr.Register(denier)
+			mgr.Register(silent)
+			resp, err := mgr.Evaluate(context.Background(), req)
+			require.NoError(t, err)
+			require.False(t, resp.Decision)
+			assert.Equal(t, "expired", resp.Context.Reason["code"])
+		})
+	}
+	// direct, including the policy-filtered variant
+	reason := map[string]interface{}{}
+	promoteAllResultsDenyCode(reason, []map[string]interface{}{
+		{"registry": "silent"},
+		{"registry": "denier", "decision": false, "reason": map[string]interface{}{"code": "revoked"}},
+	})
+	assert.Equal(t, "revoked", reason["code"])
+}

@@ -231,7 +231,9 @@ func promoteSelectedAdmin(reason map[string]interface{}, registry string) {
 func promoteAllResultsDenyCode(reason map[string]interface{}, allResults []map[string]interface{}) {
 	var denied []map[string]interface{}
 	for _, ri := range allResults {
-		if d, _ := ri["decision"].(bool); !d {
+		// Only an explicit decision=false is a denial: an entry with no
+		// decision (a nil response, or an error record) is not one.
+		if d, ok := ri["decision"].(bool); ok && !d {
 			denied = append(denied, ri)
 		}
 	}
