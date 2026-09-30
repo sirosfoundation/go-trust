@@ -751,6 +751,7 @@ func (m *RegistryManager) evaluateBestMatchWithPolicy(ctx context.Context, req *
 		if matched, ok := resp.Context.Reason["registries_matched"].([]string); ok && len(matched) > 0 {
 			resp.Context.Reason["registry"] = matched[0]
 			resp.Context.Reason["strategy"] = "best_match"
+			promoteSelectedAdmin(resp.Context.Reason, matched[0])
 			delete(resp.Context.Reason, "all_results")
 		}
 	}

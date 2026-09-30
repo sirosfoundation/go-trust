@@ -195,12 +195,20 @@ func promoteSingleDenyCode(reason map[string]interface{}, details []map[string]i
 // promoteSingleAllowAdmin surfaces the "admin" details (e.g. the eMRTD CSCA/DSC
 // fingerprints) of the one matching registry at the top level of an all-results
 // reason, so they survive best_match dropping all_results.
-func promoteSingleAllowAdmin(reason map[string]interface{}, matched []string, allResults []map[string]interface{}) {
+func promoteSingleAllowAdmin(reason map[string]interface{}, matched []string) {
 	if len(matched) != 1 {
 		return
 	}
-	for _, ri := range allResults {
-		if ri["registry"] != matched[0] {
+	promoteSelectedAdmin(reason, matched[0])
+}
+
+// promoteSelectedAdmin copies the named registry's reason.admin from
+// reason["all_results"] to the top level. Best-match calls it for the winner
+// before dropping all_results.
+func promoteSelectedAdmin(reason map[string]interface{}, registry string) {
+	all, _ := reason["all_results"].([]map[string]interface{})
+	for _, ri := range all {
+		if ri["registry"] != registry {
 			continue
 		}
 		if inner, ok := ri["reason"].(map[string]interface{}); ok {
@@ -353,7 +361,7 @@ func (m *RegistryManager) evaluateAll(ctx context.Context, req *authzen.Evaluati
 	if !decision {
 		promoteAllResultsDenyCode(reason, allResults)
 	} else {
-		promoteSingleAllowAdmin(reason, registriesMatched, allResults)
+		promoteSingleAllowAdmin(reason, registriesMatched)
 	}
 	return &authzen.EvaluationResponse{
 		Decision: decision,
@@ -377,6 +385,7 @@ func (m *RegistryManager) evaluateBestMatch(ctx context.Context, req *authzen.Ev
 		if matched, ok := resp.Context.Reason["registries_matched"].([]string); ok && len(matched) > 0 {
 			resp.Context.Reason["registry"] = matched[0]
 			resp.Context.Reason["strategy"] = "best_match"
+			promoteSelectedAdmin(resp.Context.Reason, matched[0])
 			// Remove aggregation details
 			delete(resp.Context.Reason, "all_results")
 		}
@@ -760,7 +769,7 @@ func (m *RegistryManager) evaluateAllFiltered(ctx context.Context, req *authzen.
 	if !decision {
 		promoteAllResultsDenyCode(reason, allResults)
 	} else {
-		promoteSingleAllowAdmin(reason, registriesMatched, allResults)
+		promoteSingleAllowAdmin(reason, registriesMatched)
 	}
 	if policyCtx != nil && policyCtx.Policy != nil {
 		reason["policy"] = policyCtx.Policy.Name

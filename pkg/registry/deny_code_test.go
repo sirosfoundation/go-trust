@@ -109,3 +109,36 @@ func TestAllStrategiesKeepAllowReasonAndAdmin(t *testing.T) {
 	all := resp.Context.Reason["all_results"].([]map[string]interface{})
 	assert.NotNil(t, all[0]["reason"])
 }
+
+func TestBestMatchPromotesWinnerAdminWithMultipleAllows(t *testing.T) {
+	mk := func(name, fp string) *mockRegistry {
+		return &mockRegistry{
+			name: name, resourceTypes: []string{"x5c"}, healthy: true,
+			evaluateResponse: &authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{"admin": map[string]interface{}{"csca_sha256": fp}},
+			}},
+		}
+	}
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+	}
+	mgr := NewRegistryManager(BestMatch, 5*time.Second)
+	a, b := mk("a", "fpA"), mk("b", "fpB")
+	mgr.Register(a)
+	mgr.Register(b)
+	resp, err := mgr.Evaluate(context.Background(), req)
+	require.NoError(t, err)
+	winner := resp.Context.Reason["registry"].(string)
+	want := map[string]string{"a": "fpA", "b": "fpB"}[winner]
+	admin := resp.Context.Reason["admin"].(map[string]interface{})
+	assert.Equal(t, want, admin["csca_sha256"])
+
+	// policy-filtered wrapper
+	mgr.strategy = BestMatch
+	resp, err = mgr.evaluateBestMatchWithPolicy(context.Background(), req, nil)
+	require.NoError(t, err)
+	winner = resp.Context.Reason["registry"].(string)
+	want = map[string]string{"a": "fpA", "b": "fpB"}[winner]
+	admin = resp.Context.Reason["admin"].(map[string]interface{})
+	assert.Equal(t, want, admin["csca_sha256"])
+}

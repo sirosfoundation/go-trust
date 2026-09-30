@@ -46,6 +46,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -117,8 +118,9 @@ type anchor struct {
 
 // snapshot is an immutable view of loaded trust data, swapped atomically.
 type snapshot struct {
-	anchors map[string][]*anchor              // alpha-3 -> anchors
-	crls    map[string][]*x509.RevocationList // alpha-3 -> CRLs
+	anchors      map[string][]*anchor              // alpha-3 -> anchors
+	crls         map[string][]*x509.RevocationList // alpha-3 -> CRLs
+	fingerprints []string                          // sorted anchor SHA-256s, for Info
 }
 
 // Registry implements registry.TrustRegistry for eMRTD DSC validation.
@@ -204,13 +206,11 @@ func (r *Registry) Refresh(context.Context) error { return r.reload() }
 
 // Info implements registry.TrustRegistry.
 func (r *Registry) Info() registry.RegistryInfo {
+	// The fingerprint list is precomputed per snapshot (Info is called on
+	// every routed request); callers must not mutate it.
 	var anchors []string
 	if s := r.snap.Load(); s != nil {
-		for _, list := range s.anchors {
-			for _, a := range list {
-				anchors = append(anchors, a.sha256)
-			}
-		}
+		anchors = s.fingerprints
 	}
 	return registry.RegistryInfo{
 		Name:         r.cfg.Name,
@@ -474,11 +474,16 @@ func (r *Registry) reload() error {
 			return err
 		}
 	}
-	r.snap.Store(&snapshot{anchors: anchors, crls: crls})
 	n := 0
+	var fps []string
 	for _, l := range anchors {
 		n += len(l)
+		for _, a := range l {
+			fps = append(fps, a.sha256)
+		}
 	}
+	sort.Strings(fps)
+	r.snap.Store(&snapshot{anchors: anchors, crls: crls, fingerprints: fps})
 	r.log.Info("emrtd anchors loaded", "registry", r.cfg.Name, "countries", len(anchors), "anchors", n)
 	if n == 0 {
 		r.log.Warn("emrtd registry has no anchors; every request will be denied", "dir", r.cfg.AnchorsDir)
@@ -698,10 +703,9 @@ func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
 		case <-fire:
 			fire = nil
 			failed := false
-			if err := r.reload(); err != nil {
-				failed = true
-				r.log.Error("emrtd: reload failed, keeping previous trust data", "error", err)
-			}
+			// Arm the watches first, then reload: a file added between the
+			// scan and the arming would otherwise generate no event and be
+			// missed until the next unrelated change.
 			r.reloadMu.Lock()
 			if r.watcher == w {
 				if err := r.armWatches(w); err != nil {
@@ -710,6 +714,10 @@ func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
 				}
 			}
 			r.reloadMu.Unlock()
+			if err := r.reload(); err != nil {
+				failed = true
+				r.log.Error("emrtd: reload failed, keeping previous trust data", "error", err)
+			}
 			if failed {
 				// The root may have been replaced (its watch is gone) or be
 				// briefly absent; keep retrying so removed anchors do not
