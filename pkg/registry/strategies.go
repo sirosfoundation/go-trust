@@ -202,13 +202,19 @@ func promoteSingleAllowAdmin(reason map[string]interface{}, matched []string) {
 	promoteSelectedAdmin(reason, matched[0])
 }
 
-// promoteSelectedAdmin copies the named registry's reason.admin from
-// reason["all_results"] to the top level. Best-match calls it for the winner
-// before dropping all_results.
+// promoteSelectedAdmin copies reason.admin of the FIRST ALLOWING result of the
+// named registry from reason["all_results"] to the top level. Best-match calls
+// it for the winner before dropping all_results. Registry names are not
+// unique (Register allows duplicates), so a later same-named allow or deny
+// must never overwrite the selected result's details: the scan stops at the
+// first allow.
 func promoteSelectedAdmin(reason map[string]interface{}, registry string) {
 	all, _ := reason["all_results"].([]map[string]interface{})
 	for _, ri := range all {
 		if ri["registry"] != registry {
+			continue
+		}
+		if allowed, _ := ri["decision"].(bool); !allowed {
 			continue
 		}
 		if inner, ok := ri["reason"].(map[string]interface{}); ok {
@@ -216,6 +222,7 @@ func promoteSelectedAdmin(reason map[string]interface{}, registry string) {
 				reason["admin"] = admin
 			}
 		}
+		return
 	}
 }
 

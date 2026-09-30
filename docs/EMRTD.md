@@ -117,7 +117,7 @@ number of countries and anchors actually loaded, which can be lower than the num
 |------|---------|
 | `unknown_country` | `subject.id` is not a valid alpha-3 code, or no anchors are loaded for it |
 | `no_anchor` | No chain to an anchor of that country could be built |
-| `chain_invalid` | A signature in the chain does not verify |
+| `chain_invalid` | No acceptable certificate path: a signature in the chain does not verify (or uses a refused algorithm), a supplied link certificate is not a valid CA, the path violates an enforced `pathLenConstraint` (see [Path length](#path-length)), or the path search was canceled or hit its work limit |
 | `country_mismatch` | The DSC's subject `C` disagrees with `subject.id`, or it chains only to another country's anchor |
 | `expired` / `not_yet_valid` | A certificate in the chain is outside its validity at `signing_time` |
 | `bad_key_usage` | The DSC has a `keyUsage` extension without `digitalSignature` |

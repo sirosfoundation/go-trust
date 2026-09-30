@@ -142,3 +142,60 @@ func TestBestMatchPromotesWinnerAdminWithMultipleAllows(t *testing.T) {
 	admin = resp.Context.Reason["admin"].(map[string]interface{})
 	assert.Equal(t, want, admin["csca_sha256"])
 }
+
+func TestPromoteSelectedAdmin_FirstAllowOfDuplicateName(t *testing.T) {
+	entry := func(allow bool, marker string) map[string]interface{} {
+		return map[string]interface{}{
+			"registry": "dup", "decision": allow,
+			"reason": map[string]interface{}{"admin": map[string]interface{}{"m": marker}},
+		}
+	}
+	cases := []struct {
+		name string
+		all  []map[string]interface{}
+		want interface{}
+	}{
+		{"deny after allow", []map[string]interface{}{entry(true, "allow"), entry(false, "deny")}, "allow"},
+		{"deny before allow", []map[string]interface{}{entry(false, "deny"), entry(true, "allow")}, "allow"},
+		{"two allows keep the first", []map[string]interface{}{entry(true, "first"), entry(true, "second")}, "first"},
+		{"only denies promote nothing", []map[string]interface{}{entry(false, "deny")}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reason := map[string]interface{}{"all_results": tc.all}
+			promoteSelectedAdmin(reason, "dup")
+			if tc.want == nil {
+				assert.NotContains(t, reason, "admin")
+				return
+			}
+			assert.Equal(t, tc.want, reason["admin"].(map[string]interface{})["m"])
+		})
+	}
+}
+
+func TestDuplicateRegistryNames_AllowAdminSurvivesDeny(t *testing.T) {
+	mk := func(allow bool, marker string) *mockRegistry {
+		return &mockRegistry{
+			name: "dup", resourceTypes: []string{"x5c"}, healthy: true,
+			evaluateResponse: &authzen.EvaluationResponse{Decision: allow, Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{"admin": map[string]interface{}{"m": marker}},
+			}},
+		}
+	}
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+	}
+	for _, strat := range []ResolutionStrategy{AllRegistries, BestMatch} {
+		t.Run(string(strat), func(t *testing.T) {
+			mgr := NewRegistryManager(strat, 5*time.Second)
+			mgr.Register(mk(true, "allow"))
+			mgr.Register(mk(false, "deny"))
+			resp, err := mgr.Evaluate(context.Background(), req)
+			require.NoError(t, err)
+			require.True(t, resp.Decision)
+			admin, ok := resp.Context.Reason["admin"].(map[string]interface{})
+			require.True(t, ok, "admin must be promoted")
+			assert.Equal(t, "allow", admin["m"], "a same-named denial must not replace the allow's details")
+		})
+	}
+}
