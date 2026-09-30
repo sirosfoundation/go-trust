@@ -78,6 +78,10 @@ const (
 // maxRequestCerts bounds the number of certificates accepted in resource.key.
 const maxRequestCerts = 16
 
+// maxCertB64Len bounds one base64-encoded certificate (~24 KiB of DER),
+// checked before decoding so an oversized entry cannot force a large allocation.
+const maxCertB64Len = 32 * 1024
+
 // defaultReloadDebounce coalesces bursts of file events (an anchors repo sync
 // touches many files) into a single reload.
 const defaultReloadDebounce = 250 * time.Millisecond
@@ -375,6 +379,9 @@ func (r *Registry) parseChain(key interface{}) ([]*x509.Certificate, error) {
 	}
 	certs := make([]*x509.Certificate, 0, len(b64))
 	for i, s := range b64 {
+		if len(s) > maxCertB64Len {
+			return nil, fmt.Errorf("certificate %d: encoded size %d exceeds maximum %d", i, len(s), maxCertB64Len)
+		}
 		der, err := base64.StdEncoding.DecodeString(s)
 		if err != nil {
 			return nil, fmt.Errorf("certificate %d: invalid base64: %v", i, err)

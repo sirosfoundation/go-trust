@@ -205,6 +205,12 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*x50
 	// but lacks digitalSignature is refused, which also keeps a CSCA
 	// (keyCertSign/cRLSign only) from being presented as a DSC.
 	dsc := path[0]
+	// A document signer is an end-entity certificate: a CA (e.g. a link
+	// certificate that also carries digitalSignature) must not be accepted
+	// as a DSC, whatever its key usage says.
+	if dsc.BasicConstraintsValid && dsc.IsCA {
+		return r.deny(CodeBadKeyUsage, "DSC is a CA certificate (basicConstraints cA=true)")
+	}
 	if dsc.KeyUsage != 0 && dsc.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
 		return r.deny(CodeBadKeyUsage, "DSC keyUsage does not include digitalSignature")
 	}

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/http"
 	"os"
 	"time"
 
@@ -78,9 +79,14 @@ func getRegistryCount(serverCtx *ServerContext) int {
 // @Success 200 {object} authzen.EvaluationResponse "Trust decision (decision=true for trusted, false for untrusted)"
 // @Failure 400 {object} map[string]string "Invalid request format or validation error"
 // @Router /evaluation [post]
+// maxEvaluationBodyBytes bounds an /evaluation request body (certificate
+// chains included) so an oversized body cannot exhaust server memory.
+const maxEvaluationBodyBytes = 1 << 20
+
 func AuthZENDecisionHandler(serverCtx *ServerContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req authzen.EvaluationRequest
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxEvaluationBodyBytes)
 		if err := c.BindJSON(&req); err != nil {
 			// Log invalid request with structured logging
 			serverCtx.Logger.Error("Invalid AuthZEN request",

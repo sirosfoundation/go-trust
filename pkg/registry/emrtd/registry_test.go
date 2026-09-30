@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -710,4 +711,21 @@ func TestCRLLoading_SkipsNonCRLFiles(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = r.Close() })
 	require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
+}
+
+func TestEvaluate_DSCMustNotBeCA(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	r := newReg(t, map[string][]*node{"SWE": {csca}})
+	s := cscaSpec("CA DSC", "SE")
+	s.usage = usageDigitalSignature | usageCertSignCRLSign
+	ca := issue(t, s, newKey(t, kindP256), csca)
+	requireDeny(t, eval(t, r, req("SWE", []*node{ca}, nil)), CodeBadKeyUsage)
+}
+
+func TestEvaluate_OversizedCertificateRefused(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	r := newReg(t, map[string][]*node{"SWE": {csca}})
+	rq := req("SWE", nil, nil)
+	rq.Resource.Key = []interface{}{strings.Repeat("A", maxCertB64Len+1)}
+	requireDeny(t, eval(t, r, rq), CodeMalformedRequest)
 }
