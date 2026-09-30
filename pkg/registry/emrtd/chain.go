@@ -96,7 +96,8 @@ func weakSigAlg(a x509.SignatureAlgorithm) bool {
 }
 
 // canIssue is the constraint applied to UNTRUSTED link certificates taken from
-// the request: they must be CA certificates allowed to sign certificates.
+// the request: they must be CA certificates whose keyUsage asserts keyCertSign
+// (a missing keyUsage extension is not enough).
 // Anchors are exempt: they are human-reviewed, and some legacy CSCAs lack
 // basicConstraints. pathLenConstraint is deliberately not enforced; chain
 // length is bounded by maxChainLen instead.
@@ -104,7 +105,7 @@ func canIssue(c *x509.Certificate) bool {
 	if !c.BasicConstraintsValid || !c.IsCA {
 		return false
 	}
-	return c.KeyUsage == 0 || c.KeyUsage&x509.KeyUsageCertSign != 0
+	return c.KeyUsage&x509.KeyUsageCertSign != 0
 }
 
 // buildPaths walks every structurally valid signature path

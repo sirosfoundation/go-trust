@@ -729,3 +729,43 @@ func TestEvaluate_OversizedCertificateRefused(t *testing.T) {
 	rq.Resource.Key = []interface{}{strings.Repeat("A", maxCertB64Len+1)}
 	requireDeny(t, eval(t, r, rq), CodeMalformedRequest)
 }
+
+func TestEvaluate_LinkWithoutKeyUsageRefused(t *testing.T) {
+	oldCSCA := newCSCA(t, kindP256, "CSCA old", "SE")
+	kp := newKey(t, kindP256)
+	rolled := issue(t, cscaSpec("CSCA new", "SE"), kp, nil)
+	ls := cscaSpec("CSCA new", "SE")
+	ls.usage = 0 // no keyUsage extension
+	link := issue(t, ls, kp, oldCSCA)
+	dsc := newDSC(t, kindP256, rolled, "SE")
+	r := newReg(t, map[string][]*node{"SWE": {oldCSCA}})
+	requireDeny(t, eval(t, r, req("SWE", []*node{dsc, link}, nil)), CodeChainInvalid)
+}
+
+func TestWatch_RecoversFromRootReplacement(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	root := t.TempDir()
+	writeAnchors(t, root, map[string][]*node{"SWE": {csca}})
+	r, err := New(Config{AnchorsDir: root, Watch: true, ReloadDebounce: 20 * time.Millisecond, Logger: quietLogger(), Now: func() time.Time { return tNow }})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Close() })
+	require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
+
+	// Replace the whole tree; the root stays absent past the first debounce.
+	require.NoError(t, os.RemoveAll(root))
+	time.Sleep(100 * time.Millisecond)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "SWE"), 0o755))
+
+	// The retry picks up the replacement and revokes the removed anchor.
+	require.Eventually(t, func() bool {
+		return !eval(t, r, req("SWE", []*node{dsc}, nil)).Decision
+	}, 5*time.Second, 20*time.Millisecond)
+
+	// ... and the re-armed watch sees later additions in the new tree.
+	time.Sleep(100 * time.Millisecond)
+	writeAnchors(t, root, map[string][]*node{"SWE": {csca}})
+	require.Eventually(t, func() bool {
+		return eval(t, r, req("SWE", []*node{dsc}, nil)).Decision
+	}, 5*time.Second, 20*time.Millisecond)
+}

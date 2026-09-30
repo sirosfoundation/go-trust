@@ -622,6 +622,14 @@ func (r *Registry) armWatches(w *fsnotify.Watcher) error {
 	return nil
 }
 
+// retryInterval is the delay before retrying a failed reload or re-arm.
+func (r *Registry) retryInterval() time.Duration {
+	if r.cfg.ReloadDebounce > 0 && r.cfg.ReloadDebounce < time.Second {
+		return 10 * r.cfg.ReloadDebounce
+	}
+	return 10 * time.Second
+}
+
 func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
 	var timer *time.Timer
 	var fire <-chan time.Time
@@ -655,16 +663,26 @@ func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
 			r.log.Error("emrtd: file watcher error", "error", err)
 		case <-fire:
 			fire = nil
+			failed := false
 			if err := r.reload(); err != nil {
+				failed = true
 				r.log.Error("emrtd: reload failed, keeping previous trust data", "error", err)
 			}
 			r.reloadMu.Lock()
 			if r.watcher == w {
 				if err := r.armWatches(w); err != nil {
+					failed = true
 					r.log.Error("emrtd: re-arming watches failed", "error", err)
 				}
 			}
 			r.reloadMu.Unlock()
+			if failed {
+				// The root may have been replaced (its watch is gone) or be
+				// briefly absent; keep retrying so removed anchors do not
+				// stay trusted indefinitely.
+				timer.Reset(r.retryInterval())
+				fire = timer.C
+			}
 		}
 	}
 }
