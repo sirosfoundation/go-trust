@@ -292,6 +292,13 @@ func (r *Registry) evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		return r.deny(CodeUnknownCountry, fmt.Sprintf("subject.id %q is not an ISO 3166-1 alpha-3 code", req.Subject.ID))
 	}
 
+	// Same contract as authzen.EvaluationRequest.Validate: resource.id must be
+	// present and equal subject.id. The manager enforces it before dispatch;
+	// a direct caller must not be able to bypass it.
+	if req.Resource.ID == "" || req.Resource.ID != req.Subject.ID {
+		return r.deny(CodeMalformedRequest, "resource.id must be present and match subject.id")
+	}
+
 	at, err := r.signingTime(req)
 	if err != nil {
 		return r.deny(CodeMalformedRequest, err.Error())
@@ -798,24 +805,29 @@ func (r *Registry) loadCRLs() (map[string][]*crlData, error) {
 
 // crlDERs returns the DER of every CRL in a file: either one raw DER CRL, or
 // one or more PEM blocks (each of which is used, so an appended list cannot be
-// silently dropped). Anything after the last PEM block other than whitespace
-// is an error.
+// silently dropped). The file must contain nothing but whitespace-separated,
+// well-formed PEM blocks: pem.Decode skips junk and malformed blocks while
+// looking for the next valid header, which would publish a snapshot silently
+// missing the skipped list's revocations, so each block must start right
+// after the previous one and skipping anything is an error.
 func crlDERs(data []byte) ([][]byte, error) {
-	if blk, _ := pem.Decode(data); blk == nil {
+	const begin = "-----BEGIN "
+	if !bytes.Contains(data, []byte(begin)) {
 		return [][]byte{data}, nil // raw DER (or garbage, which the parser rejects)
 	}
 	var out [][]byte
-	rest := data
-	for {
-		var blk *pem.Block
-		blk, rest = pem.Decode(rest)
+	rest := bytes.TrimSpace(data)
+	for len(rest) > 0 {
+		blk, after := pem.Decode(rest)
 		if blk == nil {
-			break
+			return nil, errors.New("malformed PEM data")
+		}
+		consumed := rest[:len(rest)-len(after)]
+		if !bytes.HasPrefix(consumed, []byte(begin)) || bytes.Count(consumed, []byte(begin)) != 1 {
+			return nil, errors.New("malformed or unexpected data between PEM blocks")
 		}
 		out = append(out, blk.Bytes)
-	}
-	if len(bytes.TrimSpace(rest)) != 0 {
-		return nil, errors.New("unexpected data after the last PEM block")
+		rest = bytes.TrimSpace(after)
 	}
 	return out, nil
 }

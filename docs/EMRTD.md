@@ -109,6 +109,9 @@ number of countries and anchors actually loaded, which can be lower than the num
   The value is taken on the caller's word, so the PEP must derive it from a verified SOD, and should be
   careful with a time the signer itself asserts.
 
+`resource.id` is required and must equal `subject.id` (the manager enforces this; the registry enforces it too
+for direct callers and answers `malformed_request`).
+
 ## Response
 
 ```json
@@ -161,8 +164,9 @@ A caller must treat anything other than `decision: true` as not trusted, includi
 - With `watch: true`, file changes are picked up from file-system events, and the resolved (symlink-free)
   location of both roots is also re-checked every 30 seconds, so swapping a symlink in any ancestor directory
   (`/data/current -> v2` with `anchors_dir: /data/current/anchors`) is noticed within that interval.
-- A `.crl` file is one raw DER CRL, or PEM with one or more CRL blocks (all of them are used). Anything other
-  than whitespace after the last PEM block is refused.
+- A `.crl` file is one raw DER CRL, or PEM with one or more CRL blocks (all of them are used). The file must
+  hold nothing but well-formed PEM blocks separated by whitespace; junk or a malformed block anywhere (which a
+  PEM reader would silently skip) fails the load.
 - Indirect CRLs (`issuingDistributionPoint` with `indirectCRL` true, or an unparsable one) are refused at load:
   delegated CRL issuers and per-entry certificate issuers are not supported, so such a list would be silently
   ignored.

@@ -438,7 +438,25 @@ func TestEvaluate_Revocation(t *testing.T) {
 		requireDeny(t, eval(t, r, req("SWE", []*node{second}, nil)), CodeRevoked)
 		require.True(t, eval(t, r, req("SWE", []*node{good}, nil)).Decision)
 	})
-	t.Run("trailing data after the last PEM CRL is refused", func(t *testing.T) {
+	t.Run("junk or a malformed block between PEM CRLs is refused, not skipped", func(t *testing.T) {
+		second := newDSC(t, kindP256, csca, "SE")
+		first := pemBytes("X509 CRL", mkCRL(t, csca, dsc))
+		appended := pemBytes("X509 CRL", mkCRL(t, csca, second))
+		malformed := []byte("-----BEGIN X509 CRL-----\n!!!not base64!!!\n-----END X509 CRL-----\n")
+		for name, data := range map[string][]byte{
+			"junk between":      append(append(append([]byte{}, first...), []byte("junk\n")...), appended...),
+			"malformed between": append(append(append([]byte{}, first...), malformed...), appended...),
+			"malformed first":   append(append([]byte{}, malformed...), appended...),
+		} {
+			anchors, crls := t.TempDir(), t.TempDir()
+			writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
+			require.NoError(t, os.MkdirAll(filepath.Join(crls, "SWE"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(crls, "SWE", "a.crl"), data, 0o644))
+			_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+			require.Errorf(t, err, "%s", name)
+		}
+	})
+	t.Run("trailing junk after the last PEM CRL is refused", func(t *testing.T) {
 		anchors, crls := t.TempDir(), t.TempDir()
 		writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
 		require.NoError(t, os.MkdirAll(filepath.Join(crls, "SWE"), 0o755))
@@ -446,7 +464,7 @@ func TestEvaluate_Revocation(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(crls, "SWE", "a.crl"), data, 0o644))
 		_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "after the last PEM block")
+		assert.Contains(t, err.Error(), "malformed PEM data")
 	})
 	t.Run("CRL signed by someone else is ignored", func(t *testing.T) {
 		other := newCSCA(t, kindP256, "CSCA", "SE") // same DN, different key
@@ -1328,4 +1346,18 @@ func TestIsIndirectCRL_DuplicateExtension(t *testing.T) {
 	got, err := isIndirectCRL(&x509.RevocationList{})
 	require.NoError(t, err)
 	assert.False(t, got)
+}
+
+func TestEvaluate_ResourceIDMustMatchSubjectID(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	r := newReg(t, map[string][]*node{"SWE": {csca}})
+	for name, id := range map[string]string{"mismatched": "DEU", "missing": "", "case differs": "swe"} {
+		t.Run(name, func(t *testing.T) {
+			q := req("SWE", []*node{dsc}, nil)
+			q.Resource.ID = id
+			requireDeny(t, eval(t, r, q), CodeMalformedRequest)
+		})
+	}
+	require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
 }
