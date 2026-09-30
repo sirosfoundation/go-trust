@@ -252,6 +252,10 @@ func (r *Registry) evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		return r.deny(CodeMalformedRequest, "resource.type must be x5c")
 	}
 
+	if req.Subject.Type != "key" {
+		return r.deny(CodeMalformedRequest, "subject.type must be key")
+	}
+
 	country := strings.ToUpper(strings.TrimSpace(req.Subject.ID))
 	if _, ok := alpha3ToAlpha2[country]; !ok {
 		return r.deny(CodeUnknownCountry, fmt.Sprintf("subject.id %q is not an ISO 3166-1 alpha-3 code", req.Subject.ID))

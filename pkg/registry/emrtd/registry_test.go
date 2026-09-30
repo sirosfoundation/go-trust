@@ -813,3 +813,12 @@ func TestEvaluate_EmptyKeyUsageExtensionRefused(t *testing.T) {
 	dsc := issue(t, s, newKey(t, kindP256), csca)
 	requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeBadKeyUsage)
 }
+
+func TestEvaluate_SubjectTypeMustBeKey(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	r := newReg(t, map[string][]*node{"SWE": {csca}})
+	rq := req("SWE", []*node{dsc}, nil)
+	rq.Subject.Type = "url"
+	requireDeny(t, eval(t, r, rq), CodeMalformedRequest)
+}

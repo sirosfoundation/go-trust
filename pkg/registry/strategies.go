@@ -192,6 +192,25 @@ func promoteSingleDenyCode(reason map[string]interface{}, details []map[string]i
 	}
 }
 
+// promoteSingleAllowAdmin surfaces the "admin" details (e.g. the eMRTD CSCA/DSC
+// fingerprints) of the one matching registry at the top level of an all-results
+// reason, so they survive best_match dropping all_results.
+func promoteSingleAllowAdmin(reason map[string]interface{}, matched []string, allResults []map[string]interface{}) {
+	if len(matched) != 1 {
+		return
+	}
+	for _, ri := range allResults {
+		if ri["registry"] != matched[0] {
+			continue
+		}
+		if inner, ok := ri["reason"].(map[string]interface{}); ok {
+			if admin, ok := inner["admin"]; ok {
+				reason["admin"] = admin
+			}
+		}
+	}
+}
+
 // promoteAllResultsDenyCode applies promoteSingleDenyCode to the non-allow
 // entries of an all-results aggregation.
 func promoteAllResultsDenyCode(reason map[string]interface{}, allResults []map[string]interface{}) {
@@ -317,7 +336,8 @@ func (m *RegistryManager) evaluateAll(ctx context.Context, req *authzen.Evaluati
 			if r.response.Decision {
 				decision = true
 				registriesMatched = append(registriesMatched, r.registry)
-			} else if r.response.Context != nil && r.response.Context.Reason != nil {
+			}
+			if r.response.Context != nil && r.response.Context.Reason != nil {
 				resultInfo["reason"] = r.response.Context.Reason
 			}
 		}
@@ -332,6 +352,8 @@ func (m *RegistryManager) evaluateAll(ctx context.Context, req *authzen.Evaluati
 	}
 	if !decision {
 		promoteAllResultsDenyCode(reason, allResults)
+	} else {
+		promoteSingleAllowAdmin(reason, registriesMatched, allResults)
 	}
 	return &authzen.EvaluationResponse{
 		Decision: decision,
@@ -721,7 +743,8 @@ func (m *RegistryManager) evaluateAllFiltered(ctx context.Context, req *authzen.
 			if r.response.Decision {
 				decision = true
 				registriesMatched = append(registriesMatched, r.registry)
-			} else if r.response.Context != nil && r.response.Context.Reason != nil {
+			}
+			if r.response.Context != nil && r.response.Context.Reason != nil {
 				resultInfo["reason"] = r.response.Context.Reason
 			}
 		}
@@ -736,6 +759,8 @@ func (m *RegistryManager) evaluateAllFiltered(ctx context.Context, req *authzen.
 	}
 	if !decision {
 		promoteAllResultsDenyCode(reason, allResults)
+	} else {
+		promoteSingleAllowAdmin(reason, registriesMatched, allResults)
 	}
 	if policyCtx != nil && policyCtx.Policy != nil {
 		reason["policy"] = policyCtx.Policy.Name

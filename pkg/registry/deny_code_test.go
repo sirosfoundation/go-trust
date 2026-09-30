@@ -77,3 +77,35 @@ func TestPromoteSingleDenyCode_IgnoresErrorRecords(t *testing.T) {
 	promoteAllResultsDenyCode(reason, details)
 	assert.Equal(t, "revoked", reason["code"])
 }
+
+func TestAllStrategiesKeepAllowReasonAndAdmin(t *testing.T) {
+	admin := map[string]interface{}{"csca_sha256": "abc"}
+	mk := func() *mockRegistry {
+		return &mockRegistry{
+			name: "emrtd", resourceTypes: []string{"x5c"}, healthy: true,
+			evaluateResponse: &authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{"admin": admin},
+			}},
+		}
+	}
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+	}
+	for _, strat := range []ResolutionStrategy{AllRegistries, BestMatch} {
+		mgr := NewRegistryManager(strat, 5*time.Second)
+		mgr.Register(mk())
+		resp, err := mgr.Evaluate(context.Background(), req)
+		require.NoError(t, err)
+		assert.True(t, resp.Decision)
+		assert.Equal(t, admin, resp.Context.Reason["admin"], strat)
+	}
+	// filtered (policy) variant
+	mgr := NewRegistryManager(AllRegistries, 5*time.Second)
+	reg := mk()
+	mgr.Register(reg)
+	resp, err := mgr.evaluateAllFiltered(context.Background(), req, []TrustRegistry{reg}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, admin, resp.Context.Reason["admin"])
+	all := resp.Context.Reason["all_results"].([]map[string]interface{})
+	assert.NotNil(t, all[0]["reason"])
+}
