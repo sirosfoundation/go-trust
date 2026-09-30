@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"time"
@@ -51,6 +52,10 @@ func getRegistryCount(serverCtx *ServerContext) int {
 	return len(serverCtx.RegistryManager.ListRegistries())
 }
 
+// maxEvaluationBodyBytes bounds an /evaluation request body (certificate
+// chains included) so an oversized body cannot exhaust server memory.
+const maxEvaluationBodyBytes = 1 << 20
+
 // AuthZENDecisionHandler godoc
 // @Summary Evaluate trust decision (AuthZEN Trust Registry Profile)
 // @Description Evaluates whether a name-to-key binding is trusted according to loaded trust registries
@@ -79,15 +84,19 @@ func getRegistryCount(serverCtx *ServerContext) int {
 // @Success 200 {object} authzen.EvaluationResponse "Trust decision (decision=true for trusted, false for untrusted)"
 // @Failure 400 {object} map[string]string "Invalid request format or validation error"
 // @Router /evaluation [post]
-// maxEvaluationBodyBytes bounds an /evaluation request body (certificate
-// chains included) so an oversized body cannot exhaust server memory.
-const maxEvaluationBodyBytes = 1 << 20
-
 func AuthZENDecisionHandler(serverCtx *ServerContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req authzen.EvaluationRequest
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxEvaluationBodyBytes)
-		if err := c.BindJSON(&req); err != nil {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				serverCtx.Logger.Error("AuthZEN request body too large",
+					logging.F("remote_ip", c.ClientIP()),
+					logging.F("limit", maxEvaluationBodyBytes))
+				c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+				return
+			}
 			// Log invalid request with structured logging
 			serverCtx.Logger.Error("Invalid AuthZEN request",
 				logging.F("remote_ip", c.ClientIP()),
