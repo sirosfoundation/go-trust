@@ -36,12 +36,14 @@
 package emrtd
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -775,43 +777,77 @@ func (r *Registry) loadCRLs() (map[string][]*crlData, error) {
 			if err != nil {
 				return nil, fmt.Errorf("emrtd: reading CRL %s: %w", f, err)
 			}
-			der := data
-			if blk, _ := pemDecode(data); blk != nil {
-				der = blk
-			}
-			crl, err := x509.ParseRevocationList(der)
+			ders, err := crlDERs(data)
 			if err != nil {
-				return nil, fmt.Errorf("emrtd: parsing CRL %s: %w", f, err)
+				return nil, fmt.Errorf("emrtd: CRL file %s: %w", f, err)
 			}
-			// A CRL filed under the wrong country would never be consulted
-			// for the state it belongs to, silently disabling revocation
-			// for it. Its issuer's C, when present, must match the directory.
-			for _, c := range crl.Issuer.Country {
-				if !countryMatches(country, c) {
-					return nil, fmt.Errorf("emrtd: CRL %s is issued by C=%q but filed under %s; move it to the right country directory", f, c, country)
+			for _, der := range ders {
+				crl, err := x509.ParseRevocationList(der)
+				if err != nil {
+					return nil, fmt.Errorf("emrtd: parsing CRL %s: %w", f, err)
 				}
-			}
-			// An indirect CRL may be signed by a delegated issuer and name a
-			// different issuer per entry. Neither is supported: it would be
-			// silently ignored by the issuer-scoped lookup, so refuse it.
-			if indirect, err := isIndirectCRL(crl); err != nil {
-				return nil, fmt.Errorf("emrtd: CRL %s has an unparsable issuingDistributionPoint extension: %w", f, err)
-			} else if indirect {
-				return nil, fmt.Errorf("emrtd: CRL %s is an indirect CRL (issuingDistributionPoint indirectCRL=true); indirect CRLs are not supported", f)
-			}
-			// A delta CRL lists only changes since a base CRL. Checked on its
-			// own it would look like a complete list and let a certificate
-			// revoked in the base through, and combining deltas with bases is
-			// not supported: refuse, fail closed.
-			for _, ext := range crl.Extensions {
-				if ext.Id.Equal(oidDeltaCRLIndicator) {
-					return nil, fmt.Errorf("emrtd: CRL %s is a delta CRL (deltaCRLIndicator); delta CRLs are not supported, provide complete CRLs", f)
+				if err := checkCRLSupported(crl, country, f); err != nil {
+					return nil, err
 				}
+				out[country] = append(out[country], newCRLData(crl))
 			}
-			out[country] = append(out[country], newCRLData(crl))
 		}
 	}
 	return out, nil
+}
+
+// crlDERs returns the DER of every CRL in a file: either one raw DER CRL, or
+// one or more PEM blocks (each of which is used, so an appended list cannot be
+// silently dropped). Anything after the last PEM block other than whitespace
+// is an error.
+func crlDERs(data []byte) ([][]byte, error) {
+	if blk, _ := pem.Decode(data); blk == nil {
+		return [][]byte{data}, nil // raw DER (or garbage, which the parser rejects)
+	}
+	var out [][]byte
+	rest := data
+	for {
+		var blk *pem.Block
+		blk, rest = pem.Decode(rest)
+		if blk == nil {
+			break
+		}
+		out = append(out, blk.Bytes)
+	}
+	if len(bytes.TrimSpace(rest)) != 0 {
+		return nil, errors.New("unexpected data after the last PEM block")
+	}
+	return out, nil
+}
+
+// checkCRLSupported refuses CRLs whose semantics the lookup cannot honour, so
+// they are never silently treated as complete direct lists.
+func checkCRLSupported(crl *x509.RevocationList, country, file string) error {
+	// A CRL filed under the wrong country would never be consulted for the
+	// state it belongs to, silently disabling revocation for it. Its issuer's
+	// C, when present, must match the directory.
+	for _, c := range crl.Issuer.Country {
+		if !countryMatches(country, c) {
+			return fmt.Errorf("emrtd: CRL %s is issued by C=%q but filed under %s; move it to the right country directory", file, c, country)
+		}
+	}
+	// An indirect CRL may be signed by a delegated issuer and name a different
+	// issuer per entry. Neither is supported: it would be silently ignored by
+	// the issuer-scoped lookup, so refuse it.
+	if indirect, err := isIndirectCRL(crl); err != nil {
+		return fmt.Errorf("emrtd: CRL %s has an unparsable issuingDistributionPoint extension: %w", file, err)
+	} else if indirect {
+		return fmt.Errorf("emrtd: CRL %s is an indirect CRL (issuingDistributionPoint indirectCRL=true); indirect CRLs are not supported", file)
+	}
+	// A delta CRL lists only changes since a base CRL. Checked on its own it
+	// would look like a complete list and let a certificate revoked in the
+	// base through, and combining deltas with bases is not supported.
+	for _, ext := range crl.Extensions {
+		if ext.Id.Equal(oidDeltaCRLIndicator) {
+			return fmt.Errorf("emrtd: CRL %s is a delta CRL (deltaCRLIndicator); delta CRLs are not supported, provide complete CRLs", file)
+		}
+	}
+	return nil
 }
 
 func (r *Registry) startWatching() error {

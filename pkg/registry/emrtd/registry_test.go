@@ -429,6 +429,25 @@ func TestEvaluate_Revocation(t *testing.T) {
 		r := build(t, map[string][]byte{"a.crl": mkCRL(t, csca, early)})
 		requireDeny(t, eval(t, r, req("SWE", []*node{early}, map[string]interface{}{"signing_time": "2019-06-01T00:00:00Z"})), CodeRevoked)
 	})
+	t.Run("every PEM block in a CRL file is used (appended list not dropped)", func(t *testing.T) {
+		second := newDSC(t, kindP256, csca, "SE")
+		first := pemBytes("X509 CRL", mkCRL(t, csca, dsc))
+		appended := pemBytes("X509 CRL", mkCRL(t, csca, second))
+		r := build(t, map[string][]byte{"a.crl": append(append([]byte{}, first...), appended...)})
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeRevoked)
+		requireDeny(t, eval(t, r, req("SWE", []*node{second}, nil)), CodeRevoked)
+		require.True(t, eval(t, r, req("SWE", []*node{good}, nil)).Decision)
+	})
+	t.Run("trailing data after the last PEM CRL is refused", func(t *testing.T) {
+		anchors, crls := t.TempDir(), t.TempDir()
+		writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
+		require.NoError(t, os.MkdirAll(filepath.Join(crls, "SWE"), 0o755))
+		data := append(pemBytes("X509 CRL", mkCRL(t, csca, dsc)), []byte("\nappended junk that is not PEM\n")...)
+		require.NoError(t, os.WriteFile(filepath.Join(crls, "SWE", "a.crl"), data, 0o644))
+		_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "after the last PEM block")
+	})
 	t.Run("CRL signed by someone else is ignored", func(t *testing.T) {
 		other := newCSCA(t, kindP256, "CSCA", "SE") // same DN, different key
 		r := build(t, map[string][]byte{"a.crl": mkCRL(t, other, dsc)})

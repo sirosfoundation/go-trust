@@ -161,6 +161,8 @@ A caller must treat anything other than `decision: true` as not trusted, includi
 - With `watch: true`, file changes are picked up from file-system events, and the resolved (symlink-free)
   location of both roots is also re-checked every 30 seconds, so swapping a symlink in any ancestor directory
   (`/data/current -> v2` with `anchors_dir: /data/current/anchors`) is noticed within that interval.
+- A `.crl` file is one raw DER CRL, or PEM with one or more CRL blocks (all of them are used). Anything other
+  than whitespace after the last PEM block is refused.
 - Indirect CRLs (`issuingDistributionPoint` with `indirectCRL` true, or an unparsable one) are refused at load:
   delegated CRL issuers and per-entry certificate issuers are not supported, so such a list would be silently
   ignored.

@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/asn1"
-	"encoding/pem"
 	"fmt"
 	"strings"
 	"time"
@@ -49,14 +48,6 @@ func (s *search) stopped() bool {
 		return true
 	}
 	return false
-}
-
-func pemDecode(data []byte) ([]byte, []byte) {
-	blk, rest := pem.Decode(data)
-	if blk == nil {
-		return nil, rest
-	}
-	return blk.Bytes, rest
 }
 
 // issuedBy reports whether child names parent as its issuer and carries a
