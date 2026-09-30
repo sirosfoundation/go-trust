@@ -513,6 +513,12 @@ func (r *Registry) reload() error {
 	return nil
 }
 
+// countryDirs lists the per-country subdirectories of an anchors or CRLs root.
+// A symlink to a directory is REJECTED rather than ignored: DirEntry.IsDir is
+// false for it, so skipping would silently drop that country's anchors or,
+// worse, its CRLs (revocation data) while loading still succeeds. Symlinks
+// are supported at the root (atomic tree swaps) and for individual files, not
+// for country directories.
 func countryDirs(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -520,6 +526,12 @@ func countryDirs(root string) ([]string, error) {
 	}
 	var dirs []string
 	for _, e := range entries {
+		if e.Type()&os.ModeSymlink != 0 {
+			if st, err := os.Stat(filepath.Join(root, e.Name())); err == nil && st.IsDir() {
+				return nil, fmt.Errorf("emrtd: %s/%s is a symlink to a directory; country directories must be real directories (a symlinked root is fine)", root, e.Name())
+			}
+			continue
+		}
 		if e.IsDir() {
 			dirs = append(dirs, e.Name())
 		}

@@ -613,6 +613,52 @@ func TestWatch_SustainedEventsCannotStarveReload(t *testing.T) {
 		"the reload must run within a bounded delay even while events keep arriving")
 }
 
+// TestCountryDirectorySymlinkRejected: a symlinked country directory must not
+// be silently skipped, least of all under crls_dir where it would drop
+// revocation data while loading still succeeded.
+func TestCountryDirectorySymlinkRejected(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	build := func(t *testing.T) (anchors, crls, real string) {
+		root := t.TempDir()
+		anchors, crls, real = filepath.Join(root, "anchors"), filepath.Join(root, "crls"), filepath.Join(root, "real-swe")
+		writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
+		require.NoError(t, os.MkdirAll(real, 0o755))
+		require.NoError(t, os.MkdirAll(crls, 0o755))
+		return
+	}
+	t.Run("crls country symlink", func(t *testing.T) {
+		anchors, crls, real := build(t)
+		require.NoError(t, os.Symlink(real, filepath.Join(crls, "SWE")))
+		_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "symlink")
+	})
+	t.Run("anchors country symlink", func(t *testing.T) {
+		anchors, _, real := build(t)
+		require.NoError(t, os.Symlink(real, filepath.Join(anchors, "DEU")))
+		_, err := New(Config{AnchorsDir: anchors, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "symlink")
+	})
+	t.Run("symlinked root and file symlinks stay supported", func(t *testing.T) {
+		anchors, _, _ := build(t)
+		link := filepath.Join(filepath.Dir(anchors), "current")
+		require.NoError(t, os.Symlink(anchors, link))
+		require.NoError(t, os.Symlink(filepath.Join(anchors, "SWE", fingerprint(csca.cert)+".pem"), filepath.Join(anchors, "SWE", "alias.pem")))
+		r, err := New(Config{AnchorsDir: link, Logger: quietLogger()})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = r.Close() })
+		assert.Len(t, r.Countries(), 1)
+	})
+	t.Run("a stray file symlink that is not a directory is ignored", func(t *testing.T) {
+		anchors, _, _ := build(t)
+		require.NoError(t, os.Symlink("/nonexistent", filepath.Join(anchors, "dangling")))
+		r, err := New(Config{AnchorsDir: anchors, Logger: quietLogger()})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = r.Close() })
+	})
+}
+
 func TestWatchSetupFailure(t *testing.T) {
 	root := t.TempDir()
 	crls := filepath.Join(root, "crls") // does not exist: load fails before watching

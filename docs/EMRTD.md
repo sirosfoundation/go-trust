@@ -62,6 +62,9 @@ The registry only answers requests with `action.name` `emrtd-document-signer`. A
 - Point `anchors_dir` at the **approved** tree only. The reference repository
   ([emrtd-trust-anchors](https://github.com/sirosfoundation/emrtd-trust-anchors)) also holds `candidates/` and
   `revoked/` trees, which must never be loaded; use its `export` command to produce a deployable tree.
+- `anchors_dir` and `crls_dir` themselves may be symlinks (atomic tree swaps), and so may individual files. A
+  country directory that is a symlink to a directory is **refused**: startup fails (on reload the previous data
+  stays in use) instead of silently dropping that country's anchors or revocation data.
 - Files that cannot be parsed are **skipped and logged** (`emrtd: no valid certificate in anchor file`), never
   treated as trusted. A DSC whose only chain goes through a skipped anchor is denied (`no_anchor`).
 
