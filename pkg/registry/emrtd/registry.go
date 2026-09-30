@@ -806,12 +806,17 @@ func (r *Registry) startWatching() error {
 	}
 	r.watcher = w
 	r.stopCh = make(chan struct{})
+	// Captured here, synchronously, NOT inside the goroutine: a swap that
+	// happens before the goroutine first runs must still register as a change
+	// against the location the first load used. A swap between that load and
+	// this capture is covered by the reconciling reload New runs after arming.
+	resolved := r.resolvedRoots()
 	if err := r.armWatches(w); err != nil {
 		_ = w.Close()
 		r.watcher = nil
 		return err
 	}
-	go r.watchLoop(w, r.stopCh)
+	go r.watchLoop(w, r.stopCh, resolved)
 	return nil
 }
 
@@ -921,12 +926,11 @@ func (r *Registry) resolvedRoots() string {
 	return strings.Join(parts, "\x00")
 }
 
-func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
+func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}, lastResolved string) {
 	// Directory watches follow the inodes they were armed on, so a symlink in
 	// an ANCESTOR of a root that is swapped (old target left intact) raises no
 	// event on any watched directory. Poll the resolved locations and treat a
 	// change like a file event.
-	lastResolved := r.resolvedRoots()
 	poll := time.NewTicker(r.cfg.RootCheckInterval)
 	defer poll.Stop()
 	var timer *time.Timer
