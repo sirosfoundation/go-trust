@@ -574,6 +574,45 @@ func TestRefreshAndWatch(t *testing.T) {
 	assert.Len(t, r.Countries(), 1) // DEU still served from the last good snapshot
 }
 
+// TestWatch_SustainedEventsCannotStarveReload: events arriving faster than the
+// debounce period must not postpone a reload forever, or a removed CSCA would
+// stay trusted for the whole stream.
+func TestWatch_SustainedEventsCannotStarveReload(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	noise := newCSCA(t, kindP256, "Noise", "SE")
+	root := t.TempDir()
+	writeAnchors(t, root, map[string][]*node{"SWE": {csca}})
+
+	const debounce = 50 * time.Millisecond
+	r, err := New(Config{AnchorsDir: root, Watch: true, ReloadDebounce: debounce, Logger: quietLogger(), Now: func() time.Time { return tNow }})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Close() })
+	require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { // a steady stream of relevant events, well inside the debounce period
+		defer close(done)
+		noisePath := filepath.Join(root, "SWE", "noise.pem")
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(debounce / 5):
+				_ = os.WriteFile(noisePath, noise.pem(), 0o644)
+			}
+		}
+	}()
+	defer func() { close(stop); <-done }()
+
+	require.NoError(t, os.Remove(filepath.Join(root, "SWE", fingerprint(csca.cert)+".pem")))
+	require.Eventually(t, func() bool {
+		return !eval(t, r, req("SWE", []*node{dsc}, nil)).Decision
+	}, maxReloadDelayFactor*debounce*4, 20*time.Millisecond,
+		"the reload must run within a bounded delay even while events keep arriving")
+}
+
 func TestWatchSetupFailure(t *testing.T) {
 	root := t.TempDir()
 	crls := filepath.Join(root, "crls") // does not exist: load fails before watching

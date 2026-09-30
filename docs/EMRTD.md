@@ -74,11 +74,13 @@ self-described curve:
 - ECDSA keys with explicit curve parameters, when they match NIST P-224/P-256/P-384/P-521 or
   brainpoolP256r1/P384r1/P512r1 exactly;
 - negative serial numbers;
-- RSA keys whose AlgorithmIdentifier lacks the NULL parameters.
+- RSA keys whose AlgorithmIdentifier lacks the NULL parameters;
+- zero-padded curve constants in explicit parameters (go-cryptoutil v0.7.1);
+- a non-DER `cA` BOOLEAN in basicConstraints (go-cryptoutil v0.7.1).
 
 Still rejected (the anchor is skipped and logged at load time, so DSCs issued under it are denied with
 `no_anchor`): explicit parameters that match no known curve (other curves, twisted Brainpool, wrong generator or
-cofactor), an invalid subjectKeyIdentifier, invalid basicConstraints, and a brainpool subject key under an
+cofactor), an invalid subjectKeyIdentifier, basicConstraints that are invalid in any other way, and a brainpool subject key under an
 RSA-PSS signature. Check the load log after every deployment: the startup line `emrtd anchors loaded` reports the
 number of countries and anchors actually loaded, which can be lower than the number of files.
 

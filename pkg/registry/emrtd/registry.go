@@ -106,7 +106,8 @@ type Config struct {
 	// Logger receives load and decision logs (default slog.Default()).
 	Logger *slog.Logger
 	// ReloadDebounce is the quiet period after a file event before reloading
-	// (default 250ms).
+	// (default 250ms). A sustained stream of events cannot postpone the reload
+	// beyond maxReloadDelayFactor times this value after the first event.
 	ReloadDebounce time.Duration
 
 	afterArm func() // test hook: runs after watches are armed, before the reconciling reload
@@ -674,6 +675,12 @@ func (r *Registry) relevantEvent(name string) bool {
 	return false
 }
 
+// maxReloadDelayFactor bounds how long a stream of file events may keep
+// resetting the debounce timer: the reload runs at most this many debounce
+// periods after the first event of a burst, so a removed CSCA or a new CRL
+// takes effect even while files are written continuously.
+const maxReloadDelayFactor = 20
+
 // retryInterval is the delay before retrying a failed reload or re-arm.
 func (r *Registry) retryInterval() time.Duration {
 	if r.cfg.ReloadDebounce > 0 && r.cfg.ReloadDebounce < time.Second {
@@ -685,9 +692,19 @@ func (r *Registry) retryInterval() time.Duration {
 func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
 	var timer *time.Timer
 	var fire <-chan time.Time
+	var burstStart time.Time // first event of the pending burst; zero when none
 	armDebounce := func() {
+		now := time.Now()
+		if burstStart.IsZero() {
+			burstStart = now
+		}
+		// Quiet-period debounce, but never later than the burst's hard deadline.
+		delay := r.cfg.ReloadDebounce
+		if left := burstStart.Add(maxReloadDelayFactor * r.cfg.ReloadDebounce).Sub(now); left < delay {
+			delay = max(left, 0)
+		}
 		if timer == nil {
-			timer = time.NewTimer(r.cfg.ReloadDebounce)
+			timer = time.NewTimer(delay)
 		} else {
 			if !timer.Stop() {
 				select {
@@ -695,7 +712,7 @@ func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
 				default:
 				}
 			}
-			timer.Reset(r.cfg.ReloadDebounce)
+			timer.Reset(delay)
 		}
 		fire = timer.C
 	}
@@ -723,6 +740,7 @@ func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
 			armDebounce()
 		case <-fire:
 			fire = nil
+			burstStart = time.Time{}
 			failed := false
 			// Arm the watches first, then reload: a file added between the
 			// scan and the arming would otherwise generate no event and be

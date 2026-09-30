@@ -21,9 +21,9 @@ require (
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/sirosfoundation/g119612 v0.7.0
-	github.com/sirosfoundation/go-cryptoutil v0.7.0
-	github.com/sirosfoundation/go-cryptoutil/brainpool v0.7.0
-	github.com/sirosfoundation/go-cryptoutil/ecparams v0.7.0
+	github.com/sirosfoundation/go-cryptoutil v0.7.1
+	github.com/sirosfoundation/go-cryptoutil/brainpool v0.7.1
+	github.com/sirosfoundation/go-cryptoutil/ecparams v0.7.1
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.6.1
