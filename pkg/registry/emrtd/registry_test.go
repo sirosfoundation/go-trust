@@ -483,6 +483,9 @@ func TestEvaluate_Revocation(t *testing.T) {
 		assert.Contains(t, err.Error(), "issuingDistributionPoint")
 		err = mk([]byte{0x30, 0x04, 0x84, 0x02, 0xff, 0xff})
 		require.Error(t, err)
+		// duplicate [4] elements, FALSE then TRUE and TRUE then FALSE, are refused
+		require.Error(t, mk([]byte{0x30, 0x06, 0x84, 0x01, 0x00, 0x84, 0x01, 0xff}))
+		require.Error(t, mk([]byte{0x30, 0x06, 0x84, 0x01, 0xff, 0x84, 0x01, 0x00}))
 	})
 	t.Run("CRLs under a non-country directory name are refused, not dropped", func(t *testing.T) {
 		anchors, crls := t.TempDir(), t.TempDir()
@@ -1294,4 +1297,16 @@ func TestWatch_AncestorSymlinkSwap(t *testing.T) {
 			}, 5*time.Second, 20*time.Millisecond)
 		})
 	}
+}
+
+func TestIsIndirectCRL_DuplicateExtension(t *testing.T) {
+	ext := func(v []byte) pkix.Extension { return pkix.Extension{Id: oidIssuingDistPoint, Value: v} }
+	direct, indirect := []byte{0x30, 0x03, 0x84, 0x01, 0x00}, []byte{0x30, 0x03, 0x84, 0x01, 0xff}
+	_, err := isIndirectCRL(&x509.RevocationList{Extensions: []pkix.Extension{ext(direct), ext(indirect)}})
+	require.Error(t, err)
+	_, err = isIndirectCRL(&x509.RevocationList{Extensions: []pkix.Extension{ext(indirect), ext(direct)}})
+	require.Error(t, err)
+	got, err := isIndirectCRL(&x509.RevocationList{})
+	require.NoError(t, err)
+	assert.False(t, got)
 }

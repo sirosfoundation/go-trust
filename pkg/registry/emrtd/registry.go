@@ -580,18 +580,28 @@ var (
 )
 
 // isIndirectCRL reports whether the CRL's issuingDistributionPoint extension
-// (RFC 5280 5.2.5) sets indirectCRL [4] BOOLEAN to true. A present but
+// (RFC 5280 5.2.5) sets indirectCRL [4] BOOLEAN to true. The whole extension
+// is scanned: a duplicate extension, or a duplicate [4] element (a FALSE
+// followed by a TRUE), is malformed and rejected rather than resolved by
+// taking the first one, because Go's parser accepts such encodings. A
 // malformed extension is an error, so the caller fails closed.
 func isIndirectCRL(crl *x509.RevocationList) (bool, error) {
+	found := false
+	indirect := false
 	for _, ext := range crl.Extensions {
 		if !ext.Id.Equal(oidIssuingDistPoint) {
 			continue
 		}
+		if found {
+			return false, errors.New("duplicate issuingDistributionPoint extension")
+		}
+		found = true
 		var seq asn1.RawValue
 		if rest, err := asn1.Unmarshal(ext.Value, &seq); err != nil || len(rest) != 0 ||
 			seq.Class != asn1.ClassUniversal || seq.Tag != asn1.TagSequence || !seq.IsCompound {
 			return false, errors.New("not a SEQUENCE")
 		}
+		seen := false
 		body := seq.Bytes
 		for len(body) > 0 {
 			var el asn1.RawValue
@@ -599,16 +609,21 @@ func isIndirectCRL(crl *x509.RevocationList) (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			if el.Class == asn1.ClassContextSpecific && el.Tag == 4 {
-				if len(el.Bytes) != 1 {
-					return false, errors.New("indirectCRL is not a BOOLEAN")
-				}
-				return el.Bytes[0] != 0, nil
-			}
 			body = rest
+			if el.Class != asn1.ClassContextSpecific || el.Tag != 4 {
+				continue
+			}
+			if seen {
+				return false, errors.New("duplicate indirectCRL element")
+			}
+			seen = true
+			if len(el.Bytes) != 1 {
+				return false, errors.New("indirectCRL is not a BOOLEAN")
+			}
+			indirect = el.Bytes[0] != 0
 		}
 	}
-	return false, nil
+	return indirect, nil
 }
 
 // countryDirs lists the per-country subdirectories of an anchors or CRLs root.
