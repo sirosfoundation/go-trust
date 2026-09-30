@@ -371,6 +371,11 @@ func (r *Registry) signingTime(req *authzen.EvaluationRequest) (time.Time, error
 	if !ok {
 		return time.Time{}, errors.New("context.signing_time must be an RFC 3339 string")
 	}
+	// RFC 3339 fractional seconds use a period; Go's parser also accepts a
+	// comma, which the documented contract must reject.
+	if strings.Contains(s, ",") {
+		return time.Time{}, errors.New("context.signing_time is not RFC 3339: fractional seconds must use a period")
+	}
 	t, err := time.Parse(time.RFC3339, s)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("context.signing_time is not RFC 3339: %v", err)
@@ -513,18 +518,21 @@ func (r *Registry) reload() error {
 	return nil
 }
 
-// refuseFileSymlink rejects a symlinked anchor or CRL file. The watcher only
-// sees events inside the watched tree, so replacing the target of a link that
-// points elsewhere would change trust data with no event and leave a removed
-// anchor trusted or a new CRL unseen. Symlinks are supported at the root
-// (swapped atomically, and the parent is watched), not below it.
-func refuseFileSymlink(path string) error {
+// requireRegularFile rejects anything but a regular anchor or CRL file.
+// A symlink is refused because the watcher only sees events inside the
+// watched tree: replacing the target of a link that points elsewhere would
+// change trust data with no event and leave a removed anchor trusted or a new
+// CRL unseen. Symlinks are supported at the root (swapped atomically, and the
+// parent is watched), not below it. Other special files (a FIFO named .pem
+// would block the read forever, and with it startup or a reload) are refused
+// for the same fail-closed reason.
+func requireRegularFile(path string) error {
 	st, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
-	if st.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("emrtd: %s is a symlink; anchor and CRL files must be regular files (only the configured root may be a symlink)", path)
+	if !st.Mode().IsRegular() {
+		return fmt.Errorf("emrtd: %s is not a regular file (%s); anchor and CRL files must be regular files (only the configured root may be a symlink)", path, st.Mode().Type())
 	}
 	return nil
 }
@@ -543,13 +551,14 @@ func countryDirs(root string) ([]string, error) {
 	var dirs []string
 	for _, e := range entries {
 		if e.Type()&os.ModeSymlink != 0 {
-			// A link that is a directory, or that cannot be resolved but is
-			// named like a country, may stand for that country's data: refuse.
-			// Only an unresolvable link with an unrelated name is ignored.
+			// A link named like a country stands for that country's data
+			// whatever it resolves to (directory, file, nothing): refuse. Any
+			// link that does resolve to a directory is refused too. Only an
+			// unrelated non-directory link is ignored.
 			st, err := os.Stat(filepath.Join(root, e.Name()))
 			_, isCountry := alpha3ToAlpha2[e.Name()]
-			if (err == nil && st.IsDir()) || (err != nil && isCountry) {
-				return nil, fmt.Errorf("emrtd: %s/%s is a symlink to a directory (or one that cannot be resolved); country directories must be real directories (a symlinked root is fine)", root, e.Name())
+			if isCountry || (err == nil && st.IsDir()) {
+				return nil, fmt.Errorf("emrtd: %s/%s is a symlink; country directories must be real directories (a symlinked root is fine)", root, e.Name())
 			}
 			continue
 		}
@@ -577,7 +586,7 @@ func (r *Registry) loadAnchors() (map[string][]*anchor, error) {
 		}
 		seen := map[string]bool{}
 		for _, f := range files {
-			if err := refuseFileSymlink(f); err != nil {
+			if err := requireRegularFile(f); err != nil {
 				return nil, err
 			}
 			data, err := os.ReadFile(f)
@@ -632,7 +641,7 @@ func (r *Registry) loadCRLs() (map[string][]*x509.RevocationList, error) {
 				continue
 			}
 			f := filepath.Join(r.cfg.CRLsDir, country, e.Name())
-			if err := refuseFileSymlink(f); err != nil {
+			if err := requireRegularFile(f); err != nil {
 				return nil, err
 			}
 			data, err := os.ReadFile(f)
@@ -669,30 +678,46 @@ func (r *Registry) startWatching() error {
 	return nil
 }
 
-// armWatches watches the roots and every country subdirectory. Directory
+// armWatches watches the roots' parents, the roots and every country
+// subdirectory, and reconciles the watcher to exactly that set. Directory
 // watches (not file watches) survive atomic rename-over updates.
+//
+// Every wanted path is removed and re-added, because when a symlinked root is
+// swapped the same path string now resolves to a different inode, and a plain
+// Add would leave the watch on the old (possibly retained) target behind.
+// Paths that are no longer wanted are dropped, so repeated swaps cannot
+// accumulate watches towards the kernel limit.
 func (r *Registry) armWatches(w *fsnotify.Watcher) error {
+	var want []string
 	for _, root := range []string{r.cfg.AnchorsDir, r.cfg.CRLsDir} {
 		if root == "" {
 			continue
-		}
-		// The parent directory is watched too: a root that is a symlink is
-		// swapped (or the tree replaced) by changing its directory entry,
-		// which only the parent sees.
-		if err := w.Add(filepath.Dir(filepath.Clean(root))); err != nil {
-			return fmt.Errorf("emrtd: watching parent of %s: %w", root, err)
-		}
-		if err := w.Add(root); err != nil {
-			return fmt.Errorf("emrtd: watching %s: %w", root, err)
 		}
 		dirs, err := countryDirs(root)
 		if err != nil {
 			return err
 		}
+		// The parent directory is watched too: a root that is a symlink is
+		// swapped (or the tree replaced) by changing its directory entry,
+		// which only the parent sees.
+		want = append(want, filepath.Dir(filepath.Clean(root)), root)
 		for _, d := range dirs {
-			if err := w.Add(filepath.Join(root, d)); err != nil {
-				return fmt.Errorf("emrtd: watching %s: %w", d, err)
-			}
+			want = append(want, filepath.Join(root, d))
+		}
+	}
+	wanted := make(map[string]bool, len(want))
+	for _, p := range want {
+		wanted[p] = true
+	}
+	for _, p := range w.WatchList() {
+		if !wanted[p] {
+			_ = w.Remove(p)
+		}
+	}
+	for p := range wanted {
+		_ = w.Remove(p) // ignore "not watched": the point is to drop a stale inode
+		if err := w.Add(p); err != nil {
+			return fmt.Errorf("emrtd: watching %s: %w", p, err)
 		}
 	}
 	return nil

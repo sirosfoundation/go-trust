@@ -217,6 +217,8 @@ func TestEvaluate_SigningTime(t *testing.T) {
 		{"malformed string", map[string]interface{}{"signing_time": "yesterday"}, CodeMalformedRequest},
 		{"date only", map[string]interface{}{"signing_time": "2011-06-01"}, CodeMalformedRequest},
 		{"empty string", map[string]interface{}{"signing_time": ""}, CodeMalformedRequest},
+		{"comma fractional seconds", map[string]interface{}{"signing_time": "2011-06-01T00:00:00,5Z"}, CodeMalformedRequest},
+		{"period fractional seconds", map[string]interface{}{"signing_time": "2011-06-01T00:00:00.5Z"}, ""},
 		{"number", map[string]interface{}{"signing_time": 1306886400}, CodeMalformedRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -673,6 +675,15 @@ func TestCountryDirectorySymlinkRejected(t *testing.T) {
 		outside := filepath.Join(t.TempDir(), "x.crl")
 		require.NoError(t, os.WriteFile(outside, []byte("irrelevant"), 0o644))
 		require.NoError(t, os.Symlink(outside, filepath.Join(crls, "SWE", "a.crl")))
+		_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "symlink")
+	})
+	t.Run("country-named symlink to a file", func(t *testing.T) {
+		anchors, crls, _ := build(t)
+		target := filepath.Join(t.TempDir(), "f")
+		require.NoError(t, os.WriteFile(target, []byte("x"), 0o644))
+		require.NoError(t, os.Symlink(target, filepath.Join(crls, "SWE")))
 		_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "symlink")
