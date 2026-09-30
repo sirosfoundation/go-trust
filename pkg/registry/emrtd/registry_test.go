@@ -647,15 +647,35 @@ func TestCountryDirectorySymlinkRejected(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "symlink")
 	})
-	t.Run("symlinked root and file symlinks stay supported", func(t *testing.T) {
+	t.Run("symlinked root stays supported", func(t *testing.T) {
 		anchors, _, _ := build(t)
 		link := filepath.Join(filepath.Dir(anchors), "current")
 		require.NoError(t, os.Symlink(anchors, link))
-		require.NoError(t, os.Symlink(filepath.Join(anchors, "SWE", fingerprint(csca.cert)+".pem"), filepath.Join(anchors, "SWE", "alias.pem")))
 		r, err := New(Config{AnchorsDir: link, Logger: quietLogger()})
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = r.Close() })
 		assert.Len(t, r.Countries(), 1)
+	})
+	// A link to a file elsewhere: replacing its target fires no event in the
+	// watched tree, so the watcher could never notice. Refused up front.
+	t.Run("anchor file symlink", func(t *testing.T) {
+		anchors, _, _ := build(t)
+		outside := filepath.Join(t.TempDir(), "x.pem")
+		require.NoError(t, os.WriteFile(outside, csca.pem(), 0o644))
+		require.NoError(t, os.Symlink(outside, filepath.Join(anchors, "SWE", "alias.pem")))
+		_, err := New(Config{AnchorsDir: anchors, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "symlink")
+	})
+	t.Run("crl file symlink", func(t *testing.T) {
+		anchors, crls, _ := build(t)
+		require.NoError(t, os.MkdirAll(filepath.Join(crls, "SWE"), 0o755))
+		outside := filepath.Join(t.TempDir(), "x.crl")
+		require.NoError(t, os.WriteFile(outside, []byte("irrelevant"), 0o644))
+		require.NoError(t, os.Symlink(outside, filepath.Join(crls, "SWE", "a.crl")))
+		_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "symlink")
 	})
 	t.Run("a stray file symlink that is not a directory is ignored", func(t *testing.T) {
 		anchors, _, _ := build(t)

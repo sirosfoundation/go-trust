@@ -513,6 +513,22 @@ func (r *Registry) reload() error {
 	return nil
 }
 
+// refuseFileSymlink rejects a symlinked anchor or CRL file. The watcher only
+// sees events inside the watched tree, so replacing the target of a link that
+// points elsewhere would change trust data with no event and leave a removed
+// anchor trusted or a new CRL unseen. Symlinks are supported at the root
+// (swapped atomically, and the parent is watched), not below it.
+func refuseFileSymlink(path string) error {
+	st, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if st.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("emrtd: %s is a symlink; anchor and CRL files must be regular files (only the configured root may be a symlink)", path)
+	}
+	return nil
+}
+
 // countryDirs lists the per-country subdirectories of an anchors or CRLs root.
 // A symlink to a directory is REJECTED rather than ignored: DirEntry.IsDir is
 // false for it, so skipping would silently drop that country's anchors or,
@@ -561,6 +577,9 @@ func (r *Registry) loadAnchors() (map[string][]*anchor, error) {
 		}
 		seen := map[string]bool{}
 		for _, f := range files {
+			if err := refuseFileSymlink(f); err != nil {
+				return nil, err
+			}
 			data, err := os.ReadFile(f)
 			if err != nil {
 				r.log.Error("emrtd: cannot read anchor file, skipping", "file", f, "error", err)
@@ -613,6 +632,9 @@ func (r *Registry) loadCRLs() (map[string][]*x509.RevocationList, error) {
 				continue
 			}
 			f := filepath.Join(r.cfg.CRLsDir, country, e.Name())
+			if err := refuseFileSymlink(f); err != nil {
+				return nil, err
+			}
 			data, err := os.ReadFile(f)
 			if err != nil {
 				return nil, fmt.Errorf("emrtd: reading CRL %s: %w", f, err)

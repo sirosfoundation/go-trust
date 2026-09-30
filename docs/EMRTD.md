@@ -56,15 +56,18 @@ The registry only answers requests with `action.name` `emrtd-document-signer`. A
 - `<ALPHA3>` is the ISO 3166-1 **alpha-3** code of the issuing state, for example `SWE` or `DEU`. The
   directory name is the country.
 - Each anchor's subject country (`C`, alpha-2) must correspond to the directory name through an embedded
-  ISO 3166 table (249 codes plus `XK`/`XKX`). A mismatch skips the file and logs an error.
+  ISO 3166 table (249 codes plus `XK`/`XKX`). A mismatching **certificate** is skipped and logged; other
+  certificates in the same PEM file that match remain eligible as anchors.
 - Files may be PEM with one or more certificates. The file name is not interpreted; the reference
   anchor repository names files by the SHA-256 of the DER.
 - Point `anchors_dir` at the **approved** tree only. The reference repository
   ([emrtd-trust-anchors](https://github.com/sirosfoundation/emrtd-trust-anchors)) also holds `candidates/` and
   `revoked/` trees, which must never be loaded; use its `export` command to produce a deployable tree.
-- `anchors_dir` and `crls_dir` themselves may be symlinks (atomic tree swaps), and so may individual files. A
-  country directory that is a symlink to a directory is **refused**: startup fails (on reload the previous data
-  stays in use) instead of silently dropping that country's anchors or revocation data.
+- `anchors_dir` and `crls_dir` themselves may be symlinks (atomic tree swaps). Anything **below** the root must
+  be real: a country directory that is a symlink (or a country-named link that cannot be resolved), and a
+  symlinked `.pem` or `.crl` file, are **refused**. Startup fails (on reload the previous data stays in use)
+  instead of silently dropping anchors or revocation data, or trusting a link whose target can change without
+  the watcher seeing any event.
 - Files that cannot be parsed are **skipped and logged** (`emrtd: no valid certificate in anchor file`), never
   treated as trusted. A DSC whose only chain goes through a skipped anchor is denied (`no_anchor`).
 
