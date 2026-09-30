@@ -606,6 +606,12 @@ func (r *Registry) armWatches(w *fsnotify.Watcher) error {
 		if root == "" {
 			continue
 		}
+		// The parent directory is watched too: a root that is a symlink is
+		// swapped (or the tree replaced) by changing its directory entry,
+		// which only the parent sees.
+		if err := w.Add(filepath.Dir(filepath.Clean(root))); err != nil {
+			return fmt.Errorf("emrtd: watching parent of %s: %w", root, err)
+		}
 		if err := w.Add(root); err != nil {
 			return fmt.Errorf("emrtd: watching %s: %w", root, err)
 		}
@@ -622,6 +628,22 @@ func (r *Registry) armWatches(w *fsnotify.Watcher) error {
 	return nil
 }
 
+// relevantEvent filters events from the parent-directory watches: only the
+// roots themselves, their country directories and files in those count.
+func (r *Registry) relevantEvent(name string) bool {
+	name = filepath.Clean(name)
+	for _, root := range []string{r.cfg.AnchorsDir, r.cfg.CRLsDir} {
+		if root == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		if name == root || filepath.Dir(name) == root || filepath.Dir(filepath.Dir(name)) == root {
+			return true
+		}
+	}
+	return false
+}
+
 // retryInterval is the delay before retrying a failed reload or re-arm.
 func (r *Registry) retryInterval() time.Duration {
 	if r.cfg.ReloadDebounce > 0 && r.cfg.ReloadDebounce < time.Second {
@@ -633,6 +655,20 @@ func (r *Registry) retryInterval() time.Duration {
 func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
 	var timer *time.Timer
 	var fire <-chan time.Time
+	armDebounce := func() {
+		if timer == nil {
+			timer = time.NewTimer(r.cfg.ReloadDebounce)
+		} else {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(r.cfg.ReloadDebounce)
+		}
+		fire = timer.C
+	}
 	for {
 		select {
 		case <-stop:
@@ -640,27 +676,21 @@ func (r *Registry) watchLoop(w *fsnotify.Watcher, stop <-chan struct{}) {
 				timer.Stop()
 			}
 			return
-		case _, ok := <-w.Events:
+		case ev, ok := <-w.Events:
 			if !ok {
 				return
 			}
-			if timer == nil {
-				timer = time.NewTimer(r.cfg.ReloadDebounce)
-			} else {
-				if !timer.Stop() {
-					select {
-					case <-timer.C:
-					default:
-					}
-				}
-				timer.Reset(r.cfg.ReloadDebounce)
+			if !r.relevantEvent(ev.Name) {
+				continue
 			}
-			fire = timer.C
+			armDebounce()
 		case err, ok := <-w.Errors:
 			if !ok {
 				return
 			}
-			r.log.Error("emrtd: file watcher error", "error", err)
+			// Events may have been lost (e.g. queue overflow): reconcile.
+			r.log.Error("emrtd: file watcher error, scheduling reload", "error", err)
+			armDebounce()
 		case <-fire:
 			fire = nil
 			failed := false

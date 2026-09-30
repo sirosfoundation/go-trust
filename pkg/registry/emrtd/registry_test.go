@@ -769,3 +769,37 @@ func TestWatch_RecoversFromRootReplacement(t *testing.T) {
 		return eval(t, r, req("SWE", []*node{dsc}, nil)).Decision
 	}, 5*time.Second, 20*time.Millisecond)
 }
+
+func TestWatch_SymlinkSwap(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	base := t.TempDir()
+	v1, v2 := filepath.Join(base, "v1"), filepath.Join(base, "v2")
+	writeAnchors(t, v1, map[string][]*node{"SWE": {csca}})
+	require.NoError(t, os.MkdirAll(filepath.Join(v2, "SWE"), 0o755))
+	link := filepath.Join(base, "current")
+	require.NoError(t, os.Symlink(v1, link))
+
+	r, err := New(Config{AnchorsDir: link, Watch: true, ReloadDebounce: 20 * time.Millisecond, Logger: quietLogger(), Now: func() time.Time { return tNow }})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Close() })
+	require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
+
+	// Atomic symlink swap; the old target stays intact.
+	tmp := filepath.Join(base, "current.tmp")
+	require.NoError(t, os.Symlink(v2, tmp))
+	require.NoError(t, os.Rename(tmp, link))
+	require.Eventually(t, func() bool {
+		return !eval(t, r, req("SWE", []*node{dsc}, nil)).Decision
+	}, 5*time.Second, 20*time.Millisecond)
+}
+
+func TestRelevantEvent(t *testing.T) {
+	r := &Registry{cfg: Config{AnchorsDir: "/a/anchors", CRLsDir: "/a/crls"}}
+	for _, n := range []string{"/a/anchors", "/a/anchors/SWE", "/a/anchors/SWE/x.pem", "/a/crls/SWE/y.crl"} {
+		assert.True(t, r.relevantEvent(n), n)
+	}
+	for _, n := range []string{"/a/other", "/a/other/file", "/a/anchors/SWE/deeper/file"} {
+		assert.False(t, r.relevantEvent(n), n)
+	}
+}
