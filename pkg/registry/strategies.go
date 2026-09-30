@@ -149,16 +149,38 @@ func (m *RegistryManager) evaluateFirstMatch(ctx context.Context, req *authzen.E
 	}
 
 	// No positive results — aggregate deny details
+	reason := map[string]interface{}{
+		"error":              "no registry returned positive match",
+		"registries_queried": len(registries),
+		"registry_results":   denyDetails,
+	}
+	promoteSingleDenyCode(reason, denyDetails)
 	return &authzen.EvaluationResponse{
 		Decision: false,
-		Context: &authzen.EvaluationResponseContext{
-			Reason: map[string]interface{}{
-				"error":              "no registry returned positive match",
-				"registries_queried": len(registries),
-				"registry_results":   denyDetails,
-			},
-		},
+		Context:  &authzen.EvaluationResponseContext{Reason: reason},
 	}, nil
+}
+
+// promoteSingleDenyCode surfaces a registry's machine-readable deny "code"
+// (and its "admin" detail) at the top level of the aggregated reason when
+// exactly one registry produced a denial reason. Policies that route an
+// action to a single registry (e.g. emrtd-document-signer) would otherwise
+// force clients to dig the code out of registry_results[0].reason. The
+// nested form is unchanged; this only adds keys.
+func promoteSingleDenyCode(reason map[string]interface{}, details []map[string]interface{}) {
+	if len(details) != 1 {
+		return
+	}
+	inner, ok := details[0]["reason"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	if code, ok := inner["code"].(string); ok && code != "" {
+		reason["code"] = code
+		if admin, ok := inner["admin"]; ok {
+			reason["admin"] = admin
+		}
+	}
 }
 
 // evaluateAll queries all applicable registries and aggregates results.
@@ -417,6 +439,7 @@ func (m *RegistryManager) evaluateSequentialFiltered(ctx context.Context, req *a
 		"registries_queried": len(registries),
 		"registry_results":   registryResults,
 	}
+	promoteSingleDenyCode(reason, registryResults)
 	if policyCtx != nil && policyCtx.Policy != nil {
 		reason["policy"] = policyCtx.Policy.Name
 	}
@@ -565,6 +588,7 @@ func (m *RegistryManager) evaluateFirstMatchFiltered(ctx context.Context, req *a
 		"registries_queried": len(registries),
 		"registry_results":   denyDetails,
 	}
+	promoteSingleDenyCode(reason, denyDetails)
 	if policyCtx != nil && policyCtx.Policy != nil {
 		reason["policy"] = policyCtx.Policy.Name
 	}

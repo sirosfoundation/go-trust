@@ -26,6 +26,7 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 - [registries.mdocrical](#registriesmdocrical)
 - [registries.vical](#registriesvical)
 - [registries.fidomds3](#registriesfidomds3)
+- [registries.emrtd](#registriesemrtd)
 - [registries.systemcertpool](#registriessystemcertpool)
 - [registries.always_trusted](#registriesalways_trusted)
 - [registries.never_trusted](#registriesnever_trusted)
@@ -280,6 +281,19 @@ FIDO Alliance MDS3 registry (FIDO2/CTAP2 hardware-key attestation trust)
 | `registries.fidomds3.refresh_interval` | — | string |  |
 | `registries.fidomds3.root_certificate_pem` | — | string |  |
 | `registries.fidomds3.cache_path` | — | string | CachePath persists the raw MDS3 blob to disk so a restart doesn't have to block on (or fail because of) a live fetch - see fidomds3.Config.CachePath's doc for the load/refresh semantics. |
+
+## registries.emrtd
+
+eMRTD (ICAO 9303) CSCA trust anchors for document signer certificates
+
+| YAML Key | Env Variable | Type | Description |
+|----------|-------------|------|-------------|
+| `registries.emrtd.enabled` | — | boolean |  |
+| `registries.emrtd.name` | — | string |  |
+| `registries.emrtd.description` | — | string |  |
+| `registries.emrtd.anchors_dir` | — | string | AnchorsDir holds CSCA and link certificates as <ALPHA3>/*.pem, where the directory is the ISO 3166-1 alpha-3 issuing state. Point it at the anchors/ tree only, never at candidates/. |
+| `registries.emrtd.crls_dir` | — | string | CRLsDir optionally holds <ALPHA3>/*.crl (DER or PEM) for revocation checks. |
+| `registries.emrtd.watch` | — | boolean | Watch reloads anchors and CRLs when files change. |
 
 ## registries.systemcertpool
 

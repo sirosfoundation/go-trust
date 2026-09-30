@@ -384,6 +384,24 @@ registries:
     http_timeout: "30s"   # Default: 30 seconds
 
   # ---------------------------------------------------------------------------
+  # eMRTD Registry (ICAO 9303 document signer -> CSCA)
+  # ---------------------------------------------------------------------------
+  # Decides whether an electronic passport's Document Signer Certificate chains
+  # to a reviewed CSCA of the claimed issuing state (subject.id, ISO 3166
+  # alpha-3), evaluated at context.signing_time (default: now).
+  # Serve it with a policy named "emrtd-document-signer".
+  #
+  # Supported resource types: x5c
+  # Resolution-only: No
+  #
+  # emrtd:
+  #   enabled: true
+  #   name: "emrtd-csca"
+  #   anchors_dir: "/etc/go-trust/emrtd/anchors"  # <ALPHA3>/*.pem; never candidates/
+  #   crls_dir: "/etc/go-trust/emrtd/crls"        # optional <ALPHA3>/*.crl
+  #   watch: true                                 # reload on change
+
+  # ---------------------------------------------------------------------------
   # Whitelist Registry (simple URL-based trust)
   # ---------------------------------------------------------------------------
   # Simple static whitelist for trusted URLs.

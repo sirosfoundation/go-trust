@@ -125,6 +125,8 @@ type RegistriesConfig struct {
 	VICAL *VICALRegistryConfig `yaml:"vical,omitempty"`
 	// FIDO Alliance MDS3 registry (FIDO2/CTAP2 hardware-key attestation trust)
 	FIDOMDS3 *FIDOMDS3RegistryConfig `yaml:"fidomds3,omitempty"`
+	// eMRTD (ICAO 9303) CSCA trust anchors for document signer certificates
+	EMRTD *EMRTDRegistryConfig `yaml:"emrtd,omitempty"`
 	// System X.509 certificate pool (the host trust store)
 	SystemCertPool *SystemCertPoolRegistryConfig `yaml:"systemcertpool,omitempty"`
 	// Static test registries
@@ -314,6 +316,24 @@ type MDOCIACARegistryConfig struct {
 	IssuerAllowlist []string `yaml:"issuer_allowlist,omitempty"`
 	CacheTTL        string   `yaml:"cache_ttl,omitempty"`
 	HTTPTimeout     string   `yaml:"http_timeout,omitempty"`
+}
+
+// EMRTDRegistryConfig contains eMRTD registry configuration. The registry
+// decides whether a Document Signer Certificate (DSC) from an electronic
+// passport chains to a reviewed Country Signing CA (CSCA) of the claimed
+// issuing state, evaluated at the document signing time.
+type EMRTDRegistryConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Name        string `yaml:"name,omitempty"`
+	Description string `yaml:"description,omitempty"`
+	// AnchorsDir holds CSCA and link certificates as <ALPHA3>/*.pem, where
+	// the directory is the ISO 3166-1 alpha-3 issuing state. Point it at the
+	// anchors/ tree only, never at candidates/.
+	AnchorsDir string `yaml:"anchors_dir,omitempty"`
+	// CRLsDir optionally holds <ALPHA3>/*.crl (DER or PEM) for revocation checks.
+	CRLsDir string `yaml:"crls_dir,omitempty"`
+	// Watch reloads anchors and CRLs when files change.
+	Watch bool `yaml:"watch,omitempty"`
 }
 
 // MDOCRICALRegistryConfig contains mDOC RICAL (Reader Identity Certificate

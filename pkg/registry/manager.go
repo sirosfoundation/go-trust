@@ -461,6 +461,14 @@ var clientSuppliableContextKeys = map[string]bool{
 
 	// Informational / audit
 	"purpose": true, // presentation purpose
+
+	// signing_time is the eMRTD document signing time (RFC 3339) at which the
+	// DSC/CSCA validity is evaluated (ICAO 9303 Part 12). It is data about
+	// the document, which only the PEP knows. The emrtd registry parses it
+	// strictly (malformed => deny); omitting it means "now". It is taken on
+	// the PEP's word, which is why the PEP must derive it from the verified
+	// SOD and not from unauthenticated input.
+	"signing_time": true,
 }
 
 // clientSuppliableContextKey returns true if the key may flow from a client

@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- eMRTD document-signer trust registry (`pkg/registry/emrtd/`, config
+  `registries.emrtd`, action `emrtd-document-signer`)
+  - Decides whether an ICAO 9303 DSC chains to a reviewed CSCA of the claimed
+    issuing state. Anchors load from `anchors_dir/<ALPHA3>/*.pem` only, with
+    the certificate subject C cross-checked against the directory through an
+    embedded ISO 3166 alpha-2/alpha-3 table; optional `crls_dir` and `watch`
+  - Chain built with go-cryptoutil signature checks (brainpool, RSA-PSS);
+    extra certificates in `resource.key` are untrusted link-certificate
+    candidates only; validity evaluated at `context.signing_time`
+  - Machine-readable deny codes (`unknown_country`, `no_anchor`,
+    `chain_invalid`, `country_mismatch`, `expired`, `not_yet_valid`,
+    `bad_key_usage`, `revoked`, `malformed_request`)
+  - New `trustapi.RoleEMRTDDocumentSigner`; `signing_time` is now a
+    client-suppliable request-context key
+
 - FIDO Alliance MDS3 trust registry (`pkg/registry/fidomds3/`, #116)
   - Verifies a FIDO2/CTAP2 attestation's X5C chain against the FIDO Alliance
     MDS3 entry for its AAGUID, rejecting undesired authenticator statuses

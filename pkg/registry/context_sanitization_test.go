@@ -60,6 +60,7 @@ func TestEvaluate_SanitizesClientSuppliedContext(t *testing.T) {
 		"purpose":              "age verification",
 		"doc_type":             "org.iso.18013.5.1.mDL",
 		"intermediary_x5c":     []string{"MIIB..."},
+		"signing_time":         "2011-06-01T00:00:00Z",
 
 		// Policy controls the client must never be able to set.
 		"allow_intermediaries":      true,
@@ -99,6 +100,7 @@ func TestEvaluate_SanitizesClientSuppliedContext(t *testing.T) {
 	assert.Equal(t, "age verification", captured["purpose"])
 	assert.Equal(t, "org.iso.18013.5.1.mDL", captured["doc_type"])
 	assert.Equal(t, []string{"MIIB..."}, captured["intermediary_x5c"])
+	assert.Equal(t, "2011-06-01T00:00:00Z", captured["signing_time"])
 
 	// Every policy control is gone.
 	for _, key := range []string{

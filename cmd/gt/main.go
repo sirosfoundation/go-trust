@@ -23,6 +23,7 @@ import (
 	"github.com/sirosfoundation/go-trust/pkg/registry/didjwks"
 	"github.com/sirosfoundation/go-trust/pkg/registry/didweb"
 	"github.com/sirosfoundation/go-trust/pkg/registry/didwebvh"
+	"github.com/sirosfoundation/go-trust/pkg/registry/emrtd"
 	"github.com/sirosfoundation/go-trust/pkg/registry/etsi"
 	"github.com/sirosfoundation/go-trust/pkg/registry/fidomds3"
 	"github.com/sirosfoundation/go-trust/pkg/registry/lote"
@@ -802,6 +803,31 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		registryMgr.Register(mdocReg)
 		logger.Info("mDOC IACA registry registered from config",
 			logging.F("issuer_allowlist", len(mdocCfg.IssuerAllowlist)))
+	}
+
+	// Configure eMRTD (ICAO 9303 CSCA) registry from config
+	if cfg.Registries.EMRTD != nil && cfg.Registries.EMRTD.Enabled {
+		logger.Info("Configuring eMRTD registry from config file")
+		emrtdCfg := cfg.Registries.EMRTD
+
+		emrtdReg, err := emrtd.New(emrtd.Config{
+			Name:        emrtdCfg.Name,
+			Description: emrtdCfg.Description,
+			AnchorsDir:  emrtdCfg.AnchorsDir,
+			CRLsDir:     emrtdCfg.CRLsDir,
+			Watch:       emrtdCfg.Watch,
+			CryptoExt:   cryptoExt,
+			Logger:      slog.Default(),
+		})
+		if err != nil {
+			logger.Fatal("Failed to create eMRTD registry from config",
+				logging.F("error", err.Error()))
+		}
+
+		registryMgr.Register(emrtdReg)
+		logger.Info("eMRTD registry registered from config",
+			logging.F("countries", len(emrtdReg.Countries())),
+			logging.F("watch", emrtdCfg.Watch))
 	}
 
 	// Configure mDOC RICAL registry from config

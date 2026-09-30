@@ -858,3 +858,40 @@ func TestFindUnknownKeysOnUnparseableYAMLIsQuiet(t *testing.T) {
 		t.Errorf("findUnknownKeys(nil) = %v, want nil", got)
 	}
 }
+
+func TestLoadConfigEMRTDRegistry(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	content := `
+registries:
+  emrtd:
+    enabled: true
+    name: emrtd-csca
+    anchors_dir: /etc/go-trust/emrtd/anchors
+    crls_dir: /etc/go-trust/emrtd/crls
+    watch: true
+policies:
+  policies:
+    emrtd-document-signer:
+      registries: [emrtd-csca]
+      constraints: {require_key_binding: true, allowed_key_types: [x5c]}
+`
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	e := cfg.Registries.EMRTD
+	if e == nil || !e.Enabled || e.Name != "emrtd-csca" || e.AnchorsDir != "/etc/go-trust/emrtd/anchors" ||
+		e.CRLsDir != "/etc/go-trust/emrtd/crls" || !e.Watch {
+		t.Fatalf("unexpected emrtd config: %+v", e)
+	}
+	if u := cfg.UnknownKeys(); len(u) != 0 {
+		t.Fatalf("emrtd keys reported unknown: %v", u)
+	}
+	p := cfg.Policies.Policies["emrtd-document-signer"]
+	if p == nil || p.Constraints == nil || !p.Constraints.RequireKeyBinding || len(p.Constraints.AllowedKeyTypes) != 1 {
+		t.Fatalf("unexpected policy: %+v", p)
+	}
+}
