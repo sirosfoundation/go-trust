@@ -12,7 +12,7 @@ import (
 
 func TestPromoteSingleDenyCode(t *testing.T) {
 	inner := map[string]interface{}{"code": "expired", "admin": map[string]interface{}{"code": "expired"}}
-	details := []map[string]interface{}{{"registry": "r", "reason": inner}}
+	details := []map[string]interface{}{{"registry": "r", "decision": false, "reason": inner}}
 
 	reason := map[string]interface{}{"error": "x"}
 	promoteSingleDenyCode(reason, details)
@@ -21,7 +21,7 @@ func TestPromoteSingleDenyCode(t *testing.T) {
 
 	// code without admin
 	reason = map[string]interface{}{}
-	promoteSingleDenyCode(reason, []map[string]interface{}{{"reason": map[string]interface{}{"code": "c"}}})
+	promoteSingleDenyCode(reason, []map[string]interface{}{{"decision": false, "reason": map[string]interface{}{"code": "c"}}})
 	assert.Equal(t, "c", reason["code"])
 	assert.NotContains(t, reason, "admin")
 
@@ -33,10 +33,12 @@ func TestPromoteSingleDenyCode(t *testing.T) {
 	// no reason / no code / non-string code: nothing promoted
 	for _, d := range [][]map[string]interface{}{
 		nil,
-		{{"registry": "r"}},
-		{{"reason": map[string]interface{}{"error": "e"}}},
-		{{"reason": map[string]interface{}{"code": 7}}},
-		{{"reason": map[string]interface{}{"code": ""}}},
+		{{"registry": "r", "decision": false}},
+		{{"decision": false, "reason": map[string]interface{}{"error": "e"}}},
+		{{"decision": false, "reason": map[string]interface{}{"code": 7}}},
+		{{"decision": false, "reason": map[string]interface{}{"code": ""}}},
+		// an entry without a decision (nil response) is not a denial at all
+		{{"reason": map[string]interface{}{"code": "c"}}},
 	} {
 		reason = map[string]interface{}{}
 		promoteSingleDenyCode(reason, d)
@@ -239,4 +241,30 @@ func TestAllResultsDenyCodeIgnoresNilResponses(t *testing.T) {
 		{"registry": "denier", "decision": false, "reason": map[string]interface{}{"code": "revoked"}},
 	})
 	assert.Equal(t, "revoked", reason["code"])
+}
+
+// First-match and sequential must also leave "decision" out for a nil
+// response, so a coded denial next to it still gets promoted.
+func TestNilResponseDoesNotHideCodedDenialFirstMatchAndSequential(t *testing.T) {
+	denier := &mockRegistry{
+		name: "denier", resourceTypes: []string{"x5c"}, healthy: true,
+		evaluateResponse: &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{
+			Reason: map[string]interface{}{"code": "revoked"},
+		}},
+	}
+	silent := &nilResponseRegistry{mockRegistry: &mockRegistry{name: "silent", resourceTypes: []string{"x5c"}, healthy: true}}
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+	}
+	for _, strat := range []ResolutionStrategy{FirstMatch, Sequential} {
+		t.Run(string(strat), func(t *testing.T) {
+			mgr := NewRegistryManager(strat, 5*time.Second)
+			mgr.Register(denier)
+			mgr.Register(silent)
+			resp, err := mgr.Evaluate(context.Background(), req)
+			require.NoError(t, err)
+			require.False(t, resp.Decision)
+			assert.Equal(t, "revoked", resp.Context.Reason["code"])
+		})
+	}
 }

@@ -1164,3 +1164,22 @@ func TestInfoTrustAnchorsAreACopy(t *testing.T) {
 	first[0] = "tampered"
 	assert.Equal(t, want, r.Info().TrustAnchors[0], "mutating a returned Info must not change the registry's metadata")
 }
+
+// anchors_dir is a literal path: metacharacters must not turn it into a
+// pattern that reads a sibling directory's certificates as anchors.
+func TestAnchorsDirMetacharactersAreLiteral(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	base := t.TempDir()
+	reviewed := filepath.Join(base, "anchors[1]") // the configured tree: empty SWE directory
+	sibling := filepath.Join(base, "anchors1")    // what Glob's [1] would match
+	require.NoError(t, os.MkdirAll(filepath.Join(reviewed, "SWE"), 0o755))
+	writeAnchors(t, sibling, map[string][]*node{"SWE": {csca}})
+
+	r, err := New(Config{AnchorsDir: reviewed, Logger: quietLogger(), Now: func() time.Time { return tNow }})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Close() })
+	assert.Empty(t, r.Info().TrustAnchors, "the sibling directory must not be read")
+	resp := eval(t, r, req("SWE", []*node{dsc}, nil))
+	require.False(t, resp.Decision, "a certificate from anchors1 must not be trusted via anchors[1]")
+}

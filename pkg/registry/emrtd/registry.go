@@ -624,9 +624,18 @@ func (r *Registry) loadAnchors() (map[string][]*anchor, error) {
 			r.log.Error("emrtd: skipping directory that is not an ISO 3166-1 alpha-3 code", "dir", country)
 			continue
 		}
-		files, err := filepath.Glob(filepath.Join(r.cfg.AnchorsDir, country, "*.pem"))
+		// List the country directory literally. filepath.Glob would treat
+		// metacharacters in anchors_dir (e.g. /data/anchors[1]) as a pattern
+		// and could read a different, sibling directory's files as anchors.
+		entries, err := os.ReadDir(filepath.Join(r.cfg.AnchorsDir, country))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("emrtd: reading %s: %w", filepath.Join(r.cfg.AnchorsDir, country), err)
+		}
+		var files []string
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".pem") {
+				files = append(files, filepath.Join(r.cfg.AnchorsDir, country, e.Name()))
+			}
 		}
 		seen := map[string]bool{}
 		for _, f := range files {

@@ -139,8 +139,12 @@ func (m *RegistryManager) evaluateFirstMatch(ctx context.Context, req *authzen.E
 		// Deny — capture the reason
 		detail := map[string]interface{}{
 			"registry":    r.registry,
-			"decision":    false,
 			"duration_ms": r.duration,
+		}
+		if r.response != nil {
+			// Only a real response is an explicit denial; a nil response
+			// leaves "decision" absent so it is not counted as one.
+			detail["decision"] = false
 		}
 		if r.response != nil && r.response.Context != nil && r.response.Context.Reason != nil {
 			detail["reason"] = r.response.Context.Reason
@@ -173,6 +177,11 @@ func promoteSingleDenyCode(reason map[string]interface{}, details []map[string]i
 	var denials []map[string]interface{}
 	for _, d := range details {
 		if _, isErr := d["error"]; isErr {
+			continue
+		}
+		// Only an explicit decision=false is a denial: an entry without a
+		// decision (a nil response) is not one.
+		if allowed, ok := d["decision"].(bool); !ok || allowed {
 			continue
 		}
 		denials = append(denials, d)
@@ -490,8 +499,12 @@ func (m *RegistryManager) evaluateSequentialFiltered(ctx context.Context, req *a
 			logging.F("duration_ms", duration))
 		detail := map[string]interface{}{
 			"registry":    info.Name,
-			"decision":    false,
 			"duration_ms": duration,
+		}
+		if resp != nil {
+			// Only a real response is an explicit denial; a nil response
+			// leaves "decision" absent so it is not counted as one.
+			detail["decision"] = false
 		}
 		if resp != nil && resp.Context != nil && resp.Context.Reason != nil {
 			detail["reason"] = resp.Context.Reason
@@ -634,8 +647,12 @@ func (m *RegistryManager) evaluateFirstMatchFiltered(ctx context.Context, req *a
 		// Deny — capture the reason
 		detail := map[string]interface{}{
 			"registry":    r.registry,
-			"decision":    false,
 			"duration_ms": r.duration,
+		}
+		if r.response != nil {
+			// Only a real response is an explicit denial; a nil response
+			// leaves "decision" absent so it is not counted as one.
+			detail["decision"] = false
 		}
 		if r.response != nil && r.response.Context != nil && r.response.Context.Reason != nil {
 			detail["reason"] = r.response.Context.Reason
