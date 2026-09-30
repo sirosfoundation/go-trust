@@ -300,6 +300,8 @@ resp, err := reg.Evaluate(ctx, req)
 
 ### eMRTD Document Signer Registry
 
+Full reference (config keys, anchor directory format, request/response, deny codes, known parsing limits): [docs/EMRTD.md](docs/EMRTD.md).
+
 Decides whether the Document Signer Certificate (DSC) of an electronic passport or ID card chains to a reviewed Country Signing CA (CSCA) of the claimed issuing state. The PEP verifies the SOD itself and sends only the DSC (plus any other certificates carried in the SOD); the registry never sees the SOD.
 
 - Anchors are read from `anchors_dir/<ALPHA3>/*.pem` only (e.g. `SWE`, `DEU`); the directory is the country and each certificate's subject `C` must match it (ISO 3166 table), otherwise the file is skipped and logged. Point it at the `anchors/` tree of the anchor repository, never at `candidates/`.

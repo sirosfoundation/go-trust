@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - eMRTD document-signer trust registry (`pkg/registry/emrtd/`, config
-  `registries.emrtd`, action `emrtd-document-signer`)
+  `registries.emrtd`, action `emrtd-document-signer`; format reference in
+  `docs/EMRTD.md`)
   - Decides whether an ICAO 9303 DSC chains to a reviewed CSCA of the claimed
     issuing state. Anchors load from `anchors_dir/<ALPHA3>/*.pem` only, with
     the certificate subject C cross-checked against the directory through an
