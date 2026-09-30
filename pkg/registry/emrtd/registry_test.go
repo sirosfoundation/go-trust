@@ -803,3 +803,13 @@ func TestRelevantEvent(t *testing.T) {
 		assert.False(t, r.relevantEvent(n), n)
 	}
 }
+
+func TestEvaluate_EmptyKeyUsageExtensionRefused(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	r := newReg(t, map[string][]*node{"SWE": {csca}})
+	s := dscSpec("DSC", "SE")
+	s.usage = 0
+	s.emptyUsage = true
+	dsc := issue(t, s, newKey(t, kindP256), csca)
+	requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeBadKeyUsage)
+}

@@ -168,10 +168,19 @@ func (m *RegistryManager) evaluateFirstMatch(ctx context.Context, req *authzen.E
 // force clients to dig the code out of registry_results[0].reason. The
 // nested form is unchanged; this only adds keys.
 func promoteSingleDenyCode(reason map[string]interface{}, details []map[string]interface{}) {
-	if len(details) != 1 {
+	// Count denials only: error and circuit-breaker records are not denials
+	// and must not hide the one registry that did deny with a code.
+	var denials []map[string]interface{}
+	for _, d := range details {
+		if _, isErr := d["error"]; isErr {
+			continue
+		}
+		denials = append(denials, d)
+	}
+	if len(denials) != 1 {
 		return
 	}
-	inner, ok := details[0]["reason"].(map[string]interface{})
+	inner, ok := denials[0]["reason"].(map[string]interface{})
 	if !ok {
 		return
 	}

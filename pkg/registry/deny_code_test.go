@@ -62,3 +62,18 @@ func TestAllStrategiesPromoteSingleDenyCode(t *testing.T) {
 		assert.NotNil(t, resp.Context.Reason["admin"])
 	}
 }
+
+func TestPromoteSingleDenyCode_IgnoresErrorRecords(t *testing.T) {
+	inner := map[string]interface{}{"code": "revoked", "admin": map[string]interface{}{"code": "revoked"}}
+	details := []map[string]interface{}{
+		{"registry": "emrtd", "decision": false, "reason": inner},
+		{"registry": "broken", "error": "boom"},
+	}
+	reason := map[string]interface{}{}
+	promoteSingleDenyCode(reason, details)
+	assert.Equal(t, "revoked", reason["code"])
+
+	reason = map[string]interface{}{}
+	promoteAllResultsDenyCode(reason, details)
+	assert.Equal(t, "revoked", reason["code"])
+}

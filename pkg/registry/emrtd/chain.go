@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 	"strings"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 )
+
+var oidKeyUsage = asn1.ObjectIdentifier{2, 5, 29, 15}
 
 // maxChainLen bounds DSC -> link certs -> CSCA, inclusive.
 const maxChainLen = 5
@@ -183,6 +186,17 @@ func (r *Registry) buildPaths(s *search, dsc *x509.Certificate, extras []*x509.C
 	return found, nameMatched
 }
 
+// hasKeyUsageExt reports whether the certificate carries a keyUsage extension,
+// including one whose bit string is all zero (which parses as KeyUsage == 0).
+func hasKeyUsageExt(c *x509.Certificate) bool {
+	for _, e := range c.Extensions {
+		if e.Id.Equal(oidKeyUsage) {
+			return true
+		}
+	}
+	return false
+}
+
 // checkPath applies time, key-usage and revocation checks to a candidate path.
 // It returns nil when the path is acceptable.
 func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*x509.RevocationList) *authzen.EvaluationResponse {
@@ -212,7 +226,7 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*x50
 	if dsc.BasicConstraintsValid && dsc.IsCA {
 		return r.deny(CodeBadKeyUsage, "DSC is a CA certificate (basicConstraints cA=true)")
 	}
-	if dsc.KeyUsage != 0 && dsc.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
+	if hasKeyUsageExt(dsc) && dsc.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
 		return r.deny(CodeBadKeyUsage, "DSC keyUsage does not include digitalSignature")
 	}
 

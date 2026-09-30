@@ -124,15 +124,16 @@ type certDER struct {
 
 // spec describes one certificate to build.
 type spec struct {
-	cn        string
-	country   string // alpha-2; "" omits C
-	notBefore time.Time
-	notAfter  time.Time
-	ca        bool
-	noBC      bool // omit basicConstraints entirely
-	usage     byte // first keyUsage byte; 0 omits the extension
-	serial    int64
-	sha1      bool // sign with ECDSA-SHA1 (EC keys only)
+	cn         string
+	country    string // alpha-2; "" omits C
+	notBefore  time.Time
+	notAfter   time.Time
+	ca         bool
+	noBC       bool // omit basicConstraints entirely
+	usage      byte // first keyUsage byte; 0 omits the extension
+	serial     int64
+	emptyUsage bool // emit a keyUsage extension with no bits set
+	sha1       bool // sign with ECDSA-SHA1 (EC keys only)
 }
 
 const (
@@ -184,7 +185,7 @@ func issue(t *testing.T, s spec, sk *testKey, issuer *node) *node {
 	skiVal, err := asn1.Marshal(ski[:20])
 	require.NoError(t, err)
 	exts = append(exts, pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 14}, Value: skiVal})
-	if s.usage != 0 {
+	if s.usage != 0 || s.emptyUsage {
 		ku, err := asn1.Marshal(asn1.BitString{Bytes: []byte{s.usage}, BitLength: 7})
 		require.NoError(t, err)
 		exts = append(exts, pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 15}, Critical: true, Value: ku})
