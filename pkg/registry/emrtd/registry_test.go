@@ -639,3 +639,75 @@ func TestThroughManagerWithPolicy(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, resp.Decision)
 }
+
+func TestEvaluate_WeakSignatureAlgorithms(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	t.Run("SHA-1 signed DSC is refused", func(t *testing.T) {
+		s := dscSpec("DSC", "SE")
+		s.sha1 = true
+		dsc := issue(t, s, newKey(t, kindP256), csca)
+		r := newReg(t, map[string][]*node{"SWE": {csca}})
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeChainInvalid)
+	})
+	t.Run("SHA-1 signed link certificate is refused", func(t *testing.T) {
+		kp := newKey(t, kindP256)
+		newRoot := issue(t, cscaSpec("CSCA new", "SE"), kp, nil)
+		s := cscaSpec("CSCA new", "SE")
+		s.sha1 = true
+		link := issue(t, s, kp, csca)
+		dsc := newDSC(t, kindP256, newRoot, "SE")
+		r := newReg(t, map[string][]*node{"SWE": {csca}})
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc, link}, nil)), CodeChainInvalid)
+	})
+}
+
+func TestEvaluate_SearchBoundsAndCancellation(t *testing.T) {
+	realCSCA := newCSCA(t, kindP256, "CSCA SE", "SE")
+	r := newReg(t, map[string][]*node{"SWE": {realCSCA}})
+
+	// Many distinct certificates sharing one name and key: every one signs
+	// every other, so the walk is combinatorial and never reaches an anchor.
+	kp := newKey(t, kindP256)
+	var extras []*node
+	for i := 0; i < maxRequestCerts-1; i++ {
+		s := cscaSpec("Loop CA", "SE")
+		s.serial = int64(1000 + i)
+		extras = append(extras, issue(t, s, kp, nil))
+	}
+	dsc := issue(t, dscSpec("DSC", "SE"), newKey(t, kindP256), extras[0])
+	chain := append([]*node{dsc}, extras...)
+
+	t.Run("work limit is an explicit denial", func(t *testing.T) {
+		resp := eval(t, r, req("SWE", chain, nil))
+		requireDeny(t, resp, CodeChainInvalid)
+		assert.Contains(t, resp.Context.Reason["error"], "work limit")
+	})
+	t.Run("canceled context stops the search", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		resp, err := r.Evaluate(ctx, req("SWE", chain, nil))
+		require.NoError(t, err)
+		requireDeny(t, resp, CodeChainInvalid)
+		assert.Contains(t, resp.Context.Reason["error"], "canceled")
+	})
+}
+
+func TestNamesEqual(t *testing.T) {
+	assert.True(t, namesEqual([]byte{1}, []byte{1}, "a", "b"))
+	assert.True(t, namesEqual([]byte{1}, []byte{2}, "CN=Foo", "cn=foo"))
+	assert.False(t, namesEqual([]byte{1}, []byte{2}, "CN=Foo", "CN=Bar"))
+}
+
+func TestCRLLoading_SkipsNonCRLFiles(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	anchors, crls := t.TempDir(), t.TempDir()
+	writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
+	require.NoError(t, os.MkdirAll(filepath.Join(crls, "SWE"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(crls, "SWE", "README.txt"), []byte("note"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(crls, "SWE", "upload.crl.tmp"), []byte("partial"), 0o644))
+	r, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger(), Now: func() time.Time { return tNow }})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Close() })
+	require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
+}

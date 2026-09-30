@@ -2,6 +2,7 @@ package emrtd
 
 import (
 	"bytes"
+	"context"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -14,8 +15,38 @@ import (
 // maxChainLen bounds DSC -> link certs -> CSCA, inclusive.
 const maxChainLen = 5
 
-// maxPaths bounds the number of candidate paths explored.
-const maxPaths = 16
+// maxSearchSteps bounds the total number of signature checks one evaluation
+// may spend building paths (across the claimed state and the wrong-country
+// probe). Exhaustion is an explicit denial, never a silent truncation.
+const maxSearchSteps = 2000
+
+// search carries the work budget and cancellation state for one evaluation.
+type search struct {
+	ctx       context.Context
+	steps     int
+	exhausted bool
+	canceled  bool
+}
+
+func newSearch(ctx context.Context) *search {
+	return &search{ctx: ctx, steps: maxSearchSteps}
+}
+
+// stopped reports whether the search must abandon work, latching the reason.
+func (s *search) stopped() bool {
+	if s.exhausted || s.canceled {
+		return true
+	}
+	if s.ctx.Err() != nil {
+		s.canceled = true
+		return true
+	}
+	if s.steps <= 0 {
+		s.exhausted = true
+		return true
+	}
+	return false
+}
 
 func pemDecode(data []byte) ([]byte, []byte) {
 	blk, rest := pem.Decode(data)
@@ -38,12 +69,30 @@ func pemDecode(data []byte) ([]byte, []byte) {
 //     They are lookup hints; the signature check below is what binds the
 //     certificates, and some states issue DSCs with absent or stale AKIs.
 func (r *Registry) issuedBy(child, parent *x509.Certificate) (signed, named bool) {
-	if !bytes.Equal(child.RawIssuer, parent.RawSubject) &&
-		!strings.EqualFold(child.Issuer.String(), parent.Subject.String()) {
+	if !namesEqual(child.RawIssuer, parent.RawSubject, child.Issuer.String(), parent.Subject.String()) {
 		return false, false
+	}
+	if weakSigAlg(child.SignatureAlgorithm) {
+		return false, true
 	}
 	err := r.ext.CheckSignature(parent, child.SignatureAlgorithm, child.RawTBSCertificate, child.Signature)
 	return err == nil, true
+}
+
+// namesEqual compares DER names byte-for-byte, then by rendered string
+// case-insensitively (see the leniencies above).
+func namesEqual(rawA, rawB []byte, strA, strB string) bool {
+	return bytes.Equal(rawA, rawB) || strings.EqualFold(strA, strB)
+}
+
+// weakSigAlg reports signature algorithms that are refused outright: a
+// correct SHA-1 or MD5 signature still must not form a trusted path.
+func weakSigAlg(a x509.SignatureAlgorithm) bool {
+	switch a {
+	case x509.MD2WithRSA, x509.MD5WithRSA, x509.SHA1WithRSA, x509.DSAWithSHA1, x509.ECDSAWithSHA1:
+		return true
+	}
+	return false
 }
 
 // canIssue is the constraint applied to UNTRUSTED link certificates taken from
@@ -58,17 +107,15 @@ func canIssue(c *x509.Certificate) bool {
 	return c.KeyUsage == 0 || c.KeyUsage&x509.KeyUsageCertSign != 0
 }
 
-// buildPaths returns every structurally valid signature path
-// DSC -> [link...] -> anchor. Only anchors terminate a path; extras are
-// intermediates only.
-func (r *Registry) buildPaths(dsc *x509.Certificate, extras []*x509.Certificate, anchors []*anchor) (paths [][]*x509.Certificate, nameMatched bool) {
-	anchorRaw := make([][]byte, len(anchors))
-	for i, a := range anchors {
-		anchorRaw[i] = a.cert.Raw
-	}
+// buildPaths walks every structurally valid signature path
+// DSC -> [link...] -> anchor, calling accept on each as it is found; the walk
+// stops as soon as accept returns true. Only anchors terminate a path; extras
+// are intermediates only. found reports whether any structural path existed;
+// the search budget and cancellation are tracked in s.
+func (r *Registry) buildPaths(s *search, dsc *x509.Certificate, extras []*x509.Certificate, anchors []*anchor, accept func([]*x509.Certificate) bool) (found, nameMatched bool) {
 	isAnchor := func(c *x509.Certificate) bool {
-		for _, raw := range anchorRaw {
-			if bytes.Equal(raw, c.Raw) {
+		for _, a := range anchors {
+			if bytes.Equal(a.cert.Raw, c.Raw) {
 				return true
 			}
 		}
@@ -82,31 +129,43 @@ func (r *Registry) buildPaths(dsc *x509.Certificate, extras []*x509.Certificate,
 		}
 		return false
 	}
+	check := func(child, parent *x509.Certificate) (bool, bool) {
+		s.steps--
+		return r.issuedBy(child, parent)
+	}
 
+	done := false
 	var walk func(path []*x509.Certificate)
 	walk = func(path []*x509.Certificate) {
-		if len(paths) >= maxPaths {
-			return
-		}
 		cur := path[len(path)-1]
 		for _, a := range anchors {
+			if done || s.stopped() {
+				return
+			}
 			if inPath(path, a.cert) {
 				continue // a certificate cannot vouch for itself
 			}
-			signed, named := r.issuedBy(cur, a.cert)
+			signed, named := check(cur, a.cert)
 			nameMatched = nameMatched || named
 			if signed {
-				paths = append(paths, append(append([]*x509.Certificate{}, path...), a.cert))
+				found = true
+				if accept(append(append([]*x509.Certificate{}, path...), a.cert)) {
+					done = true
+					return
+				}
 			}
 		}
 		if len(path) >= maxChainLen-1 {
 			return
 		}
 		for _, e := range extras {
+			if done || s.stopped() {
+				return
+			}
 			if inPath(path, e) || isAnchor(e) {
 				continue
 			}
-			signed, _ := r.issuedBy(cur, e)
+			signed, _ := check(cur, e)
 			if !signed {
 				continue
 			}
@@ -120,7 +179,7 @@ func (r *Registry) buildPaths(dsc *x509.Certificate, extras []*x509.Certificate,
 		}
 	}
 	walk([]*x509.Certificate{dsc})
-	return paths, nameMatched
+	return found, nameMatched
 }
 
 // checkPath applies time, key-usage and revocation checks to a candidate path.
@@ -160,7 +219,10 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*x50
 	for i := 0; i < len(path)-1; i++ {
 		cert, issuer := path[i], path[i+1]
 		for _, crl := range crls {
-			if !bytes.Equal(crl.RawIssuer, issuer.RawSubject) {
+			if !namesEqual(crl.RawIssuer, issuer.RawSubject, crl.Issuer.String(), issuer.Subject.String()) {
+				continue
+			}
+			if weakSigAlg(crl.SignatureAlgorithm) {
 				continue
 			}
 			if r.ext.CheckSignature(issuer, crl.SignatureAlgorithm, crl.RawTBSRevocationList, crl.Signature) != nil {

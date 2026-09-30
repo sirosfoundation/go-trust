@@ -183,6 +183,18 @@ func promoteSingleDenyCode(reason map[string]interface{}, details []map[string]i
 	}
 }
 
+// promoteAllResultsDenyCode applies promoteSingleDenyCode to the non-allow
+// entries of an all-results aggregation.
+func promoteAllResultsDenyCode(reason map[string]interface{}, allResults []map[string]interface{}) {
+	var denied []map[string]interface{}
+	for _, ri := range allResults {
+		if d, _ := ri["decision"].(bool); !d {
+			denied = append(denied, ri)
+		}
+	}
+	promoteSingleDenyCode(reason, denied)
+}
+
 // evaluateAll queries all applicable registries and aggregates results.
 // This strategy is useful for auditing or when you need to know which
 // registries matched.
@@ -296,21 +308,25 @@ func (m *RegistryManager) evaluateAll(ctx context.Context, req *authzen.Evaluati
 			if r.response.Decision {
 				decision = true
 				registriesMatched = append(registriesMatched, r.registry)
+			} else if r.response.Context != nil && r.response.Context.Reason != nil {
+				resultInfo["reason"] = r.response.Context.Reason
 			}
 		}
 
 		allResults = append(allResults, resultInfo)
 	}
 
+	reason := map[string]interface{}{
+		"registries_queried": len(registries),
+		"registries_matched": registriesMatched,
+		"all_results":        allResults,
+	}
+	if !decision {
+		promoteAllResultsDenyCode(reason, allResults)
+	}
 	return &authzen.EvaluationResponse{
 		Decision: decision,
-		Context: &authzen.EvaluationResponseContext{
-			Reason: map[string]interface{}{
-				"registries_queried": len(registries),
-				"registries_matched": registriesMatched,
-				"all_results":        allResults,
-			},
-		},
+		Context:  &authzen.EvaluationResponseContext{Reason: reason},
 	}, nil
 }
 
@@ -696,6 +712,8 @@ func (m *RegistryManager) evaluateAllFiltered(ctx context.Context, req *authzen.
 			if r.response.Decision {
 				decision = true
 				registriesMatched = append(registriesMatched, r.registry)
+			} else if r.response.Context != nil && r.response.Context.Reason != nil {
+				resultInfo["reason"] = r.response.Context.Reason
 			}
 		}
 
@@ -706,6 +724,9 @@ func (m *RegistryManager) evaluateAllFiltered(ctx context.Context, req *authzen.
 		"registries_queried": len(registries),
 		"registries_matched": registriesMatched,
 		"all_results":        allResults,
+	}
+	if !decision {
+		promoteAllResultsDenyCode(reason, allResults)
 	}
 	if policyCtx != nil && policyCtx.Policy != nil {
 		reason["policy"] = policyCtx.Policy.Name

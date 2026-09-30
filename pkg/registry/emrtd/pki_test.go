@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -131,6 +132,7 @@ type spec struct {
 	noBC      bool // omit basicConstraints entirely
 	usage     byte // first keyUsage byte; 0 omits the extension
 	serial    int64
+	sha1      bool // sign with ECDSA-SHA1 (EC keys only)
 }
 
 const (
@@ -190,7 +192,7 @@ func issue(t *testing.T, s spec, sk *testKey, issuer *node) *node {
 	tbs, err := asn1.Marshal(tbsCert{
 		Version:      2,
 		SerialNumber: big.NewInt(s.serial),
-		SigAlg:       signer.sigAlg(),
+		SigAlg:       sigAlgFor(signer, s),
 		Issuer:       asn1.RawValue{FullBytes: issuerName},
 		Validity:     validity{s.notBefore.UTC(), s.notAfter.UTC()},
 		Subject:      asn1.RawValue{FullBytes: name(t, s)},
@@ -198,10 +200,10 @@ func issue(t *testing.T, s spec, sk *testKey, issuer *node) *node {
 		Extensions:   exts,
 	})
 	require.NoError(t, err)
-	sig := signer.sign(t, tbs)
+	sig := signWith(t, signer, s, tbs)
 	der, err := asn1.Marshal(certDER{
 		TBS:    asn1.RawValue{FullBytes: tbs},
-		SigAlg: signer.sigAlg(),
+		SigAlg: sigAlgFor(signer, s),
 		Sig:    asn1.BitString{Bytes: sig, BitLength: len(sig) * 8},
 	})
 	require.NoError(t, err)
@@ -256,4 +258,24 @@ func writeAnchors(t *testing.T, root string, anchors map[string][]*node) {
 			require.NoError(t, os.WriteFile(filepath.Join(dir, fingerprint(n.cert)+".pem"), n.pem(), 0o644))
 		}
 	}
+}
+
+var oidECDSASHA1 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 1}
+
+func sigAlgFor(k *testKey, s spec) pkix.AlgorithmIdentifier {
+	if s.sha1 && k.kind != kindRSAPSS {
+		return pkix.AlgorithmIdentifier{Algorithm: oidECDSASHA1}
+	}
+	return k.sigAlg()
+}
+
+func signWith(t *testing.T, k *testKey, s spec, tbs []byte) []byte {
+	t.Helper()
+	if s.sha1 && k.kind != kindRSAPSS {
+		d := sha1.Sum(tbs)
+		sig, err := ecdsa.SignASN1(rand.Reader, k.ec, d[:])
+		require.NoError(t, err)
+		return sig
+	}
+	return k.sign(t, tbs)
 }

@@ -231,8 +231,8 @@ func (r *Registry) Countries() []string {
 }
 
 // Evaluate implements registry.TrustRegistry.
-func (r *Registry) Evaluate(_ context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
-	resp := r.evaluate(req)
+func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	resp := r.evaluate(ctx, req)
 	if !resp.Decision {
 		r.log.Info("emrtd denied", "registry", r.cfg.Name, "subject", req.Subject.ID,
 			"code", resp.Context.Reason["code"], "detail", resp.Context.Reason["error"])
@@ -240,7 +240,7 @@ func (r *Registry) Evaluate(_ context.Context, req *authzen.EvaluationRequest) (
 	return resp, nil
 }
 
-func (r *Registry) evaluate(req *authzen.EvaluationRequest) *authzen.EvaluationResponse {
+func (r *Registry) evaluate(ctx context.Context, req *authzen.EvaluationRequest) *authzen.EvaluationResponse {
 	if req.Action == nil || req.Action.Name != ActionName {
 		return r.deny(CodeMalformedRequest, "action.name must be "+ActionName)
 	}
@@ -279,35 +279,60 @@ func (r *Registry) evaluate(req *authzen.EvaluationRequest) *authzen.EvaluationR
 		}
 	}
 
-	paths, nameMatched := r.buildPaths(dsc, extras, snap.anchors[country])
-	if len(paths) == 0 {
-		// Would it chain for a different state? Then the claim is wrong.
-		for other, list := range snap.anchors {
-			if other == country {
-				continue
-			}
-			if p, _ := r.buildPaths(dsc, extras, list); len(p) > 0 {
-				return r.deny(CodeCountryMismatch,
-					fmt.Sprintf("DSC chains to a %s anchor, not %s", other, country))
-			}
-		}
-		if nameMatched {
-			return r.deny(CodeChainInvalid, "an anchor with the issuer name exists but no valid signature path was found")
-		}
-		return r.deny(CodeNoAnchor, "no anchor for "+country+" issued this DSC")
-	}
-
+	s := newSearch(ctx)
 	var first *authzen.EvaluationResponse
-	for _, p := range paths {
+	var accepted []*x509.Certificate
+	found, nameMatched := r.buildPaths(s, dsc, extras, snap.anchors[country], func(p []*x509.Certificate) bool {
 		if d := r.checkPath(p, at, snap.crls[country]); d != nil {
 			if first == nil {
 				first = d
 			}
+			return false
+		}
+		accepted = p
+		return true
+	})
+	if accepted != nil {
+		return r.allow(country, accepted, at)
+	}
+	if d := r.searchStopped(s); d != nil {
+		return d
+	}
+	if found {
+		return first
+	}
+
+	// Would it chain for a different state? Then the claim is wrong.
+	for other, list := range snap.anchors {
+		if other == country {
 			continue
 		}
-		return r.allow(country, p, at)
+		anyPath, _ := r.buildPaths(s, dsc, extras, list, func([]*x509.Certificate) bool { return true })
+		if d := r.searchStopped(s); d != nil {
+			return d
+		}
+		if anyPath {
+			return r.deny(CodeCountryMismatch,
+				fmt.Sprintf("DSC chains to a %s anchor, not %s", other, country))
+		}
 	}
-	return first
+	if nameMatched {
+		return r.deny(CodeChainInvalid, "an anchor with the issuer name exists but no valid signature path was found")
+	}
+	return r.deny(CodeNoAnchor, "no anchor for "+country+" issued this DSC")
+}
+
+// searchStopped returns an explicit denial when the path search was cut short
+// by cancellation or by its work budget, so a truncated search is never
+// mistaken for an exhaustive one.
+func (r *Registry) searchStopped(s *search) *authzen.EvaluationResponse {
+	switch {
+	case s.canceled:
+		return r.deny(CodeChainInvalid, "certificate path search canceled: "+s.ctx.Err().Error())
+	case s.exhausted:
+		return r.deny(CodeChainInvalid, "certificate path search exceeded its work limit; too many candidate link certificates")
+	}
+	return nil
 }
 
 func (r *Registry) signingTime(req *authzen.EvaluationRequest) (time.Time, error) {
@@ -529,7 +554,7 @@ func (r *Registry) loadCRLs() (map[string][]*x509.RevocationList, error) {
 			return nil, err
 		}
 		for _, e := range entries {
-			if e.IsDir() {
+			if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".crl") {
 				continue
 			}
 			f := filepath.Join(r.cfg.CRLsDir, country, e.Name())

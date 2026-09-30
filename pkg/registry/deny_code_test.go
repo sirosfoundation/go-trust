@@ -1,7 +1,11 @@
 package registry
 
 import (
+	"context"
+	"github.com/sirosfoundation/go-trust/pkg/authzen"
+	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -37,5 +41,24 @@ func TestPromoteSingleDenyCode(t *testing.T) {
 		reason = map[string]interface{}{}
 		promoteSingleDenyCode(reason, d)
 		assert.Empty(t, reason)
+	}
+}
+
+func TestAllStrategiesPromoteSingleDenyCode(t *testing.T) {
+	for _, strat := range []ResolutionStrategy{AllRegistries, BestMatch} {
+		mgr := NewRegistryManager(strat, 5*time.Second)
+		mgr.Register(&mockRegistry{
+			name: "emrtd", resourceTypes: []string{"x5c"}, healthy: true,
+			evaluateResponse: &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{"code": "expired", "admin": map[string]interface{}{"code": "expired"}},
+			}},
+		})
+		resp, err := mgr.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+		})
+		require.NoError(t, err)
+		assert.False(t, resp.Decision)
+		assert.Equal(t, "expired", resp.Context.Reason["code"], strat)
+		assert.NotNil(t, resp.Context.Reason["admin"])
 	}
 }
