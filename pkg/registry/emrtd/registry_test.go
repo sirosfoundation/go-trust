@@ -2,10 +2,10 @@ package emrtd
 
 import (
 	"bytes"
-	"log/slog"
 	"context"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"os"
 	"path/filepath"

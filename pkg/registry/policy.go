@@ -2,7 +2,10 @@
 // This file defines policy types for action-based routing.
 package registry
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // maxWarnedUnknownActions bounds the warning-deduplication set. action.name is
 // client-controlled, so the set must not grow with attacker-chosen values; once
@@ -40,6 +43,9 @@ type Policy struct {
 
 	// FIDOMDS3 contains FIDO Alliance MDS3-specific constraints
 	FIDOMDS3 *FIDOMDS3PolicyConstraints `json:"fidomds3,omitempty" yaml:"fidomds3,omitempty"`
+
+	// EMRTD contains eMRTD document-signer registry constraints
+	EMRTD *EMRTDPolicyConstraints `json:"emrtd,omitempty" yaml:"emrtd,omitempty"`
 }
 
 // PolicyConstraints contains registry-agnostic trust constraints.
@@ -155,6 +161,44 @@ type MDOCIACAPolicyConstraints struct {
 	// RequireIACAEndpoint requires the issuer to publish mdoc_iacas_uri.
 	// When true, issuers without IACA endpoints are rejected.
 	RequireIACAEndpoint bool `json:"require_iaca_endpoint,omitempty" yaml:"require_iaca_endpoint,omitempty"`
+}
+
+// EMRTDPolicyConstraints contains eMRTD document-signer constraints.
+//
+// By default the emrtd registry ignores the basicConstraints
+// pathLenConstraint of CSCAs and link certificates (real CSCAs often carry
+// pathLen=0 yet sign link certificates for their successors). These settings
+// opt in to enforcing it. They are policy controls: clients cannot set them.
+type EMRTDPolicyConstraints struct {
+	// PathLenMode is "ignore" (default, also when empty) or "enforce".
+	PathLenMode string `json:"path_len_mode,omitempty" yaml:"path_len_mode,omitempty"`
+
+	// PathLenOverride, when set, replaces the pathLenConstraint of every
+	// issuer on the path (CSCA and link certificates, including one with none)
+	// and implies "enforce". Must be >= 0.
+	PathLenOverride *int `json:"path_len_override,omitempty" yaml:"path_len_override,omitempty"`
+}
+
+// Validate rejects unknown modes, a negative override, and an explicit
+// "ignore" combined with an override (which would be contradictory).
+func (c *EMRTDPolicyConstraints) Validate() error {
+	if c == nil {
+		return nil
+	}
+	switch c.PathLenMode {
+	case "", "ignore", "enforce":
+	default:
+		return fmt.Errorf("emrtd.path_len_mode %q is invalid: must be \"ignore\" or \"enforce\"", c.PathLenMode)
+	}
+	if c.PathLenOverride != nil {
+		if *c.PathLenOverride < 0 {
+			return fmt.Errorf("emrtd.path_len_override must be >= 0, got %d", *c.PathLenOverride)
+		}
+		if c.PathLenMode == "ignore" {
+			return fmt.Errorf("emrtd.path_len_override implies enforcement and conflicts with path_len_mode \"ignore\"")
+		}
+	}
+	return nil
 }
 
 // FIDOMDS3PolicyConstraints contains FIDO Alliance MDS3-specific constraints,

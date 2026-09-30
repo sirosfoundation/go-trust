@@ -26,6 +26,9 @@ policies:
       constraints:
         require_key_binding: true
         allowed_key_types: [x5c]
+      emrtd:                        # optional, see "Path length"
+        path_len_mode: ignore       # ignore (default) | enforce
+        path_len_override: 1        # optional; implies enforce
 ```
 
 | Key | Required | Meaning |
@@ -36,6 +39,9 @@ policies:
 | `registries.emrtd.anchors_dir` | yes | Directory holding the trust anchors (layout below). Startup fails if it is missing. |
 | `registries.emrtd.crls_dir` | no | Directory holding CRLs (layout below). Without it no revocation check is made. |
 | `registries.emrtd.watch` | no | Reload anchors and CRLs when files change (debounced). If `false`, changes need a restart. |
+
+| `policies.<name>.emrtd.path_len_mode` | no | `ignore` (default) or `enforce`. See [Path length](#path-length). Any other value fails startup. |
+| `policies.<name>.emrtd.path_len_override` | no | Integer >= 0 used instead of a certificate's own `pathLenConstraint`; implies `enforce`. See [Path length](#path-length). |
 
 The registry only answers requests with `action.name` `emrtd-document-signer`. Any other action is denied as
 `malformed_request`. The policy block is what routes that action to the registry and requires an x5c key.
@@ -129,12 +135,71 @@ A caller must treat anything other than `decision: true` as not trusted, includi
   include `digitalSignature`. A DSC that is itself a CA (`basicConstraints` cA=true) is refused.
 - Anchors are exempt from the CA/`keyCertSign` check; link certificates from the request must be CAs and assert
   `keyCertSign`.
-  `pathLenConstraint` is not enforced and chains are limited to 5 certificates.
+  `pathLenConstraint` is not enforced unless the policy opts in (see [Path length](#path-length)); chains are
+  limited to 5 certificates either way.
 - Validity is checked for every certificate at `signing_time`.
 - Revocation is strict: any entry on a CRL whose signature verifies against the issuer denies the
   certificate, regardless of revocation date and even if the CRL is past `nextUpdate`. CRLs that fail
   signature verification are ignored; with no CRL for an issuer nothing is denied.
 - An unparsable CRL file makes startup fail. On reload the previous data stays in use.
+
+## Path length
+
+By default the registry **ignores** the `basicConstraints` `pathLenConstraint` of anchors and link certificates.
+Real CSCAs often carry `pathLenConstraint=0` and still sign link certificates for their successors, so strict
+enforcement would reject valid passports. Chains are bounded by the 5-certificate cap instead.
+
+A policy can opt in with the `emrtd` block:
+
+```yaml
+policies:
+  policies:
+    emrtd-document-signer:
+      registries: [emrtd-csca]
+      emrtd:
+        path_len_mode: enforce   # ignore (default) | enforce
+        path_len_override: 1     # optional
+```
+
+- `path_len_mode: ignore` (or no `emrtd` block): today's behaviour.
+- `path_len_mode: enforce`: each certificate's own `pathLenConstraint` is applied to the path
+  DSC -> [link certificates] -> CSCA. A certificate without one is unlimited.
+- `path_len_override: N` (N >= 0): N is used **instead of** the certificate's own value for every CSCA and link
+  certificate that acts as an issuer in the chain, including one that has no `pathLenConstraint`, and the anchor
+  itself. It implies `enforce`. Combining it with an explicit `path_len_mode: ignore` is a configuration error.
+
+Semantics follow RFC 5280 section 6.1.4. `pathLenConstraint` is the number of **non-self-issued intermediate CAs**
+allowed below the issuer. For the issuer at position *i* of the path, the intermediates are the link
+certificates between it and the DSC; the DSC is the end-entity and never counts. A **self-issued** certificate
+(issuer DN equal to subject DN, as for a link certificate that certifies a CSCA's new key under its unchanged
+name) does not count against the limit. Examples, for DSC -> link -> CSCA (one link):
+
+| CSCA `pathLenConstraint` | Link | Mode / override | Result |
+|---|---|---|---|
+| 0 | different name | default | allowed |
+| 0 | different name | `enforce` | `chain_invalid` |
+| 0 | self-issued | `enforce` | allowed |
+| 0 | different name | override 1 | allowed |
+| any / none | different name | override 0 | `chain_invalid` |
+
+A violation is denied as `chain_invalid` with the offending certificate and the counts in `context.reason.error`.
+Other candidate paths are still tried, so a chain that satisfies the limit through another route is accepted.
+
+The mode and override are server-side policy controls: the manager drops any client-supplied
+`emrtd_path_len_mode` or `emrtd_path_len_override` from the request context, so a caller can neither set nor
+weaken them. (A caller that uses the registry package directly, without the manager, supplies those context keys
+itself and is trusted with them.)
+
+**When to use it.** Enforce if your risk assessment wants the issuer's own CA constraints honoured and you have
+checked that the CSCAs you anchor behave. Use `path_len_override` to apply one deliberate limit across all
+states, for example `1` to allow a single link certificate under any CSCA regardless of what the CSCA
+certificate says.
+
+**Rollover caveat.** A CSCA with `pathLenConstraint=0` that has already issued a non-self-issued link certificate
+to its successor, or a rollover spanning several link certificates, will be denied under `enforce` without an
+override, even though the passports are genuine. Self-issued links (same DN) are unaffected. Before enabling
+`enforce`, test with real documents from states mid-rollover, and prefer an override sized for the longest
+legitimate chain (the 5-certificate cap still applies).
 
 ## Feeding the registry from the anchor repository
 

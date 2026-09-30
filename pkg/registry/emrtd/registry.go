@@ -300,11 +300,16 @@ func (r *Registry) evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		}
 	}
 
+	pl, err := pathLenFromContext(req.Context)
+	if err != nil {
+		return r.deny(CodeMalformedRequest, err.Error())
+	}
+
 	s := newSearch(ctx)
 	var first *authzen.EvaluationResponse
 	var accepted []*x509.Certificate
 	found, nameMatched := r.buildPaths(s, dsc, extras, snap.anchors[country], func(p []*x509.Certificate) bool {
-		if d := r.checkPath(p, at, snap.crls[country]); d != nil {
+		if d := r.checkPath(p, at, snap.crls[country], pl); d != nil {
 			if first == nil {
 				first = d
 			}

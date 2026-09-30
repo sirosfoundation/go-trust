@@ -488,3 +488,62 @@ func TestApplyPolicyToRequest_ActionParameterAllowlist(t *testing.T) {
 	assert.Nil(t, req.Context["service_types"], "service_types should be blocked")
 	assert.Nil(t, req.Context["required_trust_marks"], "required_trust_marks should be blocked")
 }
+
+// TestApplyPolicyToRequest_EMRTDConstraints verifies the eMRTD path-length
+// setting reaches the request context only from the policy.
+func TestApplyPolicyToRequest_EMRTDConstraints(t *testing.T) {
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+	zero := 0
+
+	t.Run("mode and override", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{}
+		mgr.applyPolicyToRequest(req, &PolicyContext{Policy: &Policy{
+			Name:  "emrtd-test",
+			EMRTD: &EMRTDPolicyConstraints{PathLenMode: "enforce", PathLenOverride: &zero},
+		}})
+		assert.Equal(t, "enforce", req.Context["emrtd_path_len_mode"])
+		assert.Equal(t, 0, req.Context["emrtd_path_len_override"], "an override of 0 must still be injected")
+	})
+	t.Run("empty block injects nothing", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{}
+		mgr.applyPolicyToRequest(req, &PolicyContext{Policy: &Policy{Name: "emrtd-test", EMRTD: &EMRTDPolicyConstraints{}}})
+		assert.NotContains(t, req.Context, "emrtd_path_len_mode")
+		assert.NotContains(t, req.Context, "emrtd_path_len_override")
+	})
+	t.Run("no block injects nothing", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{}
+		mgr.applyPolicyToRequest(req, &PolicyContext{Policy: &Policy{Name: "other"}})
+		assert.NotContains(t, req.Context, "emrtd_path_len_mode")
+	})
+}
+
+func TestEMRTDPolicyConstraints_Validate(t *testing.T) {
+	n := func(v int) *int { return &v }
+	cases := []struct {
+		name    string
+		c       *EMRTDPolicyConstraints
+		wantErr string
+	}{
+		{"nil", nil, ""},
+		{"empty", &EMRTDPolicyConstraints{}, ""},
+		{"ignore", &EMRTDPolicyConstraints{PathLenMode: "ignore"}, ""},
+		{"enforce", &EMRTDPolicyConstraints{PathLenMode: "enforce"}, ""},
+		{"override", &EMRTDPolicyConstraints{PathLenOverride: n(0)}, ""},
+		{"enforce+override", &EMRTDPolicyConstraints{PathLenMode: "enforce", PathLenOverride: n(3)}, ""},
+		{"unknown mode", &EMRTDPolicyConstraints{PathLenMode: "strict"}, "path_len_mode"},
+		{"wrong case", &EMRTDPolicyConstraints{PathLenMode: "Enforce"}, "path_len_mode"},
+		{"negative", &EMRTDPolicyConstraints{PathLenOverride: n(-1)}, ">= 0"},
+		{"ignore+override", &EMRTDPolicyConstraints{PathLenMode: "ignore", PathLenOverride: n(1)}, "conflicts"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.c.Validate()
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}

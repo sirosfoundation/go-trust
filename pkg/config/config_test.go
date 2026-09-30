@@ -895,3 +895,67 @@ policies:
 		t.Fatalf("unexpected policy: %+v", p)
 	}
 }
+
+func TestValidateEMRTDPolicy(t *testing.T) {
+	n := func(v int) *int { return &v }
+	cases := []struct {
+		name    string
+		e       *EMRTDPolicyConfig
+		wantErr string
+	}{
+		{"absent", nil, ""},
+		{"default", &EMRTDPolicyConfig{}, ""},
+		{"ignore", &EMRTDPolicyConfig{PathLenMode: "ignore"}, ""},
+		{"enforce", &EMRTDPolicyConfig{PathLenMode: "enforce"}, ""},
+		{"override zero", &EMRTDPolicyConfig{PathLenOverride: n(0)}, ""},
+		{"unknown mode", &EMRTDPolicyConfig{PathLenMode: "strict"}, "path_len_mode"},
+		{"negative override", &EMRTDPolicyConfig{PathLenOverride: n(-2)}, "path_len_override"},
+		{"ignore with override", &EMRTDPolicyConfig{PathLenMode: "ignore", PathLenOverride: n(1)}, "conflicts"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Policies.Policies = map[string]*PolicyConfig{
+				"nil-policy":            nil,
+				"emrtd-document-signer": {Registries: []string{"emrtd-csca"}, EMRTD: tc.e},
+			}
+			err := cfg.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) || !strings.Contains(err.Error(), "emrtd-document-signer") {
+				t.Fatalf("Validate() = %v, want error naming the policy and containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoadConfigEMRTDPolicyKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `
+policies:
+  policies:
+    emrtd-document-signer:
+      registries: [emrtd-csca]
+      emrtd:
+        path_len_mode: enforce
+        path_len_override: 1
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := cfg.Policies.Policies["emrtd-document-signer"].EMRTD
+	if e == nil || e.PathLenMode != "enforce" || e.PathLenOverride == nil || *e.PathLenOverride != 1 {
+		t.Fatalf("emrtd policy = %+v, want enforce/1", e)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -598,6 +598,7 @@ policies:
 | `mdociaca` | Issuer allowlist, IACA endpoint | mDOC IACA |
 | `fidomds3` | AAGUID allowlist/blocklist | FIDO MDS3 |
 | `constraints` (`require_key_binding`, `allowed_key_types`) | Generic; used by `emrtd-document-signer` | eMRTD |
+| `emrtd` (`path_len_mode`, `path_len_override`) | Opt-in `pathLenConstraint` enforcement (default: ignored); see [docs/EMRTD.md](docs/EMRTD.md#path-length) | eMRTD |
 
 ### AAGUID Policy in FIDO MDS3
 

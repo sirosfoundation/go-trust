@@ -412,6 +412,17 @@ func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, p
 		}
 	}
 
+	// Apply eMRTD constraints. Key names are shared with the emrtd registry.
+	if policyCtx.Policy.EMRTD != nil {
+		e := policyCtx.Policy.EMRTD
+		if e.PathLenMode != "" {
+			req.Context["emrtd_path_len_mode"] = e.PathLenMode
+		}
+		if e.PathLenOverride != nil {
+			req.Context["emrtd_path_len_override"] = *e.PathLenOverride
+		}
+	}
+
 	// Store policy name in context for debugging/logging
 	req.Context["_policy"] = policyCtx.Policy.Name
 }

@@ -85,6 +85,8 @@ func TestEvaluate_SanitizesClientSuppliedContext(t *testing.T) {
 		"require_iaca_endpoint":         true,
 		"allowed_aaguids":               []string{"injected"},
 		"blocked_aaguids":               []string{"injected"},
+		"emrtd_path_len_mode":           "ignore",
+		"emrtd_path_len_override":       99,
 		"_policy":                       "attacker-policy",
 		"totally_unknown_key":           "junk",
 	})
@@ -301,6 +303,8 @@ func TestClientSuppliableKeysExcludePolicyControls(t *testing.T) {
 		"issuer_allowlist",
 		"allowed_aaguids",
 		"blocked_aaguids",
+		"emrtd_path_len_mode",
+		"emrtd_path_len_override",
 		"max_chain_depth",
 		"_original_subject_id",
 		"_policy",

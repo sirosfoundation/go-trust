@@ -94,6 +94,8 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 | `policies.policies.<name>.mdociaca.require_iaca_endpoint` | — | boolean | RequireIACAEndpoint requires the issuer to publish mdoc_iacas_uri. |
 | `policies.policies.<name>.fidomds3.allowed_aaguids` | — | string list | AllowedAAGUIDs restricts trust to specific AAGUIDs, regardless of MDS3 certification status. |
 | `policies.policies.<name>.fidomds3.blocked_aaguids` | — | string list | BlockedAAGUIDs denies specific AAGUIDs even if MDS3 certifies them. Only applied when AllowedAAGUIDs is empty. |
+| `policies.policies.<name>.emrtd.path_len_mode` | — | string | PathLenMode is "ignore" (default) or "enforce". With "enforce", pathLenConstraint is applied per RFC 5280 6.1.4 to the issuers on the path DSC -> [link certificates] -> CSCA: it limits the number of non-self-issued intermediate CAs below the issuer (self-issued link certificates do not count), a certificate without one is unlimited. Violations are denied as chain_invalid. Any other value fails config validation. |
+| `policies.policies.<name>.emrtd.path_len_override` | — | integer | PathLenOverride, when set, is used instead of a certificate's own pathLenConstraint for every CSCA and link certificate acting as an issuer in the chain (including certificates that have none), and implies "enforce". Must be >= 0; conflicts with path_len_mode "ignore". |
 
 ## registries.general
 

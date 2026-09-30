@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Machine-readable deny codes (`unknown_country`, `no_anchor`,
     `chain_invalid`, `country_mismatch`, `expired`, `not_yet_valid`,
     `bad_key_usage`, `revoked`, `malformed_request`)
+  - Optional `emrtd` policy block: `path_len_mode` (`ignore` default |
+    `enforce`) and `path_len_override` (>= 0, implies `enforce`) opt in to
+    RFC 5280 `pathLenConstraint` enforcement on the path DSC -> links -> CSCA
+    (self-issued links do not count; violations deny as `chain_invalid`).
+    Default behaviour is unchanged; unknown modes fail config validation;
+    clients cannot set the new context keys
   - New `trustapi.RoleEMRTDDocumentSigner`; `signing_time` is now a
     client-suppliable request-context key
 

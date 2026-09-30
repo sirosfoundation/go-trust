@@ -1335,6 +1335,20 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 			}
 		}
 
+		// Convert eMRTD constraints
+		if policyCfg.EMRTD != nil {
+			policy.EMRTD = &registry.EMRTDPolicyConstraints{
+				PathLenMode:     policyCfg.EMRTD.PathLenMode,
+				PathLenOverride: policyCfg.EMRTD.PathLenOverride,
+			}
+			// config.Validate rejects bad values at startup; this keeps any
+			// other caller from installing an unvalidated policy.
+			if err := policy.EMRTD.Validate(); err != nil {
+				logger.Fatal("Invalid emrtd policy constraints",
+					logging.F("policy", name), logging.F("error", err.Error()))
+			}
+		}
+
 		policyMgr.RegisterPolicy(policy)
 		policyCount++
 

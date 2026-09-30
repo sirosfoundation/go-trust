@@ -102,8 +102,8 @@ func weakSigAlg(a x509.SignatureAlgorithm) bool {
 // the request: they must be CA certificates whose keyUsage asserts keyCertSign
 // (a missing keyUsage extension is not enough).
 // Anchors are exempt: they are human-reviewed, and some legacy CSCAs lack
-// basicConstraints. pathLenConstraint is deliberately not enforced; chain
-// length is bounded by maxChainLen instead.
+// basicConstraints. pathLenConstraint is not enforced by default (see
+// pathLenPolicy); chain length is bounded by maxChainLen instead.
 func canIssue(c *x509.Certificate) bool {
 	if !c.BasicConstraintsValid || !c.IsCA {
 		return false
@@ -200,9 +200,13 @@ func hasKeyUsageExt(c *x509.Certificate) bool {
 	return false
 }
 
-// checkPath applies time, key-usage and revocation checks to a candidate path.
-// It returns nil when the path is acceptable.
-func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*x509.RevocationList) *authzen.EvaluationResponse {
+// checkPath applies path-length, time, key-usage and revocation checks to a
+// candidate path. It returns nil when the path is acceptable.
+func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*x509.RevocationList, pl pathLenPolicy) *authzen.EvaluationResponse {
+	if d := r.checkPathLen(path, pl); d != nil {
+		return d
+	}
+
 	// Validity is evaluated at document signing time, not wall clock, per
 	// ICAO 9303 Part 12 (the DSC of an old passport is long expired at now).
 	// Every certificate on the path is checked, CSCA and link certificates too.
@@ -257,6 +261,121 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*x50
 					return r.deny(CodeRevoked, fmt.Sprintf("%q (serial %s) is revoked by CRL", cert.Subject.String(), cert.SerialNumber))
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// Context keys through which the manager hands the policy's path-length
+// setting to the registry. They are server-controlled: the manager strips
+// client-supplied values (they are not in clientSuppliableContextKeys) and
+// writes them only from the matching policy's `emrtd` block.
+const (
+	ctxPathLenMode     = "emrtd_path_len_mode"
+	ctxPathLenOverride = "emrtd_path_len_override"
+)
+
+// Values of the path_len_mode policy setting.
+const (
+	PathLenIgnore  = "ignore"
+	PathLenEnforce = "enforce"
+)
+
+// pathLenPolicy is the resolved path-length setting for one evaluation. The
+// zero value ignores pathLenConstraint, which is the default behaviour.
+type pathLenPolicy struct {
+	enforce  bool
+	override int // used when hasOver
+	hasOver  bool
+}
+
+// pathLenFromContext reads the policy-derived setting from the request
+// context. Anything it cannot interpret is an error, so the caller denies: a
+// malformed control never silently degrades to "ignore".
+func pathLenFromContext(ctx map[string]interface{}) (pathLenPolicy, error) {
+	var pl pathLenPolicy
+	if raw, ok := ctx[ctxPathLenMode]; ok && raw != nil {
+		mode, isStr := raw.(string)
+		switch {
+		case !isStr:
+			return pl, fmt.Errorf("context.%s must be a string", ctxPathLenMode)
+		case mode == PathLenEnforce:
+			pl.enforce = true
+		case mode == PathLenIgnore || mode == "":
+		default:
+			return pl, fmt.Errorf("context.%s %q is not %q or %q", ctxPathLenMode, mode, PathLenIgnore, PathLenEnforce)
+		}
+	}
+	if raw, ok := ctx[ctxPathLenOverride]; ok && raw != nil {
+		var n int
+		switch v := raw.(type) {
+		case int:
+			n = v
+		case int64:
+			n = int(v)
+		case float64:
+			n = int(v)
+			if float64(n) != v {
+				return pl, fmt.Errorf("context.%s must be an integer", ctxPathLenOverride)
+			}
+		default:
+			return pl, fmt.Errorf("context.%s must be an integer", ctxPathLenOverride)
+		}
+		if n < 0 {
+			return pl, fmt.Errorf("context.%s must not be negative", ctxPathLenOverride)
+		}
+		pl.override, pl.hasOver, pl.enforce = n, true, true
+	}
+	return pl, nil
+}
+
+// selfIssued reports whether a certificate's issuer and subject names are the
+// same (RFC 5280 section 3.3), as for a link certificate that re-certifies a
+// CSCA's new key under its unchanged name.
+func selfIssued(c *x509.Certificate) bool {
+	return namesEqual(c.RawIssuer, c.RawSubject, c.Issuer.String(), c.Subject.String())
+}
+
+// ownPathLen returns a certificate's pathLenConstraint, or -1 when it has none.
+func ownPathLen(c *x509.Certificate) int {
+	if !c.BasicConstraintsValid {
+		return -1
+	}
+	if c.MaxPathLen > 0 || (c.MaxPathLen == 0 && c.MaxPathLenZero) {
+		return c.MaxPathLen
+	}
+	return -1
+}
+
+// checkPathLen enforces pathLenConstraint on the issuers of a path
+// DSC -> [link...] -> anchor when the policy asks for it (RFC 5280 6.1.4).
+//
+// For the issuer at path[i] the constraint limits the number of
+// non-self-issued intermediate CAs below it, i.e. path[1..i-1]; the DSC is the
+// end-entity and never counts, and self-issued certificates do not count. The
+// limit is the policy override when set, otherwise the certificate's own
+// pathLenConstraint (absent means unlimited). The anchor is checked like any
+// other issuer.
+func (r *Registry) checkPathLen(path []*x509.Certificate, pl pathLenPolicy) *authzen.EvaluationResponse {
+	if !pl.enforce {
+		return nil
+	}
+	below := 0 // non-self-issued intermediates strictly between the DSC and path[i]
+	for i := 1; i < len(path); i++ {
+		limit := ownPathLen(path[i])
+		if pl.hasOver {
+			limit = pl.override
+		}
+		if limit >= 0 && below > limit {
+			src := "its pathLenConstraint"
+			if pl.hasOver {
+				src = "the path_len_override"
+			}
+			return r.deny(CodeChainInvalid, fmt.Sprintf("%q allows %d non-self-issued intermediate CA(s) below it by %s, but the path has %d",
+				path[i].Subject.String(), limit, src, below))
+		}
+		if !selfIssued(path[i]) {
+			below++
 		}
 	}
 	return nil

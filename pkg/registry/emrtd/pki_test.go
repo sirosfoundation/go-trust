@@ -138,6 +138,7 @@ type spec struct {
 	serial     int64
 	emptyUsage bool // emit a keyUsage extension with no bits set
 	sha1       bool // sign with ECDSA-SHA1 (EC keys only)
+	pathLen    *int // basicConstraints pathLenConstraint; nil omits it
 }
 
 const (
@@ -193,9 +194,18 @@ func issueDER(t *testing.T, s spec, sk *testKey, issuer *node) []byte {
 	}
 	var exts []pkix.Extension
 	if !s.noBC {
-		bc, err := asn1.Marshal(struct {
-			CA bool `asn1:"optional"`
-		}{s.ca})
+		var bc []byte
+		var err error
+		if s.pathLen != nil {
+			bc, err = asn1.Marshal(struct {
+				CA      bool
+				PathLen int
+			}{s.ca, *s.pathLen})
+		} else {
+			bc, err = asn1.Marshal(struct {
+				CA bool `asn1:"optional"`
+			}{s.ca})
+		}
 		require.NoError(t, err)
 		exts = append(exts, pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 19}, Critical: true, Value: bc})
 	}
