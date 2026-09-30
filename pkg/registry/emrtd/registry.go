@@ -39,6 +39,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -537,6 +538,8 @@ func requireRegularFile(path string) error {
 	return nil
 }
 
+var oidDeltaCRLIndicator = asn1.ObjectIdentifier{2, 5, 29, 27}
+
 // countryDirs lists the per-country subdirectories of an anchors or CRLs root.
 // A symlink to a directory is REJECTED rather than ignored: DirEntry.IsDir is
 // false for it, so skipping would silently drop that country's anchors or,
@@ -655,6 +658,15 @@ func (r *Registry) loadCRLs() (map[string][]*x509.RevocationList, error) {
 			crl, err := x509.ParseRevocationList(der)
 			if err != nil {
 				return nil, fmt.Errorf("emrtd: parsing CRL %s: %w", f, err)
+			}
+			// A delta CRL lists only changes since a base CRL. Checked on its
+			// own it would look like a complete list and let a certificate
+			// revoked in the base through, and combining deltas with bases is
+			// not supported: refuse, fail closed.
+			for _, ext := range crl.Extensions {
+				if ext.Id.Equal(oidDeltaCRLIndicator) {
+					return nil, fmt.Errorf("emrtd: CRL %s is a delta CRL (deltaCRLIndicator); delta CRLs are not supported, provide complete CRLs", f)
+				}
 			}
 			out[country] = append(out[country], crl)
 		}

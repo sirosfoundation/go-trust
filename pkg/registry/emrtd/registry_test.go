@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -444,6 +446,24 @@ func TestEvaluate_Revocation(t *testing.T) {
 		d := newDSC(t, kindP256, newRoot, "SE")
 		r := build(t, map[string][]byte{"a.crl": mkCRL(t, csca, link)})
 		requireDeny(t, eval(t, r, req("SWE", []*node{d, link}, nil)), CodeRevoked)
+	})
+	t.Run("delta CRL is refused at load (a base may be missing)", func(t *testing.T) {
+		val, err := asn1.Marshal(big.NewInt(1)) // BaseCRLNumber
+		require.NoError(t, err)
+		der, err := x509.CreateRevocationList(testRand{}, &x509.RevocationList{
+			Number:          big.NewInt(2),
+			ThisUpdate:      t2020,
+			NextUpdate:      t2020.Add(24 * time.Hour),
+			ExtraExtensions: []pkix.Extension{{Id: oidDeltaCRLIndicator, Critical: true, Value: val}},
+		}, csca.cert, csca.key.ec)
+		require.NoError(t, err)
+		anchors, crls := t.TempDir(), t.TempDir()
+		writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
+		require.NoError(t, os.MkdirAll(filepath.Join(crls, "SWE"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(crls, "SWE", "delta.crl"), der, 0o644))
+		_, err = New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "delta CRL")
 	})
 	t.Run("unparseable CRL fails registry load (cannot verify => refuse)", func(t *testing.T) {
 		anchors, crls := t.TempDir(), t.TempDir()
