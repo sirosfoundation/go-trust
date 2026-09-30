@@ -15,6 +15,7 @@ import (
 	"github.com/sirosfoundation/g119612/pkg/logging"
 	gocryptoutil "github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-cryptoutil/brainpool"
+	"github.com/sirosfoundation/go-cryptoutil/ecparams"
 	_ "github.com/sirosfoundation/go-trust/docs/swagger" // Import generated docs
 	"github.com/sirosfoundation/go-trust/pkg/api"
 	"github.com/sirosfoundation/go-trust/pkg/config"
@@ -302,6 +303,7 @@ func main() {
 				logging.F("watch", *whitelistWatch))
 			cryptoExt := gocryptoutil.New()
 			brainpool.Register(cryptoExt)
+			ecparams.Register(cryptoExt)
 			whitelistReg, err := static.NewWhitelistRegistryFromFile(*whitelistFile, *whitelistWatch,
 				static.WithWhitelistName("whitelist"),
 				static.WithWhitelistDescription("URL whitelist from "+*whitelistFile),
@@ -425,6 +427,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 	// accepts a CryptoExt field.
 	cryptoExt := gocryptoutil.New()
 	brainpool.Register(cryptoExt)
+	ecparams.Register(cryptoExt)
 
 	// Configure ETSI TSL registry from config
 	if cfg.Registries.ETSI != nil && cfg.Registries.ETSI.Enabled {

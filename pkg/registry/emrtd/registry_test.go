@@ -1,6 +1,8 @@
 package emrtd
 
 import (
+	"bytes"
+	"log/slog"
 	"context"
 	"crypto/x509"
 	"fmt"
@@ -860,4 +862,55 @@ func TestNew_ReloadsAfterWatchesArmed(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = r.Close() })
 	requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeUnknownCountry)
+}
+
+func TestExplicitECParameters(t *testing.T) {
+	t.Run("explicit-parameter P-256 CSCA loads as anchor and a DSC chains to it", func(t *testing.T) {
+		csca := issue(t, cscaSpec("CSCA explicit", "SE"), newKey(t, kindP256Explicit), nil)
+		require.NotNil(t, csca.cert.PublicKey)
+		require.NotEmpty(t, csca.cert.RawTBSCertificate)
+		// stdlib alone rejects the anchor, so the plugin must be doing the work
+		_, stdErr := x509.ParseCertificate(csca.cert.Raw)
+		require.Error(t, stdErr)
+
+		dsc := newDSC(t, kindP256, csca, "SE")
+		r := newReg(t, map[string][]*node{"SWE": {csca}})
+		require.Len(t, r.Info().TrustAnchors, 1)
+		resp := eval(t, r, req("SWE", []*node{dsc}, nil))
+		require.True(t, resp.Decision, "%v", resp.Context.Reason)
+	})
+
+	t.Run("explicit-parameter parameters that match no known curve stay rejected and are logged", func(t *testing.T) {
+		bad := issue2(t, cscaSpec("CSCA bad params", "SE"), newKey(t, kindP256ExplicitBadCofactor))
+		root := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "SWE"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "SWE", "bad.pem"), pemBytes("CERTIFICATE", bad), 0o644))
+
+		var logs bytes.Buffer
+		lg := slog.New(slog.NewTextHandler(&logs, nil))
+		r, err := New(Config{AnchorsDir: root, Logger: lg, Now: func() time.Time { return tNow }})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = r.Close() })
+		assert.Empty(t, r.Countries())
+		assert.Contains(t, logs.String(), "skipping")
+		assert.Contains(t, logs.String(), "bad.pem")
+	})
+
+	t.Run("real national CSCAs with explicit parameters (HUN P-521, DEU brainpoolP384r1)", func(t *testing.T) {
+		root := t.TempDir()
+		for _, c := range []struct{ dir, file string }{
+			{"HUN", "csca_hun_explicit_params.pem"},
+			{"DEU", "csca_deu_explicit_params.pem"},
+		} {
+			data, err := os.ReadFile(filepath.Join("testdata", c.file))
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(filepath.Join(root, c.dir), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(root, c.dir, c.file), data, 0o644))
+		}
+		r, err := New(Config{AnchorsDir: root, Logger: quietLogger(), Now: func() time.Time { return tNow }})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = r.Close() })
+		assert.ElementsMatch(t, []string{"DEU", "HUN"}, r.Countries())
+		assert.Len(t, r.Info().TrustAnchors, 2)
+	})
 }

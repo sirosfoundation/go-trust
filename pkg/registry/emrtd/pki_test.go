@@ -33,6 +33,8 @@ const (
 	kindP256 keyKind = iota
 	kindBrainpool256
 	kindRSAPSS
+	kindP256Explicit            // P-256 key, SPKI with explicit domain parameters
+	kindP256ExplicitBadCofactor // same, but with a wrong cofactor: must be declined
 )
 
 type testKey struct {
@@ -46,7 +48,7 @@ func newKey(t *testing.T, k keyKind) *testKey {
 	tk := &testKey{kind: k}
 	var err error
 	switch k {
-	case kindP256:
+	case kindP256, kindP256Explicit, kindP256ExplicitBadCofactor:
 		tk.ec, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	case kindBrainpool256:
 		tk.ec, err = ecdsa.GenerateKey(gematik.P256r1(), rand.Reader)
@@ -68,6 +70,8 @@ func (k *testKey) spki(t *testing.T) []byte {
 		b, err := gematik.MarshalPKIXPublicKey(&k.ec.PublicKey)
 		require.NoError(t, err)
 		return b
+	case kindP256Explicit, kindP256ExplicitBadCofactor:
+		return explicitP256SPKI(t, &k.ec.PublicKey, k.kind == kindP256ExplicitBadCofactor)
 	default:
 		b, err := x509.MarshalPKIXPublicKey(&k.rsa.PublicKey)
 		require.NoError(t, err)
@@ -162,6 +166,20 @@ func name(t *testing.T, s spec) []byte {
 // issue builds a certificate for subject key `sk`, signed by `issuer` (nil = self-signed).
 func issue(t *testing.T, s spec, sk *testKey, issuer *node) *node {
 	t.Helper()
+	der := issueDER(t, s, sk, issuer)
+	ext := testExt()
+	cert, err := ext.ParseCertificate(der)
+	require.NoError(t, err)
+	require.NotNil(t, cert.PublicKey)
+	return &node{key: sk, cert: cert, spec: s}
+}
+
+// issue2 builds a self-signed certificate and returns its DER without parsing
+// it (for certificates no parser is expected to accept).
+func issue2(t *testing.T, s spec, sk *testKey) []byte { return issueDER(t, s, sk, nil) }
+
+func issueDER(t *testing.T, s spec, sk *testKey, issuer *node) []byte {
+	t.Helper()
 	signer := sk
 	issuerName := name(t, s)
 	if issuer != nil {
@@ -208,12 +226,7 @@ func issue(t *testing.T, s spec, sk *testKey, issuer *node) *node {
 		Sig:    asn1.BitString{Bytes: sig, BitLength: len(sig) * 8},
 	})
 	require.NoError(t, err)
-
-	ext := testExt()
-	cert, err := ext.ParseCertificate(der)
-	require.NoError(t, err)
-	require.NotNil(t, cert.PublicKey)
-	return &node{key: sk, cert: cert, spec: s}
+	return der
 }
 
 func (n *node) b64() string { return base64.StdEncoding.EncodeToString(n.cert.Raw) }
@@ -279,4 +292,53 @@ func signWith(t *testing.T, k *testKey, s spec, tbs []byte) []byte {
 		return sig
 	}
 	return k.sign(t, tbs)
+}
+
+// explicitP256SPKI encodes a P-256 public key with ECParameters given as a
+// specifiedCurve (X9.62 / RFC 3279) instead of the named-curve OID, the way
+// several national CSCAs do. badCofactor makes the parameters not match P-256.
+func explicitP256SPKI(t *testing.T, pub *ecdsa.PublicKey, badCofactor bool) []byte {
+	t.Helper()
+	p := elliptic.P256().Params()
+	a := new(big.Int).Sub(p.P, big.NewInt(3))
+	base := elliptic.Marshal(elliptic.P256(), p.Gx, p.Gy)
+	cofactor := 1
+	if badCofactor {
+		cofactor = 2
+	}
+	type fieldID struct {
+		Type  asn1.ObjectIdentifier
+		Prime *big.Int
+	}
+	type curve struct{ A, B []byte }
+	type params struct {
+		Version  int
+		Field    fieldID
+		Curve    curve
+		Base     []byte
+		Order    *big.Int
+		Cofactor int
+	}
+	pb, err := asn1.Marshal(params{
+		Version:  1,
+		Field:    fieldID{asn1.ObjectIdentifier{1, 2, 840, 10045, 1, 1}, p.P},
+		Curve:    curve{a.FillBytes(make([]byte, 32)), p.B.FillBytes(make([]byte, 32))},
+		Base:     base,
+		Order:    p.N,
+		Cofactor: cofactor,
+	})
+	require.NoError(t, err)
+	type algID struct {
+		Algo   asn1.ObjectIdentifier
+		Params asn1.RawValue
+	}
+	spki, err := asn1.Marshal(struct {
+		Alg algID
+		Key asn1.BitString
+	}{
+		Alg: algID{asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}, asn1.RawValue{FullBytes: pb}},
+		Key: asn1.BitString{Bytes: elliptic.Marshal(elliptic.P256(), pub.X, pub.Y), BitLength: 65 * 8},
+	})
+	require.NoError(t, err)
+	return spki
 }

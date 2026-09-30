@@ -55,6 +55,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-cryptoutil/brainpool"
+	"github.com/sirosfoundation/go-cryptoutil/ecparams"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
 )
@@ -163,6 +164,7 @@ func New(cfg Config) (*Registry, error) {
 	if ext == nil {
 		ext = cryptoutil.New()
 		brainpool.Register(ext)
+		ecparams.Register(ext)
 	}
 	r := &Registry{cfg: cfg, ext: ext, log: cfg.Logger}
 	if err := r.reload(); err != nil {

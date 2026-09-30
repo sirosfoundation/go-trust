@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     issuing state. Anchors load from `anchors_dir/<ALPHA3>/*.pem` only, with
     the certificate subject C cross-checked against the directory through an
     embedded ISO 3166 alpha-2/alpha-3 table; optional `crls_dir` and `watch`
-  - Chain built with go-cryptoutil signature checks (brainpool, RSA-PSS);
+  - Chain built with go-cryptoutil signature checks (brainpool, RSA-PSS; the
+    `ecparams` plugin also parses CSCAs with explicit EC parameters, negative
+    serials and RSA keys lacking NULL parameters); SHA-1/MD5 signatures refused;
     extra certificates in `resource.key` are untrusted link-certificate
     candidates only; validity evaluated at `context.signing_time`
   - Machine-readable deny codes (`unknown_country`, `no_anchor`,

@@ -61,12 +61,20 @@ The registry only answers requests with `action.name` `emrtd-document-signer`. A
 
 ### Known parsing limits
 
-Some real CSCA certificates use encodings that Go's X.509 parser and go-cryptoutil reject: ECDSA keys with
-explicit curve parameters (`invalid ECDSA parameters`), negative serial numbers, and RSA keys without NULL
-parameters. Such anchors are skipped and logged at load time, so DSCs issued under them are denied. A brainpool
-subject key under an RSA-PSS signature is also refused. Check the load log after every deployment: the startup
-line `emrtd anchors loaded` reports the number of countries and anchors actually loaded, which can be lower than
-the number of files.
+Real CSCA certificates often use encodings that Go's X.509 parser rejects. The registry registers
+go-cryptoutil's opt-in `ecparams` parser next to `brainpool`, which handles, without ever trusting a
+self-described curve:
+
+- ECDSA keys with explicit curve parameters, when they match NIST P-224/P-256/P-384/P-521 or
+  brainpoolP256r1/P384r1/P512r1 exactly;
+- negative serial numbers;
+- RSA keys whose AlgorithmIdentifier lacks the NULL parameters.
+
+Still rejected (the anchor is skipped and logged at load time, so DSCs issued under it are denied with
+`no_anchor`): explicit parameters that match no known curve (other curves, twisted Brainpool, wrong generator or
+cofactor), an invalid subjectKeyIdentifier, invalid basicConstraints, and a brainpool subject key under an
+RSA-PSS signature. Check the load log after every deployment: the startup line `emrtd anchors loaded` reports the
+number of countries and anchors actually loaded, which can be lower than the number of files.
 
 ## Request
 
@@ -117,8 +125,10 @@ A caller must treat anything other than `decision: true` as not trusted, includi
 - Chain building uses go-cryptoutil signature checking, so brainpool curves and RSA-PSS work. The system
   certificate pool is never used. SHA-1 and MD5 certificate signatures are rejected.
 - Issuer names match by bytes, then case-insensitively. AKI/SKI need not match; the signature decides.
-- A DSC without a `keyUsage` extension is accepted; if present it must include `digitalSignature`.
-- Anchors are exempt from the CA/`keyCertSign` check; link certificates from the request are not.
+- A DSC without a `keyUsage` extension is accepted; if the extension is present (even with no bits set) it must
+  include `digitalSignature`. A DSC that is itself a CA (`basicConstraints` cA=true) is refused.
+- Anchors are exempt from the CA/`keyCertSign` check; link certificates from the request must be CAs and assert
+  `keyCertSign`.
   `pathLenConstraint` is not enforced and chains are limited to 5 certificates.
 - Validity is checked for every certificate at `signing_time`.
 - Revocation is strict: any entry on a CRL whose signature verifies against the issuer denies the

@@ -8,11 +8,13 @@ import (
 
 	"github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-cryptoutil/brainpool"
+	"github.com/sirosfoundation/go-cryptoutil/ecparams"
 )
 
 func testExt() *cryptoutil.Extensions {
 	ext := cryptoutil.New()
 	brainpool.Register(ext)
+	ecparams.Register(ext)
 	return ext
 }
 
