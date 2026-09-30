@@ -447,6 +447,15 @@ func TestEvaluate_Revocation(t *testing.T) {
 		r := build(t, map[string][]byte{"a.crl": mkCRL(t, csca, link)})
 		requireDeny(t, eval(t, r, req("SWE", []*node{d, link}, nil)), CodeRevoked)
 	})
+	t.Run("CRL filed under the wrong country is refused at load", func(t *testing.T) {
+		anchors, crls := t.TempDir(), t.TempDir()
+		writeAnchors(t, anchors, map[string][]*node{"SWE": {csca}})
+		require.NoError(t, os.MkdirAll(filepath.Join(crls, "DEU"), 0o755)) // issuer is C=SE
+		require.NoError(t, os.WriteFile(filepath.Join(crls, "DEU", "a.crl"), mkCRL(t, csca, dsc), 0o644))
+		_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "filed under DEU")
+	})
 	t.Run("delta CRL is refused at load (a base may be missing)", func(t *testing.T) {
 		val, err := asn1.Marshal(big.NewInt(1)) // BaseCRLNumber
 		require.NoError(t, err)
@@ -1098,4 +1107,36 @@ func TestCRLDataIndexesSerials(t *testing.T) {
 func TestCountryDirsInspectFailureFailsLoad(t *testing.T) {
 	_, err := countryDirs(filepath.Join(t.TempDir(), "missing"))
 	require.Error(t, err)
+}
+
+// Verifying the same CRL against the same issuer for many candidate paths
+// must happen once per evaluation.
+func TestCRLSignatureVerdictsMemoized(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	other := newCSCA(t, kindP256, "CSCA", "SE") // same DN, different key
+	der, err := x509.CreateRevocationList(testRand{}, &x509.RevocationList{
+		Number: big.NewInt(1), ThisUpdate: t2020, NextUpdate: t2040,
+		RevokedCertificateEntries: []x509.RevocationListEntry{{SerialNumber: dsc.cert.SerialNumber, RevocationTime: t2020}},
+	}, csca.cert, csca.key.ec)
+	require.NoError(t, err)
+	parsed, err := x509.ParseRevocationList(der)
+	require.NoError(t, err)
+	crl := newCRLData(parsed)
+
+	r := newReg(t, map[string][]*node{"SWE": {csca}})
+	vc := crlVerdicts{}
+	for i := 0; i < 5; i++ {
+		assert.True(t, r.crlSignatureOK(vc, crl, csca.cert))
+		assert.False(t, r.crlSignatureOK(vc, crl, other.cert))
+	}
+	assert.Len(t, vc, 2, "one verdict per (CRL, issuer) pair, however many paths ask")
+
+	// and through checkPath: repeated calls with a shared cache still deny, adding no entries
+	for i := 0; i < 3; i++ {
+		d := r.checkPath([]*x509.Certificate{dsc.cert, csca.cert}, tNow, []*crlData{crl}, pathLenPolicy{}, vc)
+		require.NotNil(t, d)
+		assert.False(t, d.Decision)
+	}
+	assert.Len(t, vc, 2)
 }

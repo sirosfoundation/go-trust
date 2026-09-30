@@ -153,6 +153,8 @@ A caller must treat anything other than `decision: true` as not trusted, includi
 - Revocation is strict: any entry on a CRL whose signature verifies against the issuer denies the
   certificate, regardless of revocation date and even if the CRL is past `nextUpdate`. CRLs that fail
   signature verification are ignored; with no CRL for an issuer nothing is denied.
+- A CRL whose issuer name carries a country `C` that does not match its `crls_dir/<ALPHA3>` directory is refused at
+  load (it would otherwise be silently ignored for its own state).
 - Delta CRLs (`deltaCRLIndicator`) are not supported and are refused like an unparsable CRL: a delta checked
   without its base would look complete. Provide complete CRLs.
 - An unparsable CRL file makes startup fail. On reload the previous data stays in use.

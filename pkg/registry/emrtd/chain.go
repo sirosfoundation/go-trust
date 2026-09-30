@@ -202,7 +202,7 @@ func hasKeyUsageExt(c *x509.Certificate) bool {
 
 // checkPath applies path-length, time, key-usage and revocation checks to a
 // candidate path. It returns nil when the path is acceptable.
-func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crlData, pl pathLenPolicy) *authzen.EvaluationResponse {
+func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crlData, pl pathLenPolicy, vc crlVerdicts) *authzen.EvaluationResponse {
 	if d := r.checkPathLen(path, pl); d != nil {
 		return d
 	}
@@ -253,7 +253,7 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crl
 			if weakSigAlg(crl.SignatureAlgorithm) {
 				continue
 			}
-			if r.ext.CheckSignature(issuer, crl.SignatureAlgorithm, crl.RawTBSRevocationList, crl.Signature) != nil {
+			if !r.crlSignatureOK(vc, crl, issuer) {
 				continue
 			}
 			if crl.isRevoked(cert.SerialNumber) {
@@ -377,4 +377,28 @@ func (r *Registry) checkPathLen(path []*x509.Certificate, pl pathLenPolicy) *aut
 		}
 	}
 	return nil
+}
+
+// crlKey identifies one CRL/issuer-certificate pair within an evaluation.
+type crlKey struct {
+	crl    *crlData
+	issuer string // issuer certificate DER
+}
+
+// crlVerdicts memoizes CRL signature verification for ONE evaluation. A
+// request with many candidate paths would otherwise verify the same CRL
+// against the same issuer once per path, spending CPU outside the
+// maxSearchSteps budget. It is deliberately not shared across evaluations:
+// issuers can be client-supplied link certificates, so a long-lived cache
+// would grow with attacker-chosen keys.
+type crlVerdicts map[crlKey]bool
+
+func (r *Registry) crlSignatureOK(vc crlVerdicts, crl *crlData, issuer *x509.Certificate) bool {
+	k := crlKey{crl: crl, issuer: string(issuer.Raw)}
+	if ok, seen := vc[k]; seen {
+		return ok
+	}
+	ok := r.ext.CheckSignature(issuer, crl.SignatureAlgorithm, crl.RawTBSRevocationList, crl.Signature) == nil
+	vc[k] = ok
+	return ok
 }

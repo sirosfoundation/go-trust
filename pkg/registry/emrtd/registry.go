@@ -309,10 +309,11 @@ func (r *Registry) evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	}
 
 	s := newSearch(ctx)
+	vc := crlVerdicts{}
 	var first *authzen.EvaluationResponse
 	var accepted []*x509.Certificate
 	found, nameMatched := r.buildPaths(s, dsc, extras, snap.anchors[country], func(p []*x509.Certificate) bool {
-		if d := r.checkPath(p, at, snap.crls[country], pl); d != nil {
+		if d := r.checkPath(p, at, snap.crls[country], pl, vc); d != nil {
 			if first == nil {
 				first = d
 			}
@@ -690,6 +691,14 @@ func (r *Registry) loadCRLs() (map[string][]*crlData, error) {
 			crl, err := x509.ParseRevocationList(der)
 			if err != nil {
 				return nil, fmt.Errorf("emrtd: parsing CRL %s: %w", f, err)
+			}
+			// A CRL filed under the wrong country would never be consulted
+			// for the state it belongs to, silently disabling revocation
+			// for it. Its issuer's C, when present, must match the directory.
+			for _, c := range crl.Issuer.Country {
+				if !countryMatches(country, c) {
+					return nil, fmt.Errorf("emrtd: CRL %s is issued by C=%q but filed under %s; move it to the right country directory", f, c, country)
+				}
 			}
 			// A delta CRL lists only changes since a base CRL. Checked on its
 			// own it would look like a complete list and let a certificate
