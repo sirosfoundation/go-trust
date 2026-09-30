@@ -601,6 +601,13 @@ func countryDirs(root string) ([]string, error) {
 		}
 		if lst.IsDir() {
 			dirs = append(dirs, e.Name())
+			continue
+		}
+		// A regular file, FIFO etc. named like a country is a country
+		// directory that was replaced by something else: loading without it
+		// would publish a snapshot missing that state's anchors or CRLs.
+		if _, isCountry := alpha3ToAlpha2[e.Name()]; isCountry {
+			return nil, fmt.Errorf("emrtd: %s is not a directory (%s); a country entry must be a real directory", p, lst.Mode().Type())
 		}
 	}
 	return dirs, nil

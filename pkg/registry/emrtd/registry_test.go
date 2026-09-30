@@ -723,6 +723,20 @@ func TestCountryDirectorySymlinkRejected(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "symlink")
 	})
+	t.Run("country-named regular file", func(t *testing.T) {
+		anchors, crls, _ := build(t)
+		require.NoError(t, os.WriteFile(filepath.Join(crls, "SWE"), []byte("not a directory"), 0o644))
+		_, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger()})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a directory")
+	})
+	t.Run("unrelated stray file is ignored", func(t *testing.T) {
+		anchors, _, _ := build(t)
+		require.NoError(t, os.WriteFile(filepath.Join(anchors, "README"), []byte("x"), 0o644))
+		r, err := New(Config{AnchorsDir: anchors, Logger: quietLogger()})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = r.Close() })
+	})
 	t.Run("a stray file symlink that is not a directory is ignored", func(t *testing.T) {
 		anchors, _, _ := build(t)
 		require.NoError(t, os.Symlink("/nonexistent", filepath.Join(anchors, "dangling")))

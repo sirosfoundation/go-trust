@@ -64,7 +64,7 @@ The registry only answers requests with `action.name` `emrtd-document-signer`. A
   ([emrtd-trust-anchors](https://github.com/sirosfoundation/emrtd-trust-anchors)) also holds `candidates/` and
   `revoked/` trees, which must never be loaded; use its `export` command to produce a deployable tree.
 - `anchors_dir` and `crls_dir` themselves may be symlinks (atomic tree swaps). Anything **below** the root must
-  be real: any country-named symlink (whatever it points to), any symlink to a directory, and a
+  be real: any country-named entry that is not a real directory (a file, FIFO or symlink, whatever it points to), any symlink to a directory, and a
   symlinked or otherwise non-regular (for example a FIFO) `.pem` or `.crl` file, are **refused**. Startup fails (on reload the previous data stays in use)
   instead of silently dropping anchors or revocation data, or trusting a link whose target can change without
   the watcher seeing any event.
