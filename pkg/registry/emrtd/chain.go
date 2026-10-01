@@ -193,7 +193,7 @@ func hasKeyUsageExt(c *x509.Certificate) bool {
 
 // checkPath applies path-length, time, key-usage and revocation checks to a
 // candidate path. It returns nil when the path is acceptable.
-func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crlData, pl pathLenPolicy, vc crlVerdicts) *authzen.EvaluationResponse {
+func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crlData, anchors []*anchor, pl pathLenPolicy, vc crlVerdicts) *authzen.EvaluationResponse {
 	if d := r.checkPathLen(path, pl); d != nil {
 		return d
 	}
@@ -238,13 +238,14 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crl
 	for i := 0; i < len(path)-1; i++ {
 		cert, issuer := path[i], path[i+1]
 		for _, crl := range crls {
-			if !namesEqual(crl.RawIssuer, issuer.RawSubject, crl.Issuer.String(), issuer.Subject.String()) {
+			// The CRL must be issued under the name of the certificate's issuer.
+			if !namesEqual(crl.RawIssuer, cert.RawIssuer, crl.Issuer.String(), cert.Issuer.String()) {
 				continue
 			}
 			if weakSigAlg(crl.SignatureAlgorithm) {
 				continue
 			}
-			if !r.crlSignatureOK(vc, crl, issuer) {
+			if !r.crlAuthentic(vc, crl, issuer, anchors) {
 				continue
 			}
 			if crl.isRevoked(cert.SerialNumber) {
@@ -383,6 +384,34 @@ type crlKey struct {
 // issuers can be client-supplied link certificates, so a long-lived cache
 // would grow with attacker-chosen keys.
 type crlVerdicts map[crlKey]bool
+
+// crlAuthentic reports whether the CRL is signed by a key that speaks for the
+// CRL's issuer name. After a CSCA key rollover a state signs ONE CRL with its
+// current key that also lists DSCs issued under earlier keys (ICAO 9303 Part
+// 12), so the signer need not be the issuer on this path. Accepted signers:
+//   - the issuer certificate on the validated path (as before), and
+//   - any REVIEWED anchor of the claimed country whose subject name equals the
+//     CRL's issuer name, i.e. every key of that CSCA name.
+//
+// Never accepted: another country's anchor (anchors is the claimed country's
+// list), an anchor with a different name, or a certificate that is not on the
+// validated path (request-supplied extras that did not chain). The caller has
+// already checked that the CRL issuer name equals the revoked certificate's
+// issuer name.
+func (r *Registry) crlAuthentic(vc crlVerdicts, crl *crlData, pathIssuer *x509.Certificate, anchors []*anchor) bool {
+	if r.crlSignatureOK(vc, crl, pathIssuer) {
+		return true
+	}
+	for _, a := range anchors {
+		if !namesEqual(crl.RawIssuer, a.cert.RawSubject, crl.Issuer.String(), a.cert.Subject.String()) {
+			continue
+		}
+		if r.crlSignatureOK(vc, crl, a.cert) {
+			return true
+		}
+	}
+	return false
+}
 
 func (r *Registry) crlSignatureOK(vc crlVerdicts, crl *crlData, issuer *x509.Certificate) bool {
 	k := crlKey{crl: crl, issuer: string(issuer.Raw)}

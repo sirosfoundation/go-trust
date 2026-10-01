@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1047,7 +1048,17 @@ func TestWatch_SymlinkSwap(t *testing.T) {
 	link := filepath.Join(base, "current")
 	require.NoError(t, os.Symlink(v1, link))
 
-	r, err := New(Config{AnchorsDir: link, Watch: true, ReloadDebounce: 20 * time.Millisecond, Logger: quietLogger(), Now: func() time.Time { return tNow }})
+	cfg := Config{AnchorsDir: link, Watch: true, ReloadDebounce: 20 * time.Millisecond, Logger: quietLogger(), Now: func() time.Time { return tNow }}
+	// On Linux the parent directory's inotify watch reports the rename, so the
+	// swap is picked up from that event; the default 30s root check is far
+	// outside the deadline below, so it cannot be what passes the test there.
+	// kqueue (macOS, BSD) raises no event for a rename over an existing
+	// directory entry, so on those platforms the root check is the mechanism
+	// that notices the swap: shorten it to exercise that path instead.
+	if runtime.GOOS != "linux" {
+		cfg.RootCheckInterval = 30 * time.Millisecond
+	}
+	r, err := New(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = r.Close() })
 	require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
@@ -1241,7 +1252,7 @@ func TestCRLSignatureVerdictsMemoized(t *testing.T) {
 
 	// and through checkPath: repeated calls with a shared cache still deny, adding no entries
 	for i := 0; i < 3; i++ {
-		d := r.checkPath([]*x509.Certificate{dsc.cert, csca.cert}, tNow, []*crlData{crl}, pathLenPolicy{}, vc)
+		d := r.checkPath([]*x509.Certificate{dsc.cert, csca.cert}, tNow, []*crlData{crl}, nil, pathLenPolicy{}, vc)
 		require.NotNil(t, d)
 		assert.False(t, d.Decision)
 	}
@@ -1401,4 +1412,150 @@ func TestWatch_InPlaceAncestorReplacement(t *testing.T) {
 			}, 5*time.Second, 20*time.Millisecond)
 		})
 	}
+}
+
+// ---- CRL authority across a CSCA key rollover ----
+
+type rolloverEnv struct {
+	cscaOld, cscaNew *node
+}
+
+func mkSignedCRL(t *testing.T, signer *node, issuerName *node, revoked ...*node) []byte {
+	t.Helper()
+	var entries []x509.RevocationListEntry
+	for _, n := range revoked {
+		entries = append(entries, x509.RevocationListEntry{SerialNumber: n.cert.SerialNumber, RevocationTime: t2020})
+	}
+	// x509.CreateRevocationList takes the issuer name from the issuer cert.
+	der, err := x509.CreateRevocationList(testRand{}, &x509.RevocationList{
+		Number: big.NewInt(1), ThisUpdate: t2020, NextUpdate: t2020.Add(24 * time.Hour),
+		RevokedCertificateEntries: entries,
+	}, issuerName.cert, signer.key.ec)
+	require.NoError(t, err)
+	return der
+}
+
+func regWithCRL(t *testing.T, anchors map[string][]*node, crlCountry string, crl []byte) *Registry {
+	t.Helper()
+	ad, cd := t.TempDir(), t.TempDir()
+	writeAnchors(t, ad, anchors)
+	require.NoError(t, os.MkdirAll(filepath.Join(cd, crlCountry), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(cd, crlCountry, "current.crl"), crl, 0o644))
+	r, err := New(Config{AnchorsDir: ad, CRLsDir: cd, Logger: quietLogger(), Now: func() time.Time { return tNow }})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Close() })
+	return r
+}
+
+func TestCRLAfterKeyRollover(t *testing.T) {
+	cscaOld := newCSCA(t, kindP256, "CSCA", "SE")
+	cscaNew := issue(t, cscaSpec("CSCA", "SE"), newKey(t, kindP256), nil) // same name, new key
+	dsc := newDSC(t, kindP256, cscaOld, "SE")
+
+	crlDER, err := x509.CreateRevocationList(testRand{}, &x509.RevocationList{
+		Number: big.NewInt(1), ThisUpdate: t2020, NextUpdate: t2020.Add(24 * time.Hour),
+		RevokedCertificateEntries: []x509.RevocationListEntry{{SerialNumber: dsc.cert.SerialNumber, RevocationTime: t2020}},
+	}, cscaNew.cert, cscaNew.key.ec) // signed with the NEW key
+	require.NoError(t, err)
+
+	anchors, crls := t.TempDir(), t.TempDir()
+	writeAnchors(t, anchors, map[string][]*node{"SWE": {cscaOld, cscaNew}})
+	require.NoError(t, os.MkdirAll(filepath.Join(crls, "SWE"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(crls, "SWE", "current.crl"), crlDER, 0o644))
+	r, err := New(Config{AnchorsDir: anchors, CRLsDir: crls, Logger: quietLogger(), Now: func() time.Time { return tNow }})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Close() })
+
+	requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeRevoked)
+}
+
+func TestCRLAuthority(t *testing.T) {
+	cscaOld := newCSCA(t, kindP256, "CSCA", "SE")
+	cscaNew := issue(t, cscaSpec("CSCA", "SE"), newKey(t, kindP256), nil)
+	dscOld := newDSC(t, kindP256, cscaOld, "SE")
+	dscNew := newDSC(t, kindP256, cscaNew, "SE")
+	stranger := issue(t, cscaSpec("CSCA", "SE"), newKey(t, kindP256), nil) // same name, never reviewed
+	otherName := issue(t, cscaSpec("Other CA", "SE"), newKey(t, kindP256), nil)
+	deu := issue(t, cscaSpec("CSCA", "DE"), newKey(t, kindP256), nil) // same DN apart from C
+	both := map[string][]*node{"SWE": {cscaOld, cscaNew}}
+
+	t.Run("old-key and new-key DSCs are both revoked by the new-key CRL", func(t *testing.T) {
+		r := regWithCRL(t, both, "SWE", mkSignedCRL(t, cscaNew, cscaNew, dscOld, dscNew))
+		requireDeny(t, eval(t, r, req("SWE", []*node{dscOld}, nil)), CodeRevoked)
+		requireDeny(t, eval(t, r, req("SWE", []*node{dscNew}, nil)), CodeRevoked)
+	})
+	t.Run("old-key CRL still revokes (unchanged)", func(t *testing.T) {
+		r := regWithCRL(t, both, "SWE", mkSignedCRL(t, cscaOld, cscaOld, dscOld))
+		requireDeny(t, eval(t, r, req("SWE", []*node{dscOld}, nil)), CodeRevoked)
+	})
+	t.Run("unlisted DSC is still allowed", func(t *testing.T) {
+		good := newDSC(t, kindP256, cscaOld, "SE")
+		r := regWithCRL(t, both, "SWE", mkSignedCRL(t, cscaNew, cscaNew, dscOld))
+		require.True(t, eval(t, r, req("SWE", []*node{good}, nil)).Decision)
+	})
+	t.Run("CRL signed by an unreviewed same-name key is ignored", func(t *testing.T) {
+		r := regWithCRL(t, both, "SWE", mkSignedCRL(t, stranger, cscaNew, dscOld))
+		require.True(t, eval(t, r, req("SWE", []*node{dscOld}, nil)).Decision)
+	})
+	t.Run("CRL signed by an unrelated key under another name is ignored", func(t *testing.T) {
+		r := regWithCRL(t, map[string][]*node{"SWE": {cscaOld, otherName}}, "SWE", mkSignedCRL(t, otherName, otherName, dscOld))
+		require.True(t, eval(t, r, req("SWE", []*node{dscOld}, nil)).Decision, "issuer name differs from the DSC's issuer")
+	})
+	t.Run("another state's anchor is not an authority", func(t *testing.T) {
+		// CRL says issuer 'CSCA' (C=SE) but is signed by the DEU anchor's key; only
+		// DEU holds that key, so it cannot be verified against any SWE anchor.
+		crl := mkSignedCRL(t, deu, cscaNew, dscOld)
+		r := regWithCRL(t, map[string][]*node{"SWE": {cscaOld, cscaNew}, "DEU": {deu}}, "SWE", crl)
+		require.True(t, eval(t, r, req("SWE", []*node{dscOld}, nil)).Decision)
+	})
+	t.Run("same-name anchor of another country is not used", func(t *testing.T) {
+		// New key exists ONLY as a DEU anchor with the same CN; the SWE side
+		// has just the old key. A CRL under the SWE name signed by it is ignored.
+		newKeyDE := &node{key: cscaNew.key, cert: cscaNew.cert, spec: cscaNew.spec}
+		r := regWithCRL(t, map[string][]*node{"SWE": {cscaOld}, "DEU": {deu, newKeyDE}}, "SWE", mkSignedCRL(t, cscaNew, cscaNew, dscOld))
+		_ = deu
+		require.True(t, eval(t, r, req("SWE", []*node{dscOld}, nil)).Decision)
+	})
+	t.Run("issuer-name mismatch: CRL for another issuer name does not apply", func(t *testing.T) {
+		r := regWithCRL(t, map[string][]*node{"SWE": {cscaOld, cscaNew, otherName}}, "SWE", mkSignedCRL(t, otherName, otherName, dscOld))
+		require.True(t, eval(t, r, req("SWE", []*node{dscOld}, nil)).Decision)
+	})
+	t.Run("stale CRL still counts for a positive hit (unchanged)", func(t *testing.T) {
+		// NextUpdate is 2020-01-02, long before tNow
+		r := regWithCRL(t, both, "SWE", mkSignedCRL(t, cscaNew, cscaNew, dscOld))
+		requireDeny(t, eval(t, r, req("SWE", []*node{dscOld}, nil)), CodeRevoked)
+	})
+}
+
+// A DSC reached through a link certificate: DSC -> link(new key, same name,
+// signed by the old anchor). Only the OLD anchor is reviewed; the new key is
+// known only from the request-supplied link, which sits on the validated path.
+func TestCRLAuthorityViaLinkCertificate(t *testing.T) {
+	cscaOld := newCSCA(t, kindP256, "CSCA", "SE")
+	newKP := newKey(t, kindP256)
+	link := issue(t, cscaSpec("CSCA", "SE"), newKP, cscaOld) // new key, same name, signed by old
+	newRoot := issue(t, cscaSpec("CSCA", "SE"), newKP, nil)  // the same new key as a self-signed root
+	dsc := newDSC(t, kindP256, newRoot, "SE")                // issued under the new key
+	signedByNew := mkSignedCRL(t, newRoot, newRoot, dsc)
+
+	t.Run("CRL signed by the new key, link on the path", func(t *testing.T) {
+		r := regWithCRL(t, map[string][]*node{"SWE": {cscaOld}}, "SWE", signedByNew)
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc, link}, nil)), CodeRevoked)
+	})
+	t.Run("new root also an anchor", func(t *testing.T) {
+		r := regWithCRL(t, map[string][]*node{"SWE": {cscaOld, newRoot}}, "SWE", signedByNew)
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc, link}, nil)), CodeRevoked)
+	})
+	t.Run("CRL revoking the link certificate itself, signed by the old key", func(t *testing.T) {
+		r := regWithCRL(t, map[string][]*node{"SWE": {cscaOld}}, "SWE", mkSignedCRL(t, cscaOld, cscaOld, link))
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc, link}, nil)), CodeRevoked)
+	})
+	t.Run("a link that is not on the validated path is no authority", func(t *testing.T) {
+		// DSC chains to no reviewed anchor via this link (link signed by a stranger)
+		stranger := newCSCA(t, kindP256, "CSCA", "SE")
+		fakeLink := issue(t, cscaSpec("CSCA", "SE"), newKP, stranger)
+		r := regWithCRL(t, map[string][]*node{"SWE": {cscaOld}}, "SWE", signedByNew)
+		resp := eval(t, r, req("SWE", []*node{dsc, fakeLink}, nil))
+		require.False(t, resp.Decision) // no chain at all
+	})
 }

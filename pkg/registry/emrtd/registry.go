@@ -115,7 +115,9 @@ type Config struct {
 	// RootCheckInterval is how often the resolved (symlink-free) location of
 	// anchors_dir and crls_dir is re-checked when Watch is on; a change, for
 	// example an ancestor directory that is a symlink being swapped, triggers
-	// a reload (default 30s). File watches cannot see such a swap.
+	// a reload (default 30s). File watches cannot see such a swap. On kqueue
+	// platforms (macOS, BSD) they also miss a swap of a root symlink itself,
+	// which raises no event there, so this check is what notices it.
 	RootCheckInterval time.Duration
 
 	// ReloadDebounce is the quiet period after a file event before reloading
@@ -335,7 +337,7 @@ func (r *Registry) evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	var first *authzen.EvaluationResponse
 	var accepted []*x509.Certificate
 	found, nameMatched := r.buildPaths(s, dsc, extras, snap.anchors[country], func(p []*x509.Certificate) bool {
-		if d := r.checkPath(p, at, snap.crls[country], pl, vc); d != nil {
+		if d := r.checkPath(p, at, snap.crls[country], snap.anchors[country], pl, vc); d != nil {
 			if first == nil {
 				first = d
 			}

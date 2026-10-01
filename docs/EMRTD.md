@@ -114,6 +114,10 @@ for direct callers and answers `malformed_request`).
 
 ## Response
 
+With the `all` and `best_match` strategies the manager copies each registry's full `reason`, including the
+`admin` details (certificate fingerprints, subjects), into `all_results`. This is intended for service callers
+(a PEP talking to go-trust), not for passing on to end users.
+
 ```json
 {"decision": true,
  "context": {"reason": {"admin": {
@@ -156,14 +160,23 @@ A caller must treat anything other than `decision: true` as not trusted, includi
   `pathLenConstraint` is not enforced unless the policy opts in (see [Path length](#path-length)); chains are
   limited to 5 certificates either way.
 - Validity is checked for every certificate at `signing_time`.
-- Revocation is strict: any entry on a CRL whose signature verifies against the issuer denies the
-  certificate, regardless of revocation date and even if the CRL is past `nextUpdate`. CRLs that fail
-  signature verification are ignored; with no CRL for an issuer nothing is denied.
+- Revocation is strict: any entry on a CRL that is authentic for the certificate's issuer denies the
+  certificate, regardless of revocation date and even if the CRL is past `nextUpdate`. CRLs that are not
+  authentic are ignored; with no CRL for an issuer nothing is denied.
+- A CRL is **authentic for an issuer** when its issuer name equals the revoked certificate's issuer name and its
+  signature verifies against the issuer certificate on the validated path, or against **any reviewed anchor of
+  the claimed state whose subject name equals the CRL's issuer name** (every key of that CSCA name). The second
+  rule matters after a CSCA key rollover: the state publishes one CRL signed with its current key that also
+  lists DSCs issued under earlier keys, which chain to the old anchor. Never an authority: another state's
+  anchor, an anchor with a different name, or a request-supplied certificate that is not on the validated path.
 - A directory under `crls_dir` that is not an upper-case alpha-3 code but contains `.crl` files (for example
   `crls_dir/swe`) is refused at load, as is a `.crl` entry that is not a regular file (a directory, say).
 - With `watch: true`, file changes are picked up from file-system events, and the resolved (symlink-free)
   location of both roots is also re-checked every 30 seconds, so swapping a symlink in any ancestor directory
-  (`/data/current -> v2` with `anchors_dir: /data/current/anchors`) is noticed within that interval. The poll also compares each root's directory identity, so replacing an ancestor
+  (`/data/current -> v2` with `anchors_dir: /data/current/anchors`) is noticed within that interval.
+  Swapping a root that is itself a symlink is seen at once on Linux, from the event on its parent
+  directory; on macOS and other kqueue platforms renaming over an existing entry raises no event, so
+  it too is noticed by the 30-second re-check. The poll also compares each root's directory identity, so replacing an ancestor
   directory in place with a new real directory is noticed the same way.
 - A `.crl` file is one raw DER CRL, or PEM with one or more CRL blocks (all of them are used). The file must
   hold nothing but well-formed PEM blocks separated by whitespace; junk or a malformed block anywhere (which a

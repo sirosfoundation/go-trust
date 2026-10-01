@@ -30,6 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (self-issued links do not count; violations deny as `chain_invalid`).
     Default behaviour is unchanged; unknown modes fail config validation;
     clients cannot set the new context keys
+  - CRL authority follows CSCA key rollover: a CRL counts when its signature
+    verifies against the path issuer or any reviewed anchor of the claimed state
+    with the CRL's issuer name, so a new-key CRL revokes DSCs issued under an
+    older key. Other countries' anchors and unreviewed certificates never
+    authenticate a CRL
+  - Behaviour change for all registries: the 1 MiB request-body limit on
+    `/evaluation` applies to every request, not only eMRTD (oversized: 413)
+  - The `all` / `best_match` strategies now copy each registry's full `reason`,
+    including `admin` details, into `all_results`; intended for service callers
   - New `trustapi.RoleEMRTDDocumentSigner`; `signing_time` is now a
     client-suppliable request-context key
 

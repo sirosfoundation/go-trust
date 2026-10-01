@@ -312,6 +312,7 @@ Decides whether the Document Signer Certificate (DSC) of an electronic passport 
 - Anchors are read from `anchors_dir/<ALPHA3>/*.pem` only (e.g. `SWE`, `DEU`); the directory is the country and each certificate's subject `C` must match it (ISO 3166 table), otherwise that certificate is skipped and logged. Point it at the `anchors/` tree of the anchor repository, never at `candidates/`.
 - Extra certificates in `resource.key` are untrusted link-certificate candidates, never anchors. The system certificate pool is never used.
 - Validity is checked at `context.signing_time` (RFC 3339, default now); a malformed value is denied. Brainpool and RSA-PSS are supported, as are CSCAs with explicit EC parameters (via go-cryptoutil `ecparams`). Optional `crls_dir/<ALPHA3>/*.crl` enables revocation checks.
+- CRLs are authentic for an issuer when signed by the path issuer or any reviewed anchor of that state with the CRL's issuer name (covers CSCA key rollover). With the `all`/`best_match` strategies, `all_results` now carries each registry's full `reason` including `admin` details; intended for service callers.
 - Deny responses carry a machine-readable `code` in `context.reason.code` (also `context.reason.admin.code`): `unknown_country`, `no_anchor`, `chain_invalid`, `country_mismatch`, `expired`, `not_yet_valid`, `bad_key_usage`, `revoked`, `malformed_request`. Allow responses carry `csca_sha256`, `csca_subject` and `dsc_sha256` in `context.reason.admin`.
 
 ```yaml
