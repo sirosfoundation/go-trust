@@ -11,12 +11,12 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/gin-gonic/gin v1.12.0
-	github.com/go-oidfed/lib v0.11.2
+	github.com/go-oidfed/lib v0.11.4
 	github.com/go-resty/resty/v2 v2.17.2
-	github.com/go-webauthn/webauthn v0.18.1
+	github.com/go-webauthn/webauthn v0.18.2
 	github.com/google/uuid v1.6.0
 	github.com/jarcoal/httpmock v1.4.2
-	github.com/lestrrat-go/jwx/v4 v4.4.0
+	github.com/lestrrat-go/jwx/v4 v4.5.0
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/sirosfoundation/g119612 v0.7.0
