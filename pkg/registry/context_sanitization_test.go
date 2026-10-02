@@ -60,6 +60,7 @@ func TestEvaluate_SanitizesClientSuppliedContext(t *testing.T) {
 		"purpose":              "age verification",
 		"doc_type":             "org.iso.18013.5.1.mDL",
 		"intermediary_x5c":     []string{"MIIB..."},
+		"signing_time":         "2011-06-01T00:00:00Z",
 
 		// Policy controls the client must never be able to set.
 		"allow_intermediaries":      true,
@@ -84,6 +85,8 @@ func TestEvaluate_SanitizesClientSuppliedContext(t *testing.T) {
 		"require_iaca_endpoint":         true,
 		"allowed_aaguids":               []string{"injected"},
 		"blocked_aaguids":               []string{"injected"},
+		"emrtd_path_len_mode":           "ignore",
+		"emrtd_path_len_override":       99,
 		"_policy":                       "attacker-policy",
 		"totally_unknown_key":           "junk",
 	})
@@ -99,6 +102,7 @@ func TestEvaluate_SanitizesClientSuppliedContext(t *testing.T) {
 	assert.Equal(t, "age verification", captured["purpose"])
 	assert.Equal(t, "org.iso.18013.5.1.mDL", captured["doc_type"])
 	assert.Equal(t, []string{"MIIB..."}, captured["intermediary_x5c"])
+	assert.Equal(t, "2011-06-01T00:00:00Z", captured["signing_time"])
 
 	// Every policy control is gone.
 	for _, key := range []string{
@@ -299,6 +303,8 @@ func TestClientSuppliableKeysExcludePolicyControls(t *testing.T) {
 		"issuer_allowlist",
 		"allowed_aaguids",
 		"blocked_aaguids",
+		"emrtd_path_len_mode",
+		"emrtd_path_len_override",
 		"max_chain_depth",
 		"_original_subject_id",
 		"_policy",

@@ -52,8 +52,8 @@ github.com/fxamacker/cbor/v2 v2.9.4 h1:xwjVlxEMR3S605oUlgBjKLTTeGFciYPGYCtF/35LK
 github.com/fxamacker/cbor/v2 v2.9.4/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/gabriel-vasile/mimetype v1.4.15 h1:05iP/CYtZ/w455R/KZM6rZ5ieAdh99UPtd+d3YzLmaI=
 github.com/gabriel-vasile/mimetype v1.4.15/go.mod h1:azpTcoLcDZRNgFou5j+APrqQx9HqVPWa6ijYQIIVswQ=
-github.com/gematik/zero-lab/go/brainpool v0.0.0-20260309133150-5b2b80ad6517 h1:3SRQAONsFs3YkkmSenc3t37Hxt030LXEhY1xDU6hZT0=
-github.com/gematik/zero-lab/go/brainpool v0.0.0-20260309133150-5b2b80ad6517/go.mod h1:TaeFLI1a/MDVsD8s9QcvIBigMUB6TrwjTW07mjrfhek=
+github.com/gematik/zero-lab/go/brainpool v1.0.1 h1:6f4SGW4t7YsbUHn+kT2zwat6MHh4y00VF7EyfFjgLek=
+github.com/gematik/zero-lab/go/brainpool v1.0.1/go.mod h1:TGiI/RSzM76LwiWZRMzc9t1yDfN6D4uOaeYCd8N5rCs=
 github.com/gin-contrib/gzip v1.2.7 h1:eQYOd81DpSU24TYYYNPzATrl7Hv3hGyzQilt3fGkxoc=
 github.com/gin-contrib/gzip v1.2.7/go.mod h1:mfl5NDloGODrP2QryKtW37zsWrLkJkp/Y3iHTw0ZDy8=
 github.com/gin-contrib/sse v1.1.2 h1:MU2fgl1RrdYTMcgJLtz2kJF+vPg3xrqaaKfUUU18tCo=
@@ -231,10 +231,12 @@ github.com/scylladb/go-set v1.0.3-0.20200225121959-cc7b2070d91e h1:7q6NSFZDeGfvv
 github.com/scylladb/go-set v1.0.3-0.20200225121959-cc7b2070d91e/go.mod h1:DkpGd78rljTxKAnTDPFqXSGxvETQnJyuSOQwsHycqfs=
 github.com/sirosfoundation/g119612 v0.7.0 h1:aVj6iNio/z7YVW4qFZk485Pn8gvwDiW3CCId2YUDWH8=
 github.com/sirosfoundation/g119612 v0.7.0/go.mod h1:JWUPZGeKDgsS3ehs4OGEDD10oMVQIS/XWSb31MJRkMU=
-github.com/sirosfoundation/go-cryptoutil v0.6.0 h1:NmmHCZ/3ETuHlC1X4+0ce5QB6XI+IIKv2g4pymFQIr8=
-github.com/sirosfoundation/go-cryptoutil v0.6.0/go.mod h1:6JWcg/wLtALH2x6Hofa6VYX4b6XKiMNfXAVjp4yv9CA=
-github.com/sirosfoundation/go-cryptoutil/brainpool v0.2.0 h1:tLBZFdBAloNDwP2j87MRW0W/ujrj+EbVylrkWAIHON4=
-github.com/sirosfoundation/go-cryptoutil/brainpool v0.2.0/go.mod h1:h5sFbD8z/TLv+MziA97+UOXwDEN3drSYheRM5X9yaBE=
+github.com/sirosfoundation/go-cryptoutil v0.7.1 h1:cJsv4YQ3Wtj0m3mlTprKXh2B2NkAtOPHicmFhjgK8ic=
+github.com/sirosfoundation/go-cryptoutil v0.7.1/go.mod h1:6JWcg/wLtALH2x6Hofa6VYX4b6XKiMNfXAVjp4yv9CA=
+github.com/sirosfoundation/go-cryptoutil/brainpool v0.7.1 h1:Txbx3qulzL0H9JPULYiBWwOm4eh+heSe6hHF44Ca5YU=
+github.com/sirosfoundation/go-cryptoutil/brainpool v0.7.1/go.mod h1:l3biXejGMNinwS1sBRTRVt2i0qhTY7h9Jr0x/oNR9JA=
+github.com/sirosfoundation/go-cryptoutil/ecparams v0.7.1 h1:RKTZqP9QEk7fg4br+luMznUN47k+djdygvwDsUN4URk=
+github.com/sirosfoundation/go-cryptoutil/ecparams v0.7.1/go.mod h1:GzUjG+nBZwB8riF2PS7agxy1f6hq26qJvKvDfsWmfiI=
 github.com/sirosfoundation/goxmldsig v1.6.1-siros1 h1:iQadRZy/iwj0E/hXlfKrEDqA94Ey1ozIdLtATKGpGH8=
 github.com/sirosfoundation/goxmldsig v1.6.1-siros1/go.mod h1:tGmeKRnyDp6EcdMP5U6hJotJ++bdpwFNuExwyJGUUM4=
 github.com/sirosfoundation/signedxml v1.4.0-siros1 h1:+d+j6AQxu9CNylGkmPbUAUdEYny6gvXZxFnuvrPViHk=

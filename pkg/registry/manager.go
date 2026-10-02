@@ -412,6 +412,17 @@ func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, p
 		}
 	}
 
+	// Apply eMRTD constraints. Key names are shared with the emrtd registry.
+	if policyCtx.Policy.EMRTD != nil {
+		e := policyCtx.Policy.EMRTD
+		if e.PathLenMode != "" {
+			req.Context["emrtd_path_len_mode"] = e.PathLenMode
+		}
+		if e.PathLenOverride != nil {
+			req.Context["emrtd_path_len_override"] = *e.PathLenOverride
+		}
+	}
+
 	// Store policy name in context for debugging/logging
 	req.Context["_policy"] = policyCtx.Policy.Name
 }
@@ -461,6 +472,14 @@ var clientSuppliableContextKeys = map[string]bool{
 
 	// Informational / audit
 	"purpose": true, // presentation purpose
+
+	// signing_time is the eMRTD document signing time (RFC 3339) at which the
+	// DSC/CSCA validity is evaluated (ICAO 9303 Part 12). It is data about
+	// the document, which only the PEP knows. The emrtd registry parses it
+	// strictly (malformed => deny); omitting it means "now". It is taken on
+	// the PEP's word, which is why the PEP must derive it from the verified
+	// SOD and not from unauthenticated input.
+	"signing_time": true,
 }
 
 // clientSuppliableContextKey returns true if the key may flow from a client
@@ -743,6 +762,7 @@ func (m *RegistryManager) evaluateBestMatchWithPolicy(ctx context.Context, req *
 		if matched, ok := resp.Context.Reason["registries_matched"].([]string); ok && len(matched) > 0 {
 			resp.Context.Reason["registry"] = matched[0]
 			resp.Context.Reason["strategy"] = "best_match"
+			promoteSelectedAdmin(resp.Context.Reason, matched[0])
 			delete(resp.Context.Reason, "all_results")
 		}
 	}

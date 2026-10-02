@@ -10,6 +10,7 @@ require (
 	github.com/SUNET/vc v0.7.20
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/fxamacker/cbor/v2 v2.9.4
+	github.com/gematik/zero-lab/go/brainpool v1.0.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-oidfed/lib v0.11.2
 	github.com/go-resty/resty/v2 v2.17.2
@@ -20,8 +21,9 @@ require (
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/sirosfoundation/g119612 v0.7.0
-	github.com/sirosfoundation/go-cryptoutil v0.6.0
-	github.com/sirosfoundation/go-cryptoutil/brainpool v0.2.0
+	github.com/sirosfoundation/go-cryptoutil v0.7.1
+	github.com/sirosfoundation/go-cryptoutil/brainpool v0.7.1
+	github.com/sirosfoundation/go-cryptoutil/ecparams v0.7.1
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.6.1
@@ -51,7 +53,6 @@ require (
 	github.com/eclipse-keypont/crypto11 v1.6.8 // indirect
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
-	github.com/gematik/zero-lab/go/brainpool v0.0.0-20260309133150-5b2b80ad6517 // indirect
 	github.com/gin-contrib/sse v1.1.2 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3 // indirect

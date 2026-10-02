@@ -50,6 +50,10 @@ const (
 	// The signer is not necessarily the credential issuer, so it is evaluated
 	// as its own AuthZEN action.name.
 	RoleStatusListSigner Role = "status-list-signer"
+	// RoleEMRTDDocumentSigner indicates the key is an ICAO 9303 eMRTD Document
+	// Signer Certificate (DSC) that must chain to a trusted CSCA of the
+	// claimed issuing state.
+	RoleEMRTDDocumentSigner Role = "emrtd-document-signer"
 	// RoleAny indicates no specific role constraint.
 	RoleAny Role = ""
 )

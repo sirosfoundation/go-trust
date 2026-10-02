@@ -46,6 +46,7 @@ func TestPolicyConfigCoversEveryConstraint(t *testing.T) {
 		{"DID", reflect.TypeOf(registry.DIDPolicyConstraints{}), reflect.TypeOf(config.DIDPolicyConfig{})},
 		{"MDOCIACA", reflect.TypeOf(registry.MDOCIACAPolicyConstraints{}), reflect.TypeOf(config.MDOCIACAPolicyConfig{})},
 		{"FIDOMDS3", reflect.TypeOf(registry.FIDOMDS3PolicyConstraints{}), reflect.TypeOf(config.FIDOMDS3PolicyConfig{})},
+		{"EMRTD", reflect.TypeOf(registry.EMRTDPolicyConstraints{}), reflect.TypeOf(config.EMRTDPolicyConfig{})},
 	}
 
 	for _, tc := range cases {
@@ -111,6 +112,10 @@ func TestConfigurePoliciesFromConfigCopiesEveryField(t *testing.T) {
 					"eu.europa.ec.eudi.pid.1": {"https://trust.example/pid"},
 				},
 			},
+			EMRTD: &config.EMRTDPolicyConfig{
+				PathLenMode:     "enforce",
+				PathLenOverride: func() *int { n := 2; return &n }(),
+			},
 		},
 	}
 
@@ -135,6 +140,14 @@ func TestConfigurePoliciesFromConfigCopiesEveryField(t *testing.T) {
 		t.Fatal("OIDFed constraints were not converted")
 	}
 	assertNoZeroFields(t, "OIDFedPolicyConstraints", reflect.ValueOf(*policy.OIDFed))
+
+	if policy.EMRTD == nil {
+		t.Fatal("EMRTD constraints were not converted")
+	}
+	assertNoZeroFields(t, "EMRTDPolicyConstraints", reflect.ValueOf(*policy.EMRTD))
+	if policy.EMRTD.PathLenMode != "enforce" || policy.EMRTD.PathLenOverride == nil || *policy.EMRTD.PathLenOverride != 2 {
+		t.Errorf("EMRTD constraints = %+v, want enforce/2", policy.EMRTD)
+	}
 
 	// Spot-check values, not just non-zeroness, so a field copied from the
 	// wrong source would still be caught.

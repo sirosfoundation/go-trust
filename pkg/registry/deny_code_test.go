@@ -1,0 +1,270 @@
+package registry
+
+import (
+	"context"
+	"github.com/sirosfoundation/go-trust/pkg/authzen"
+	"github.com/stretchr/testify/require"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestPromoteSingleDenyCode(t *testing.T) {
+	inner := map[string]interface{}{"code": "expired", "admin": map[string]interface{}{"code": "expired"}}
+	details := []map[string]interface{}{{"registry": "r", "decision": false, "reason": inner}}
+
+	reason := map[string]interface{}{"error": "x"}
+	promoteSingleDenyCode(reason, details)
+	assert.Equal(t, "expired", reason["code"])
+	assert.Equal(t, inner["admin"], reason["admin"])
+
+	// code without admin
+	reason = map[string]interface{}{}
+	promoteSingleDenyCode(reason, []map[string]interface{}{{"decision": false, "reason": map[string]interface{}{"code": "c"}}})
+	assert.Equal(t, "c", reason["code"])
+	assert.NotContains(t, reason, "admin")
+
+	// more than one registry: ambiguous, nothing promoted
+	reason = map[string]interface{}{}
+	promoteSingleDenyCode(reason, append(details, details[0]))
+	assert.Empty(t, reason)
+
+	// no reason / no code / non-string code: nothing promoted
+	for _, d := range [][]map[string]interface{}{
+		nil,
+		{{"registry": "r", "decision": false}},
+		{{"decision": false, "reason": map[string]interface{}{"error": "e"}}},
+		{{"decision": false, "reason": map[string]interface{}{"code": 7}}},
+		{{"decision": false, "reason": map[string]interface{}{"code": ""}}},
+		// an entry without a decision (nil response) is not a denial at all
+		{{"reason": map[string]interface{}{"code": "c"}}},
+	} {
+		reason = map[string]interface{}{}
+		promoteSingleDenyCode(reason, d)
+		assert.Empty(t, reason)
+	}
+}
+
+func TestAllStrategiesPromoteSingleDenyCode(t *testing.T) {
+	for _, strat := range []ResolutionStrategy{AllRegistries, BestMatch} {
+		mgr := NewRegistryManager(strat, 5*time.Second)
+		mgr.Register(&mockRegistry{
+			name: "emrtd", resourceTypes: []string{"x5c"}, healthy: true,
+			evaluateResponse: &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{"code": "expired", "admin": map[string]interface{}{"code": "expired"}},
+			}},
+		})
+		resp, err := mgr.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+		})
+		require.NoError(t, err)
+		assert.False(t, resp.Decision)
+		assert.Equal(t, "expired", resp.Context.Reason["code"], strat)
+		assert.NotNil(t, resp.Context.Reason["admin"])
+	}
+}
+
+func TestPromoteSingleDenyCode_IgnoresErrorRecords(t *testing.T) {
+	inner := map[string]interface{}{"code": "revoked", "admin": map[string]interface{}{"code": "revoked"}}
+	details := []map[string]interface{}{
+		{"registry": "emrtd", "decision": false, "reason": inner},
+		{"registry": "broken", "error": "boom"},
+	}
+	reason := map[string]interface{}{}
+	promoteSingleDenyCode(reason, details)
+	assert.Equal(t, "revoked", reason["code"])
+
+	reason = map[string]interface{}{}
+	promoteAllResultsDenyCode(reason, details)
+	assert.Equal(t, "revoked", reason["code"])
+}
+
+func TestAllStrategiesKeepAllowReasonAndAdmin(t *testing.T) {
+	admin := map[string]interface{}{"csca_sha256": "abc"}
+	mk := func() *mockRegistry {
+		return &mockRegistry{
+			name: "emrtd", resourceTypes: []string{"x5c"}, healthy: true,
+			evaluateResponse: &authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{"admin": admin},
+			}},
+		}
+	}
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+	}
+	for _, strat := range []ResolutionStrategy{AllRegistries, BestMatch} {
+		mgr := NewRegistryManager(strat, 5*time.Second)
+		mgr.Register(mk())
+		resp, err := mgr.Evaluate(context.Background(), req)
+		require.NoError(t, err)
+		assert.True(t, resp.Decision)
+		assert.Equal(t, admin, resp.Context.Reason["admin"], strat)
+	}
+	// filtered (policy) variant
+	mgr := NewRegistryManager(AllRegistries, 5*time.Second)
+	reg := mk()
+	mgr.Register(reg)
+	resp, err := mgr.evaluateAllFiltered(context.Background(), req, []TrustRegistry{reg}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, admin, resp.Context.Reason["admin"])
+	all := resp.Context.Reason["all_results"].([]map[string]interface{})
+	assert.NotNil(t, all[0]["reason"])
+}
+
+func TestBestMatchPromotesWinnerAdminWithMultipleAllows(t *testing.T) {
+	mk := func(name, fp string) *mockRegistry {
+		return &mockRegistry{
+			name: name, resourceTypes: []string{"x5c"}, healthy: true,
+			evaluateResponse: &authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{"admin": map[string]interface{}{"csca_sha256": fp}},
+			}},
+		}
+	}
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+	}
+	mgr := NewRegistryManager(BestMatch, 5*time.Second)
+	a, b := mk("a", "fpA"), mk("b", "fpB")
+	mgr.Register(a)
+	mgr.Register(b)
+	resp, err := mgr.Evaluate(context.Background(), req)
+	require.NoError(t, err)
+	winner := resp.Context.Reason["registry"].(string)
+	want := map[string]string{"a": "fpA", "b": "fpB"}[winner]
+	admin := resp.Context.Reason["admin"].(map[string]interface{})
+	assert.Equal(t, want, admin["csca_sha256"])
+
+	// policy-filtered wrapper
+	mgr.strategy = BestMatch
+	resp, err = mgr.evaluateBestMatchWithPolicy(context.Background(), req, nil)
+	require.NoError(t, err)
+	winner = resp.Context.Reason["registry"].(string)
+	want = map[string]string{"a": "fpA", "b": "fpB"}[winner]
+	admin = resp.Context.Reason["admin"].(map[string]interface{})
+	assert.Equal(t, want, admin["csca_sha256"])
+}
+
+func TestPromoteSelectedAdmin_FirstAllowOfDuplicateName(t *testing.T) {
+	entry := func(allow bool, marker string) map[string]interface{} {
+		return map[string]interface{}{
+			"registry": "dup", "decision": allow,
+			"reason": map[string]interface{}{"admin": map[string]interface{}{"m": marker}},
+		}
+	}
+	cases := []struct {
+		name string
+		all  []map[string]interface{}
+		want interface{}
+	}{
+		{"deny after allow", []map[string]interface{}{entry(true, "allow"), entry(false, "deny")}, "allow"},
+		{"deny before allow", []map[string]interface{}{entry(false, "deny"), entry(true, "allow")}, "allow"},
+		{"two allows keep the first", []map[string]interface{}{entry(true, "first"), entry(true, "second")}, "first"},
+		{"only denies promote nothing", []map[string]interface{}{entry(false, "deny")}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reason := map[string]interface{}{"all_results": tc.all}
+			promoteSelectedAdmin(reason, "dup")
+			if tc.want == nil {
+				assert.NotContains(t, reason, "admin")
+				return
+			}
+			assert.Equal(t, tc.want, reason["admin"].(map[string]interface{})["m"])
+		})
+	}
+}
+
+func TestDuplicateRegistryNames_AllowAdminSurvivesDeny(t *testing.T) {
+	mk := func(allow bool, marker string) *mockRegistry {
+		return &mockRegistry{
+			name: "dup", resourceTypes: []string{"x5c"}, healthy: true,
+			evaluateResponse: &authzen.EvaluationResponse{Decision: allow, Context: &authzen.EvaluationResponseContext{
+				Reason: map[string]interface{}{"admin": map[string]interface{}{"m": marker}},
+			}},
+		}
+	}
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+	}
+	for _, strat := range []ResolutionStrategy{AllRegistries, BestMatch} {
+		t.Run(string(strat), func(t *testing.T) {
+			mgr := NewRegistryManager(strat, 5*time.Second)
+			mgr.Register(mk(true, "allow"))
+			mgr.Register(mk(false, "deny"))
+			resp, err := mgr.Evaluate(context.Background(), req)
+			require.NoError(t, err)
+			require.True(t, resp.Decision)
+			admin, ok := resp.Context.Reason["admin"].(map[string]interface{})
+			require.True(t, ok, "admin must be promoted")
+			assert.Equal(t, "allow", admin["m"], "a same-named denial must not replace the allow's details")
+		})
+	}
+}
+
+// nilResponseRegistry returns (nil, nil) from Evaluate.
+type nilResponseRegistry struct{ *mockRegistry }
+
+func (nilResponseRegistry) Evaluate(context.Context, *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	return nil, nil
+}
+
+// A registry that returns (nil, nil) leaves an all_results entry with no
+// "decision"; it must not be counted as a second denial and hide the code of
+// the one registry that really denied.
+func TestAllResultsDenyCodeIgnoresNilResponses(t *testing.T) {
+	denier := &mockRegistry{
+		name: "denier", resourceTypes: []string{"x5c"}, healthy: true,
+		evaluateResponse: &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{
+			Reason: map[string]interface{}{"code": "expired", "admin": map[string]interface{}{"code": "expired"}},
+		}},
+	}
+	silent := &nilResponseRegistry{mockRegistry: &mockRegistry{name: "silent", resourceTypes: []string{"x5c"}, healthy: true}}
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+	}
+	for _, strat := range []ResolutionStrategy{AllRegistries, BestMatch} {
+		t.Run(string(strat), func(t *testing.T) {
+			mgr := NewRegistryManager(strat, 5*time.Second)
+			mgr.Register(denier)
+			mgr.Register(silent)
+			resp, err := mgr.Evaluate(context.Background(), req)
+			require.NoError(t, err)
+			require.False(t, resp.Decision)
+			assert.Equal(t, "expired", resp.Context.Reason["code"])
+		})
+	}
+	// direct, including the policy-filtered variant
+	reason := map[string]interface{}{}
+	promoteAllResultsDenyCode(reason, []map[string]interface{}{
+		{"registry": "silent"},
+		{"registry": "denier", "decision": false, "reason": map[string]interface{}{"code": "revoked"}},
+	})
+	assert.Equal(t, "revoked", reason["code"])
+}
+
+// First-match and sequential must also leave "decision" out for a nil
+// response, so a coded denial next to it still gets promoted.
+func TestNilResponseDoesNotHideCodedDenialFirstMatchAndSequential(t *testing.T) {
+	denier := &mockRegistry{
+		name: "denier", resourceTypes: []string{"x5c"}, healthy: true,
+		evaluateResponse: &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{
+			Reason: map[string]interface{}{"code": "revoked"},
+		}},
+	}
+	silent := &nilResponseRegistry{mockRegistry: &mockRegistry{name: "silent", resourceTypes: []string{"x5c"}, healthy: true}}
+	req := &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "x"}, Resource: authzen.Resource{Type: "x5c", ID: "x"},
+	}
+	for _, strat := range []ResolutionStrategy{FirstMatch, Sequential} {
+		t.Run(string(strat), func(t *testing.T) {
+			mgr := NewRegistryManager(strat, 5*time.Second)
+			mgr.Register(denier)
+			mgr.Register(silent)
+			resp, err := mgr.Evaluate(context.Background(), req)
+			require.NoError(t, err)
+			require.False(t, resp.Decision)
+			assert.Equal(t, "revoked", resp.Context.Reason["code"])
+		})
+	}
+}

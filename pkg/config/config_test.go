@@ -858,3 +858,104 @@ func TestFindUnknownKeysOnUnparseableYAMLIsQuiet(t *testing.T) {
 		t.Errorf("findUnknownKeys(nil) = %v, want nil", got)
 	}
 }
+
+func TestLoadConfigEMRTDRegistry(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	content := `
+registries:
+  emrtd:
+    enabled: true
+    name: emrtd-csca
+    anchors_dir: /etc/go-trust/emrtd/anchors
+    crls_dir: /etc/go-trust/emrtd/crls
+    watch: true
+policies:
+  policies:
+    emrtd-document-signer:
+      registries: [emrtd-csca]
+      constraints: {require_key_binding: true, allowed_key_types: [x5c]}
+`
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	e := cfg.Registries.EMRTD
+	if e == nil || !e.Enabled || e.Name != "emrtd-csca" || e.AnchorsDir != "/etc/go-trust/emrtd/anchors" ||
+		e.CRLsDir != "/etc/go-trust/emrtd/crls" || !e.Watch {
+		t.Fatalf("unexpected emrtd config: %+v", e)
+	}
+	if u := cfg.UnknownKeys(); len(u) != 0 {
+		t.Fatalf("emrtd keys reported unknown: %v", u)
+	}
+	p := cfg.Policies.Policies["emrtd-document-signer"]
+	if p == nil || p.Constraints == nil || !p.Constraints.RequireKeyBinding || len(p.Constraints.AllowedKeyTypes) != 1 {
+		t.Fatalf("unexpected policy: %+v", p)
+	}
+}
+
+func TestValidateEMRTDPolicy(t *testing.T) {
+	n := func(v int) *int { return &v }
+	cases := []struct {
+		name    string
+		e       *EMRTDPolicyConfig
+		wantErr string
+	}{
+		{"absent", nil, ""},
+		{"default", &EMRTDPolicyConfig{}, ""},
+		{"ignore", &EMRTDPolicyConfig{PathLenMode: "ignore"}, ""},
+		{"enforce", &EMRTDPolicyConfig{PathLenMode: "enforce"}, ""},
+		{"override zero", &EMRTDPolicyConfig{PathLenOverride: n(0)}, ""},
+		{"unknown mode", &EMRTDPolicyConfig{PathLenMode: "strict"}, "path_len_mode"},
+		{"negative override", &EMRTDPolicyConfig{PathLenOverride: n(-2)}, "path_len_override"},
+		{"ignore with override", &EMRTDPolicyConfig{PathLenMode: "ignore", PathLenOverride: n(1)}, "conflicts"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Policies.Policies = map[string]*PolicyConfig{
+				"nil-policy":            nil,
+				"emrtd-document-signer": {Registries: []string{"emrtd-csca"}, EMRTD: tc.e},
+			}
+			err := cfg.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) || !strings.Contains(err.Error(), "emrtd-document-signer") {
+				t.Fatalf("Validate() = %v, want error naming the policy and containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoadConfigEMRTDPolicyKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `
+policies:
+  policies:
+    emrtd-document-signer:
+      registries: [emrtd-csca]
+      emrtd:
+        path_len_mode: enforce
+        path_len_override: 1
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := cfg.Policies.Policies["emrtd-document-signer"].EMRTD
+	if e == nil || e.PathLenMode != "enforce" || e.PathLenOverride == nil || *e.PathLenOverride != 1 {
+		t.Fatalf("emrtd policy = %+v, want enforce/1", e)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

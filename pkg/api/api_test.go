@@ -325,6 +325,14 @@ func TestAuthzenDecisionEndpoint_Errors(t *testing.T) {
 		t.Errorf("Expected 400 for malformed JSON, got %d", w.Code)
 	}
 
+	// Oversized body is rejected before being fully buffered
+	w = httptest.NewRecorder()
+	big := `{"subject":{"type":"key","id":"` + strings.Repeat("a", maxEvaluationBodyBytes+1) + `"}}`
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/evaluation", strings.NewReader(big)))
+	if w.Code != 413 {
+		t.Errorf("Expected 413 for oversized body, got %d", w.Code)
+	}
+
 	// Valid JSON, but violates AuthZEN Trust Registry Profile validation
 	// (subject.type is not "key")
 	// Per AuthZEN spec, validation errors return 200 with decision=false

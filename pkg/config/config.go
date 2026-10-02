@@ -125,6 +125,8 @@ type RegistriesConfig struct {
 	VICAL *VICALRegistryConfig `yaml:"vical,omitempty"`
 	// FIDO Alliance MDS3 registry (FIDO2/CTAP2 hardware-key attestation trust)
 	FIDOMDS3 *FIDOMDS3RegistryConfig `yaml:"fidomds3,omitempty"`
+	// eMRTD (ICAO 9303) CSCA trust anchors for document signer certificates
+	EMRTD *EMRTDRegistryConfig `yaml:"emrtd,omitempty"`
 	// System X.509 certificate pool (the host trust store)
 	SystemCertPool *SystemCertPoolRegistryConfig `yaml:"systemcertpool,omitempty"`
 	// Static test registries
@@ -316,6 +318,24 @@ type MDOCIACARegistryConfig struct {
 	HTTPTimeout     string   `yaml:"http_timeout,omitempty"`
 }
 
+// EMRTDRegistryConfig contains eMRTD registry configuration. The registry
+// decides whether a Document Signer Certificate (DSC) from an electronic
+// passport chains to a reviewed Country Signing CA (CSCA) of the claimed
+// issuing state, evaluated at the document signing time.
+type EMRTDRegistryConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Name        string `yaml:"name,omitempty"`
+	Description string `yaml:"description,omitempty"`
+	// AnchorsDir holds CSCA and link certificates as <ALPHA3>/*.pem, where
+	// the directory is the ISO 3166-1 alpha-3 issuing state. Point it at the
+	// anchors/ tree only, never at candidates/.
+	AnchorsDir string `yaml:"anchors_dir,omitempty"`
+	// CRLsDir optionally holds <ALPHA3>/*.crl (DER or PEM) for revocation checks.
+	CRLsDir string `yaml:"crls_dir,omitempty"`
+	// Watch reloads anchors and CRLs when files change.
+	Watch bool `yaml:"watch,omitempty"`
+}
+
 // MDOCRICALRegistryConfig contains mDOC RICAL (Reader Identity Certificate
 // Authority List) registry configuration - authenticates mdoc readers per
 // ISO/IEC 18013-5 second-edition Annex F, the reader-side mirror of
@@ -422,6 +442,9 @@ type PolicyConfig struct {
 
 	// FIDOMDS3 contains FIDO Alliance MDS3-specific constraints
 	FIDOMDS3 *FIDOMDS3PolicyConfig `yaml:"fidomds3,omitempty"`
+
+	// EMRTD contains eMRTD document-signer constraints
+	EMRTD *EMRTDPolicyConfig `yaml:"emrtd,omitempty"`
 }
 
 // PolicyConstraintsConfig contains registry-agnostic trust constraints.
@@ -517,6 +540,29 @@ type MDOCIACAPolicyConfig struct {
 
 	// RequireIACAEndpoint requires the issuer to publish mdoc_iacas_uri.
 	RequireIACAEndpoint bool `yaml:"require_iaca_endpoint,omitempty"`
+}
+
+// EMRTDPolicyConfig contains eMRTD document-signer policy constraints.
+//
+// By default the emrtd registry ignores the basicConstraints
+// pathLenConstraint of anchors and link certificates, because real CSCAs often
+// carry pathLen=0 yet sign link certificates for their successors. These keys
+// opt in to enforcing it. Clients cannot set them.
+type EMRTDPolicyConfig struct {
+	// PathLenMode is "ignore" (default) or "enforce". With "enforce",
+	// pathLenConstraint is applied per RFC 5280 6.1.4 to the issuers on the
+	// path DSC -> [link certificates] -> CSCA: it limits the number of
+	// non-self-issued intermediate CAs below the issuer (self-issued link
+	// certificates do not count), a certificate without one is unlimited.
+	// Violations are denied as chain_invalid. Any other value fails config
+	// validation.
+	PathLenMode string `yaml:"path_len_mode,omitempty"`
+
+	// PathLenOverride, when set, is used instead of a certificate's own
+	// pathLenConstraint for every CSCA and link certificate acting as an
+	// issuer in the chain (including certificates that have none), and
+	// implies "enforce". Must be >= 0; conflicts with path_len_mode "ignore".
+	PathLenOverride *int `yaml:"path_len_override,omitempty"`
 }
 
 // FIDOMDS3PolicyConfig contains FIDO Alliance MDS3-specific policy constraints.
@@ -736,5 +782,36 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate policy constraints; unknown values fail closed at startup.
+	for name, p := range c.Policies.Policies {
+		if p != nil {
+			if err := p.EMRTD.validate(); err != nil {
+				return fmt.Errorf("policy %q: %w", name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validate rejects an unknown path_len_mode, a negative path_len_override, and
+// an explicit "ignore" combined with an override (contradictory).
+func (e *EMRTDPolicyConfig) validate() error {
+	if e == nil {
+		return nil
+	}
+	switch e.PathLenMode {
+	case "", "ignore", "enforce":
+	default:
+		return fmt.Errorf("emrtd.path_len_mode %q is invalid: must be \"ignore\" or \"enforce\"", e.PathLenMode)
+	}
+	if e.PathLenOverride != nil {
+		if *e.PathLenOverride < 0 {
+			return fmt.Errorf("emrtd.path_len_override must be >= 0, got %d", *e.PathLenOverride)
+		}
+		if e.PathLenMode == "ignore" {
+			return fmt.Errorf("emrtd.path_len_override implies enforcement and conflicts with path_len_mode \"ignore\"")
+		}
+	}
 	return nil
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/sirosfoundation/g119612/pkg/logging"
 	gocryptoutil "github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-cryptoutil/brainpool"
+	"github.com/sirosfoundation/go-cryptoutil/ecparams"
 	_ "github.com/sirosfoundation/go-trust/docs/swagger" // Import generated docs
 	"github.com/sirosfoundation/go-trust/pkg/api"
 	"github.com/sirosfoundation/go-trust/pkg/config"
@@ -23,6 +24,7 @@ import (
 	"github.com/sirosfoundation/go-trust/pkg/registry/didjwks"
 	"github.com/sirosfoundation/go-trust/pkg/registry/didweb"
 	"github.com/sirosfoundation/go-trust/pkg/registry/didwebvh"
+	"github.com/sirosfoundation/go-trust/pkg/registry/emrtd"
 	"github.com/sirosfoundation/go-trust/pkg/registry/etsi"
 	"github.com/sirosfoundation/go-trust/pkg/registry/fidomds3"
 	"github.com/sirosfoundation/go-trust/pkg/registry/lote"
@@ -301,6 +303,7 @@ func main() {
 				logging.F("watch", *whitelistWatch))
 			cryptoExt := gocryptoutil.New()
 			brainpool.Register(cryptoExt)
+			ecparams.Register(cryptoExt)
 			whitelistReg, err := static.NewWhitelistRegistryFromFile(*whitelistFile, *whitelistWatch,
 				static.WithWhitelistName("whitelist"),
 				static.WithWhitelistDescription("URL whitelist from "+*whitelistFile),
@@ -424,6 +427,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 	// accepts a CryptoExt field.
 	cryptoExt := gocryptoutil.New()
 	brainpool.Register(cryptoExt)
+	ecparams.Register(cryptoExt)
 
 	// Configure ETSI TSL registry from config
 	if cfg.Registries.ETSI != nil && cfg.Registries.ETSI.Enabled {
@@ -802,6 +806,31 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		registryMgr.Register(mdocReg)
 		logger.Info("mDOC IACA registry registered from config",
 			logging.F("issuer_allowlist", len(mdocCfg.IssuerAllowlist)))
+	}
+
+	// Configure eMRTD (ICAO 9303 CSCA) registry from config
+	if cfg.Registries.EMRTD != nil && cfg.Registries.EMRTD.Enabled {
+		logger.Info("Configuring eMRTD registry from config file")
+		emrtdCfg := cfg.Registries.EMRTD
+
+		emrtdReg, err := emrtd.New(emrtd.Config{
+			Name:        emrtdCfg.Name,
+			Description: emrtdCfg.Description,
+			AnchorsDir:  emrtdCfg.AnchorsDir,
+			CRLsDir:     emrtdCfg.CRLsDir,
+			Watch:       emrtdCfg.Watch,
+			CryptoExt:   cryptoExt,
+			Logger:      slog.Default(),
+		})
+		if err != nil {
+			logger.Fatal("Failed to create eMRTD registry from config",
+				logging.F("error", err.Error()))
+		}
+
+		registryMgr.Register(emrtdReg)
+		logger.Info("eMRTD registry registered from config",
+			logging.F("countries", len(emrtdReg.Countries())),
+			logging.F("watch", emrtdCfg.Watch))
 	}
 
 	// Configure mDOC RICAL registry from config
@@ -1303,6 +1332,20 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 			policy.FIDOMDS3 = &registry.FIDOMDS3PolicyConstraints{
 				AllowedAAGUIDs: policyCfg.FIDOMDS3.AllowedAAGUIDs,
 				BlockedAAGUIDs: policyCfg.FIDOMDS3.BlockedAAGUIDs,
+			}
+		}
+
+		// Convert eMRTD constraints
+		if policyCfg.EMRTD != nil {
+			policy.EMRTD = &registry.EMRTDPolicyConstraints{
+				PathLenMode:     policyCfg.EMRTD.PathLenMode,
+				PathLenOverride: policyCfg.EMRTD.PathLenOverride,
+			}
+			// config.Validate rejects bad values at startup; this keeps any
+			// other caller from installing an unvalidated policy.
+			if err := policy.EMRTD.Validate(); err != nil {
+				logger.Fatal("Invalid emrtd policy constraints",
+					logging.F("policy", name), logging.F("error", err.Error()))
 			}
 		}
 

@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- eMRTD document-signer trust registry (`pkg/registry/emrtd/`, config
+  `registries.emrtd`, action `emrtd-document-signer`; format reference in
+  `docs/EMRTD.md`)
+  - Decides whether an ICAO 9303 DSC chains to a reviewed CSCA of the claimed
+    issuing state. Anchors load from `anchors_dir/<ALPHA3>/*.pem` only, with
+    the certificate subject C cross-checked against the directory through an
+    embedded ISO 3166 alpha-2/alpha-3 table; optional `crls_dir` and `watch`
+  - Chain built with go-cryptoutil signature checks (brainpool, RSA-PSS; the
+    `ecparams` plugin also parses CSCAs with explicit EC parameters, negative
+    serials and RSA keys lacking NULL parameters); SHA-1/MD5 signatures refused;
+    extra certificates in `resource.key` are untrusted link-certificate
+    candidates only; validity evaluated at `context.signing_time`
+  - Machine-readable deny codes (`unknown_country`, `no_anchor`,
+    `chain_invalid`, `country_mismatch`, `expired`, `not_yet_valid`,
+    `bad_key_usage`, `revoked`, `malformed_request`)
+  - Optional `emrtd` policy block: `path_len_mode` (`ignore` default |
+    `enforce`) and `path_len_override` (>= 0, implies `enforce`) opt in to
+    RFC 5280 `pathLenConstraint` enforcement on the path DSC -> links -> CSCA
+    (self-issued links do not count; violations deny as `chain_invalid`).
+    Default behaviour is unchanged; unknown modes fail config validation;
+    clients cannot set the new context keys
+  - CRL authority follows CSCA key rollover: a CRL counts when its signature
+    verifies against the path issuer or any reviewed anchor of the claimed state
+    with the CRL's issuer name, so a new-key CRL revokes DSCs issued under an
+    older key. Other countries' anchors and unreviewed certificates never
+    authenticate a CRL
+  - Behaviour change for all registries: the 1 MiB request-body limit on
+    `/evaluation` applies to every request, not only eMRTD (oversized: 413)
+  - The `all` / `best_match` strategies now copy each registry's full `reason`,
+    including `admin` details, into `all_results`; intended for service callers
+  - New `trustapi.RoleEMRTDDocumentSigner`; `signing_time` is now a
+    client-suppliable request-context key
+
 - FIDO Alliance MDS3 trust registry (`pkg/registry/fidomds3/`, #116)
   - Verifies a FIDO2/CTAP2 attestation's X5C chain against the FIDO Alliance
     MDS3 entry for its AAGUID, rejecting undesired authenticator statuses

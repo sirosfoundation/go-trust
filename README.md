@@ -303,6 +303,40 @@ resp, err := reg.Evaluate(ctx, req)
 - EUDI wallet mDOC credential issuance
 - Any OpenID4VCI issuer publishing IACA certificates
 
+#### eMRTD Document Signer Registry
+
+Full reference (config keys, anchor directory format, request/response, deny codes, known parsing limits): [docs/EMRTD.md](docs/EMRTD.md).
+
+Decides whether the Document Signer Certificate (DSC) of an electronic passport or ID card chains to a reviewed Country Signing CA (CSCA) of the claimed issuing state. The PEP verifies the SOD itself and sends only the DSC (plus any other certificates carried in the SOD); the registry never sees the SOD.
+
+- Anchors are read from `anchors_dir/<ALPHA3>/*.pem` only (e.g. `SWE`, `DEU`); the directory is the country and each certificate's subject `C` must match it (ISO 3166 table), otherwise that certificate is skipped and logged. Point it at the `anchors/` tree of the anchor repository, never at `candidates/`.
+- Extra certificates in `resource.key` are untrusted link-certificate candidates, never anchors. The system certificate pool is never used.
+- Validity is checked at `context.signing_time` (RFC 3339, default now); a malformed value is denied. Brainpool and RSA-PSS are supported, as are CSCAs with explicit EC parameters (via go-cryptoutil `ecparams`). Optional `crls_dir/<ALPHA3>/*.crl` enables revocation checks.
+- CRLs are authentic for an issuer when signed by the path issuer or any reviewed anchor of that state with the CRL's issuer name (covers CSCA key rollover). With the `all`/`best_match` strategies, `all_results` now carries each registry's full `reason` including `admin` details; intended for service callers.
+- Deny responses carry a machine-readable `code` in `context.reason.code` (also `context.reason.admin.code`): `unknown_country`, `no_anchor`, `chain_invalid`, `country_mismatch`, `expired`, `not_yet_valid`, `bad_key_usage`, `revoked`, `malformed_request`. Allow responses carry `csca_sha256`, `csca_subject` and `dsc_sha256` in `context.reason.admin`.
+
+```yaml
+registries:
+  emrtd:
+    enabled: true
+    name: emrtd-csca
+    anchors_dir: /etc/go-trust/emrtd/anchors
+    crls_dir: /etc/go-trust/emrtd/crls   # optional
+    watch: true                          # reload on change
+policies:
+  policies:
+    emrtd-document-signer:
+      registries: [emrtd-csca]
+      constraints: {require_key_binding: true, allowed_key_types: [x5c]}
+```
+
+```json
+{"subject":  {"type": "key", "id": "SWE"},
+ "resource": {"type": "x5c", "id": "SWE", "key": ["<DSC base64 DER>", "<extra cert from SOD>"]},
+ "action":   {"name": "emrtd-document-signer"},
+ "context":  {"signing_time": "2026-09-30T10:00:00Z"}}
+```
+
 #### FIDO MDS3 Registry
 
 Validates a FIDO2/CTAP2 attestation's X.509 certificate chain against the FIDO Alliance Metadata Service v3 (MDS3) — the official, periodically-updated, cryptographically-signed registry of certified authenticator models (e.g. security keys, platform authenticators) and their certification/revocation status.
@@ -564,6 +598,8 @@ policies:
 | `did` | Allowed domains, verifiable history | DID Web, DID Web VH |
 | `mdociaca` | Issuer allowlist, IACA endpoint | mDOC IACA |
 | `fidomds3` | AAGUID allowlist/blocklist | FIDO MDS3 |
+| `constraints` (`require_key_binding`, `allowed_key_types`) | Generic; used by `emrtd-document-signer` | eMRTD |
+| `emrtd` (`path_len_mode`, `path_len_override`) | Opt-in `pathLenConstraint` enforcement (default: ignored); see [docs/EMRTD.md](docs/EMRTD.md#path-length) | eMRTD |
 
 ### AAGUID Policy in FIDO MDS3
 
@@ -970,6 +1006,7 @@ go-trust/
 │   │   ├── did/         # Generic DID resolver + did:key
 │   │   ├── didutil/     # DID utility functions
 │   │   ├── mdociaca/    # mDOC IACA registry
+│   │   ├── emrtd/       # eMRTD (ICAO 9303) DSC -> CSCA registry
 │   │   ├── fidomds3/    # FIDO Alliance MDS3 registry
 │   │   ├── rpcert/      # RP Certificate registry (TS 119 475)
 │   │   └── static/      # Static registries (always/never/system/whitelist)
