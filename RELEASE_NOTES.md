@@ -4,6 +4,24 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.24.0:start -->
+## [v0.24.0] - 2026-10-02
+
+### Added
+
+- **ICAO 9303 eMRTD trust registry** for verifying ePassport/eID Document Signer Certificates (DSCs) against reviewed Country Signing CA (CSCA) anchors (#191). The new `emrtd` registry validates that a DSC chains to an approved anchor for the claimed issuing state, without ever seeing the Security Object Document (SOD) or personal data. Anchors are loaded from `anchors_dir/<ALPHA3>/*.pem` (directory name = country code, cross-checked against certificate subject), with optional CRL support and automatic fsnotify reload. Chain building uses go-cryptoutil with full support for Brainpool curves and RSA-PSS; the system trust store is never consulted. Validity is evaluated at `context.signing_time` (callers must derive this from a verified SOD). Configure via `registries.emrtd`, use action `emrtd-document-signer`. See `docs/EMRTD.md` for format reference and trust model details.
+- Opt-in `pathLenConstraint` enforcement for eMRTD chains via `policies.<name>.emrtd.path_len_mode` (ignore/enforce) and `path_len_override` (#191). Default behavior unchanged (constraints ignored).
+- `signing_time` is now allowed through the context allowlist, enabling time-of-signing validation for eMRTD and similar use cases (#191).
+
+### Changed
+
+- When a single denying registry provides `code` or `admin` fields, these are now also surfaced at `reason.code` and `reason.admin` in the response, making denial reasons easier to parse (#191).
+
+### Security
+
+- eMRTD registry fails closed: unparsable anchors are skipped and logged, never trusted; a DSC under a skipped anchor is denied (#191). Extra certificates in `resource.key` are treated as untrusted intermediates, never anchors (tested against attacker-supplied self-signed "CSCAs"). SHA-1 and MD5 certificate signatures are rejected.
+<!-- release-notes:v0.24.0:end -->
+
 <!-- release-notes:v0.23.2:start -->
 ## [v0.23.2] - 2026-09-29
 
