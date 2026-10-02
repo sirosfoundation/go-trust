@@ -17,7 +17,8 @@ on:
         required: false
         default: ''
 
-permissions: read-all
+permissions:
+  contents: read
 
 jobs:
   docker:
