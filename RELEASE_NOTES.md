@@ -4,6 +4,21 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.24.1:start -->
+## [v0.24.1] - 2026-10-06
+
+### Changed
+- Brainpool certificates with RSA-PSS signatures are now accepted by the eMRTD registry after upgrading the gematik brainpool parser to v1.1.0, which delegates certificate parsing to crypto/x509. Previously these certificates were rejected because the older parser could not handle the combination. (#197)
+
+### Fixed
+- Narrowed GitHub Actions permissions in the Docker publish workflow from `read-all` to `contents: read`, resolving a SonarCloud security finding while preserving all build and publish functionality. (#196)
+
+### Security
+- Updated lestrrat-go/jwx to v4.5.0, which fixes GHSA-4cf7-xm37-g63h (improper JSON escaping of custom claim/header/JWK field names). (#197)
+- Updated go-webauthn/webauthn to v0.18.2 with attestation validation fixes for U2F, SafetyNet, and TPM authenticators. (#197)
+- Updated go-oidfed/lib to v0.11.4, go-cryptoutil and related packages to v0.7.2. (#197)
+<!-- release-notes:v0.24.1:end -->
+
 <!-- release-notes:v0.24.0:start -->
 ## [v0.24.0] - 2026-10-02
 
