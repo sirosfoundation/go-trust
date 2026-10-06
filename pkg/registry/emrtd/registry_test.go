@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -96,17 +97,64 @@ func TestEvaluate_Allow_KeyTypes(t *testing.T) {
 	}
 }
 
-// A brainpool subject key under an RSA-PSS signature is parsed by
-// go-cryptoutil into a skeleton certificate; it must be refused explicitly.
-func TestEvaluate_SkeletonCertificateRefused(t *testing.T) {
+// A brainpool subject key under an RSA-PSS signature used to defeat both the
+// gematik and the standard-library parser, so go-cryptoutil returned a
+// skeleton certificate and the registry had to refuse it. Since
+// go-cryptoutil v0.7.2 (gematik brainpool v1.1.0) such a certificate is
+// parsed completely, so it is a normal chain candidate: it must be accepted
+// when the RSA-PSS signature verifies and refused when it does not.
+func TestEvaluate_BrainpoolKeyUnderRSAPSSSignature(t *testing.T) {
 	csca := newCSCA(t, kindRSAPSS, "CSCA", "ES")
 	dsc := newDSC(t, kindBrainpool256, csca, "ES")
 	r := newReg(t, map[string][]*node{"ESP": {csca}})
-	requireDeny(t, eval(t, r, req("ESP", []*node{dsc}, nil)), CodeMalformedRequest)
 
-	// the same combination as an anchor is skipped at load time
+	resp := eval(t, r, req("ESP", []*node{dsc}, nil))
+	require.True(t, resp.Decision, "%v", resp.Context.Reason)
+	admin := resp.Context.Reason["admin"].(map[string]interface{})
+	assert.Equal(t, fingerprint(dsc.cert), admin["dsc_sha256"])
+
+	// The signature is really checked: flip a bit in it and the chain fails.
+	bad := bytes.Clone(dsc.cert.Raw)
+	bad[len(bad)-1] ^= 0x01
+	resp = eval(t, r, req("ESP", []*node{{cert: &x509.Certificate{Raw: bad}}}, nil))
+	require.False(t, resp.Decision, "tampered RSA-PSS signature accepted: %v", resp.Context.Reason)
+}
+
+var utcTimeRE = regexp.MustCompile(`\x17\x0d(\d{12}Z)`)
+
+// corruptNotBefore makes the first UTCTime of a DER certificate unparseable
+// for crypto/x509 while leaving the SubjectPublicKeyInfo intact.
+func corruptNotBefore(t *testing.T, der []byte) []byte {
+	t.Helper()
+	bad := bytes.Clone(der)
+	loc := utcTimeRE.FindIndex(bad)
+	require.NotNil(t, loc, "no UTCTime in the certificate")
+	bad[loc[0]+2] = 'A'
+	bad[loc[0]+3] = 'B'
+	return bad
+}
+
+// A certificate that neither gematik nor crypto/x509 can parse but whose
+// brainpool SPKI is intact is returned by go-cryptoutil as a skeleton
+// certificate (Raw + PublicKey only); it must be refused explicitly.
+func TestEvaluate_SkeletonCertificateRefused(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "ES")
+	dsc := newDSC(t, kindBrainpool256, csca, "ES")
+	skeleton := &node{cert: &x509.Certificate{Raw: corruptNotBefore(t, dsc.cert.Raw)}}
+
+	r := newReg(t, map[string][]*node{"ESP": {csca}})
+
+	// premise: the registry's parser really yields a skeleton here
+	c, err := registry.ParseCertificate(skeleton.cert.Raw, r.ext)
+	require.NoError(t, err)
+	require.NotNil(t, c.PublicKey)
+	require.Empty(t, c.RawTBSCertificate)
+
+	requireDeny(t, eval(t, r, req("ESP", []*node{skeleton}, nil)), CodeMalformedRequest)
+
+	// the same certificate as an anchor is skipped at load time
 	root := t.TempDir()
-	writeAnchors(t, root, map[string][]*node{"ESP": {dsc}})
+	writeAnchors(t, root, map[string][]*node{"ESP": {skeleton}})
 	r2, err := New(Config{AnchorsDir: root, Logger: quietLogger()})
 	require.NoError(t, err)
 	assert.Empty(t, r2.Countries())
