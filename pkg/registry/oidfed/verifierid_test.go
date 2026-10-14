@@ -88,6 +88,17 @@ func TestEvaluate_VerifierIDs_OIDFEntity(t *testing.T) {
 	require.True(t, resp.Decision)
 	assert.Empty(t, resp.Context.VerifierIDs)
 
+	// A request that names the entity with a trailing slash resolves the same
+	// chain (the slash is stripped for resolution) but must not get an
+	// identifier that differs from what it asked for byte-for-byte.
+	slash := request(enabled, true)
+	slash.Subject.ID = entityID + "/"
+	slash.Resource.ID = entityID + "/"
+	resp, err = reg.Evaluate(context.Background(), slash)
+	require.NoError(t, err)
+	require.True(t, resp.Decision, "resolution still normalises the identifier")
+	assert.Empty(t, resp.Context.VerifierIDs)
+
 	// A chain whose leaf statement is about a different entity is never echoed
 	// under the requested entity's name.
 	reg.cache.Set(entityID, nil, nil, []oidfed.TrustChain{chainFor("https://other.example.com")}, "https://ta.example.com")

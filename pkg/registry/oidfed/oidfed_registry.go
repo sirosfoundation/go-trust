@@ -867,10 +867,12 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 		},
 	}
 	// The Entity ID is returned only when the validated chain's leaf statement
-	// is about that very entity, and byte-for-byte as in the chain: an entity
-	// ID is compared exactly, so a trailing slash or case change names another
-	// entity. It is not re-serialised through net/url.
-	if len(chain) > 0 && chain[0].Subject == entityID {
+	// is about the entity as the request named it, byte-for-byte. An entity ID
+	// is compared exactly, so a trailing slash or case change names another
+	// entity; entityID above has had trailing slashes stripped for resolution,
+	// so the raw requested identifier is compared instead. Not re-serialised
+	// through net/url.
+	if len(chain) > 0 && chain[0].Subject == rawRequestedEntityID(req) {
 		registry.AddVerifierID(resp, req, authzen.VerifierIDTypeOIDFEntity, chain[0].Subject, authzen.VerifierIDBasisOIDFTrustChain)
 	}
 	return resp, nil
@@ -1434,6 +1436,19 @@ func (r *OIDFedRegistry) extractEntityID(req *authzen.EvaluationRequest) (string
 	}
 
 	return "", fmt.Errorf("no entity_id found in request subject or resource")
+}
+
+// rawRequestedEntityID returns the entity identifier exactly as the request
+// named it (the same field extractEntityID reads, without its trailing-slash
+// normalisation), or "" if the request names none.
+func rawRequestedEntityID(req *authzen.EvaluationRequest) string {
+	if req.Subject.Type == "key" && (strings.HasPrefix(req.Subject.ID, "http://") || strings.HasPrefix(req.Subject.ID, "https://")) {
+		return req.Subject.ID
+	}
+	if strings.HasPrefix(req.Resource.ID, "http://") || strings.HasPrefix(req.Resource.ID, "https://") {
+		return req.Resource.ID
+	}
+	return ""
 }
 
 // extractMetadata extracts useful metadata from the trust chain.

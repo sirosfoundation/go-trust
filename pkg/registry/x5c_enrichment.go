@@ -500,33 +500,41 @@ func deriveX5CVerifierIDs(req *authzen.EvaluationRequest, leaf *x509.Certificate
 		}
 	}
 
-	if intermediary || (!want[authzen.VerifierIDTypeDNS] && !want[authzen.VerifierIDTypeURI]) {
+	// dns / uri: not for an intermediary request (see above).
+	if intermediary {
 		return ids
 	}
+	if id, ok := deriveSANVerifierID(req, leaf, want); ok {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// deriveSANVerifierID derives the dns or uri identifier from the client_id of
+// an x509_san_dns / x509_san_uri request, only when the type is wanted and
+// VerifyLeafBinding confirms the value is a SAN of leaf.
+func deriveSANVerifierID(req *authzen.EvaluationRequest, leaf *x509.Certificate, want map[string]bool) (authzen.VerifierID, bool) {
 	scheme, value, ok := ParseClientIDScheme(OriginalSubjectID(req))
 	if !ok || value == "" {
-		return ids
+		return authzen.VerifierID{}, false
 	}
+	var idType, id string
 	switch scheme {
 	case ClientIDSchemeX509SANDNS:
 		// A wildcard is not an identifier of one RP.
-		if want[authzen.VerifierIDTypeDNS] && !strings.Contains(value, "*") && VerifyLeafBinding(scheme, value, leaf) == nil {
-			ids = append(ids, authzen.VerifierID{
-				Type:  authzen.VerifierIDTypeDNS,
-				ID:    CanonicalDNSName(value),
-				Basis: authzen.VerifierIDBasisClientIDBinding,
-			})
+		if strings.Contains(value, "*") {
+			return authzen.VerifierID{}, false
 		}
+		idType, id = authzen.VerifierIDTypeDNS, CanonicalDNSName(value)
 	case ClientIDSchemeX509SANURI:
 		// Byte-for-byte: URISANMatches is an exact comparison, so the bound
 		// value already is the SAN. Not re-serialised through net/url.
-		if want[authzen.VerifierIDTypeURI] && VerifyLeafBinding(scheme, value, leaf) == nil {
-			ids = append(ids, authzen.VerifierID{
-				Type:  authzen.VerifierIDTypeURI,
-				ID:    value,
-				Basis: authzen.VerifierIDBasisClientIDBinding,
-			})
-		}
+		idType, id = authzen.VerifierIDTypeURI, value
+	default:
+		return authzen.VerifierID{}, false
 	}
-	return ids
+	if !want[idType] || VerifyLeafBinding(scheme, value, leaf) != nil {
+		return authzen.VerifierID{}, false
+	}
+	return authzen.VerifierID{Type: idType, ID: id, Basis: authzen.VerifierIDBasisClientIDBinding}, true
 }
