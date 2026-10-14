@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,4 +49,24 @@ func TestDenyMissingVerificationMethods(t *testing.T) {
 		})
 	}
 	assert.Nil(t, DenyMissingVerificationMethods(nil, []vmStub{}, vmType, time.Now()))
+}
+
+func TestCheckRequiredVerificationMethodsEnforcement(t *testing.T) {
+	mk := func(typ string) vmStub { return vmStub{Type: typ} }
+
+	// A correct enforcer passes the conformance check.
+	good := func(ctx map[string]interface{}, ms []vmStub) *authzen.EvaluationResponse {
+		return DenyMissingVerificationMethods(ctx, ms, vmType, time.Now())
+	}
+	assert.NoError(t, CheckRequiredVerificationMethodsEnforcement(mk, good))
+
+	// A registry that ignores the constraint is detected.
+	ignores := func(map[string]interface{}, []vmStub) *authzen.EvaluationResponse { return nil }
+	assert.Error(t, CheckRequiredVerificationMethodsEnforcement(mk, ignores))
+
+	// A registry that always denies is detected.
+	denies := func(map[string]interface{}, []vmStub) *authzen.EvaluationResponse {
+		return &authzen.EvaluationResponse{Decision: false}
+	}
+	assert.Error(t, CheckRequiredVerificationMethodsEnforcement(mk, denies))
 }

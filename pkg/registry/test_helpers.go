@@ -101,12 +101,13 @@ func createTestRequest() *authzen.EvaluationRequest {
 }
 
 // CheckRequiredVerificationMethodsEnforcement is a shared conformance check for
-// DID registries: check must evaluate the registry's policy constraints for a
-// DID document whose verificationMethod types are vmTypes, with ctx as the
+// DID registries. newMethod builds a verification method of the registry's own
+// type with the given `type` string; check must evaluate the registry's policy
+// constraints for a DID document holding exactly those methods, with ctx as the
 // request context, and return the denial (nil when allowed). It returns an
 // error describing the first case the registry gets wrong.
-func CheckRequiredVerificationMethodsEnforcement(check func(ctx map[string]interface{}, vmTypes []string) *authzen.EvaluationResponse) error {
-	have := []string{"JsonWebKey2020", "Multikey"}
+func CheckRequiredVerificationMethodsEnforcement[M any](newMethod func(typ string) M, check func(ctx map[string]interface{}, methods []M) *authzen.EvaluationResponse) error {
+	methods := []M{newMethod("JsonWebKey2020"), newMethod("Multikey")}
 	cases := []struct {
 		name     string
 		required []string
@@ -122,7 +123,7 @@ func CheckRequiredVerificationMethodsEnforcement(check func(ctx map[string]inter
 		if c.required != nil {
 			ctx["required_verification_methods"] = c.required
 		}
-		resp := check(ctx, have)
+		resp := check(ctx, methods)
 		if denied := resp != nil && !resp.Decision; denied != c.deny {
 			return fmt.Errorf("%s: deny=%v, want %v", c.name, denied, c.deny)
 		}
