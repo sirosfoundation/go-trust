@@ -68,17 +68,28 @@ func IsSemanticIdentifier(s string) bool {
 	return semanticIDPattern.MatchString(s)
 }
 
-// realOrganizationIdentifier returns only the organizationIdentifier attribute
-// (2.5.4.97), without the serialNumber fallback of SubjectOrganizationIdentifier.
-func realOrganizationIdentifier(cert *x509.Certificate) string {
+// organizationIdentifierAttr reports whether the certificate carries an
+// organizationIdentifier attribute (2.5.4.97) at all, and its value when it is a
+// non-empty string. present is true for an attribute that is empty or not a
+// string, with value "": presence is what tells "absent" from "malformed", and
+// only the former may fall back to serialNumber.
+func organizationIdentifierAttr(cert *x509.Certificate) (value string, present bool) {
 	for _, atv := range cert.Subject.Names {
 		if atv.Type.Equal(oidOrganizationIdentifier) {
 			if v, ok := atv.Value.(string); ok && v != "" {
-				return v
+				return v, true
 			}
+			present = true
 		}
 	}
-	return ""
+	return "", present
+}
+
+// realOrganizationIdentifier returns only the organizationIdentifier attribute
+// (2.5.4.97), without the serialNumber fallback of SubjectOrganizationIdentifier.
+func realOrganizationIdentifier(cert *x509.Certificate) string {
+	v, _ := organizationIdentifierAttr(cert)
+	return v
 }
 
 // SemanticIdentifier returns the ETSI semantic identifier of the certificate's
@@ -115,8 +126,11 @@ func SemanticIdentifier(cert *x509.Certificate) (string, bool) {
 	if kind == SubjectKindNaturalPerson {
 		candidate = cert.Subject.SerialNumber
 	} else {
-		candidate = realOrganizationIdentifier(cert)
-		if candidate == "" {
+		var present bool
+		candidate, present = organizationIdentifierAttr(cert)
+		if !present {
+			// Legacy certificates and fixtures: serialNumber, but only when
+			// 2.5.4.97 is absent. A malformed one is not papered over.
 			candidate = cert.Subject.SerialNumber
 		}
 	}

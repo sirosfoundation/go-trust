@@ -90,6 +90,26 @@ func TestSemanticIdentifier_ContradictoryPoliciesFailClosed(t *testing.T) {
 	}
 }
 
+// An organizationIdentifier that is present but empty or not a string is
+// malformed, not absent: it must not be papered over by a valid serialNumber.
+func TestSemanticIdentifier_MalformedOrganizationIdentifierDoesNotFallBack(t *testing.T) {
+	for name, value := range map[string]interface{}{"empty string": "", "non-string value": 42} {
+		for _, policies := range [][]asn1.ObjectIdentifier{nil, {parseOID(OIDNCPLegalPerson)}} {
+			subject := pkix.Name{
+				Country: []string{"SE"}, Organization: []string{"Test AB"}, SerialNumber: "VATSE-556000000101",
+				ExtraNames: []pkix.AttributeTypeAndValue{{Type: oidOrganizationIdentifier, Value: value}},
+			}
+			cert := makeCert(t, certOpts{subject: subject, policyOIDs: policies})
+			if _, present := organizationIdentifierAttr(cert); !present {
+				t.Fatalf("%s: fixture must carry the attribute", name)
+			}
+			if got, ok := SemanticIdentifier(cert); ok || got != "" {
+				t.Fatalf("%s (policies %v): got (%q, %v), want none", name, policies, got, ok)
+			}
+		}
+	}
+}
+
 func TestSubjectKindFromPolicies(t *testing.T) {
 	cases := []struct {
 		name     string
