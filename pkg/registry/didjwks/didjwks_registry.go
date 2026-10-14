@@ -698,41 +698,12 @@ func checkPolicyConstraints(req *authzen.EvaluationRequest, didDoc *DIDDocument,
 	}
 
 	// Check required_verification_methods: the DID document must contain every
-	// listed verification method type (exact, case-sensitive match on the
-	// verificationMethod[].type values, like required_services elsewhere).
-	if requiredVMs := extractStringSlice(req.Context, "required_verification_methods"); len(requiredVMs) > 0 {
-		if !hasRequiredVerificationMethods(didDoc.VerificationMethod, requiredVMs) {
-			return &authzen.EvaluationResponse{
-				Decision: false,
-				Context: &authzen.EvaluationResponseContext{
-					Reason: map[string]interface{}{
-						"error":                         "DID document missing required verification methods for this role",
-						"required_verification_methods": requiredVMs,
-						"resolution_ms":                 time.Since(startTime).Milliseconds(),
-					},
-				},
-			}
-		}
+	// listed verificationMethod[].type (exact match, like required_services).
+	if denial := registry.DenyMissingVerificationMethods(req.Context, didDoc.VerificationMethod, func(m VerificationMethod) string { return m.Type }, startTime); denial != nil {
+		return denial
 	}
 
 	return nil
-}
-
-// hasRequiredVerificationMethods reports whether the verificationMethod array
-// contains every required type. Matching is exact and case-sensitive. Only the
-// top-level verificationMethod array counts; relationship arrays hold
-// references here.
-func hasRequiredVerificationMethods(methods []VerificationMethod, requiredTypes []string) bool {
-	present := make(map[string]bool, len(methods))
-	for _, m := range methods {
-		present[m.Type] = true
-	}
-	for _, required := range requiredTypes {
-		if !present[required] {
-			return false
-		}
-	}
-	return true
 }
 
 func extractStringSlice(ctx map[string]interface{}, key string) []string {

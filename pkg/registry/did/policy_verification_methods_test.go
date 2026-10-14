@@ -7,64 +7,37 @@ import (
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 )
 
-// TestRequiredVerificationMethods enforces policies.<n>.did.required_verification_methods:
-// every listed type must appear among verificationMethod[].type (exact match).
-func TestRequiredVerificationMethods(t *testing.T) {
+// TestRequiredVerificationMethodsEnforced checks that the registry enforces
+// did.required_verification_methods (all listed types must be present).
+// The matching rules themselves are covered in pkg/registry.
+func TestRequiredVerificationMethodsEnforced(t *testing.T) {
 	doc := &DIDDocument{
-		ID: "did:web:example.com",
+		ID: "did:example:1",
 		VerificationMethod: []VerificationMethod{
-			{ID: "did:web:example.com#k1", Type: "JsonWebKey2020"},
-			{ID: "did:web:example.com#k2", Type: "Multikey"},
+			{ID: "did:example:1#k1", Type: "JsonWebKey2020"},
+			{ID: "did:example:1#k2", Type: "Multikey"},
 		},
 	}
-
-	tests := []struct {
-		name        string
-		required    []string
-		expectAllow bool
+	for _, tc := range []struct {
+		name     string
+		required []string
+		deny     bool
 	}{
-		{"all present", []string{"JsonWebKey2020", "Multikey"}, true},
-		{"single present", []string{"Multikey"}, true},
-		{"missing type", []string{"Ed25519VerificationKey2020"}, false},
-		{"partially present set", []string{"JsonWebKey2020", "Ed25519VerificationKey2020"}, false},
-		{"case sensitive", []string{"jsonwebkey2020"}, false},
-		{"unset", nil, true},
-	}
-	for _, tc := range tests {
+		{"all present", []string{"JsonWebKey2020", "Multikey"}, false},
+		{"missing type", []string{"Ed25519VerificationKey2020"}, true},
+		{"partially present", []string{"JsonWebKey2020", "Ed25519VerificationKey2020"}, true},
+		{"unset", nil, false},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := map[string]interface{}{}
 			if tc.required != nil {
 				ctx["required_verification_methods"] = tc.required
 			}
-			req := &authzen.EvaluationRequest{Subject: authzen.Subject{ID: "did:web:example.com"}, Context: ctx}
+			req := &authzen.EvaluationRequest{Subject: authzen.Subject{ID: "did:example:1"}, Context: ctx}
 			resp := checkDIDPolicyConstraints(req, doc, time.Now())
-			if tc.expectAllow {
-				if resp != nil {
-					t.Fatalf("expected allow (nil), got deny: %v", resp.Context.Reason)
-				}
-				return
-			}
-			if resp == nil || resp.Decision {
-				t.Fatal("expected deny response")
-			}
-			reason := resp.Context.Reason
-			if _, ok := reason["required_verification_methods"]; !ok {
-				t.Errorf("reason missing required_verification_methods: %v", reason)
-			}
-			if _, ok := reason["resolution_ms"]; !ok {
-				t.Errorf("reason missing resolution_ms: %v", reason)
+			if tc.deny != (resp != nil && !resp.Decision) {
+				t.Fatalf("deny=%v, got response %+v", tc.deny, resp)
 			}
 		})
 	}
-
-	// Only the top-level verificationMethod array counts.
-	t.Run("document without verification methods denies", func(t *testing.T) {
-		req := &authzen.EvaluationRequest{Context: map[string]interface{}{
-			"required_verification_methods": []interface{}{"Multikey"},
-		}}
-		resp := checkDIDPolicyConstraints(req, &DIDDocument{ID: "did:web:example.com"}, time.Now())
-		if resp == nil || resp.Decision {
-			t.Fatal("expected deny for document without verification methods")
-		}
-	})
 }
