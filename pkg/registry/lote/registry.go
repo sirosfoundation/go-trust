@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirosfoundation/g119612/pkg/etsi119602"
@@ -93,6 +94,10 @@ type Registry struct {
 	lastUpdated time.Time
 
 	stopCh chan struct{}
+
+	// skippedPointers counts LoTL pointer targets skipped (fetch, parse or
+	// signature failure) in the current refresh; reported in the refresh log.
+	skippedPointers atomic.Int64
 }
 
 // entityIndex is a lookup structure built from loaded LoTEs.
@@ -691,6 +696,8 @@ func (r *Registry) refresh() error {
 		lotes = append(lotes, lote)
 	}
 
+	r.skippedPointers.Store(0)
+
 	// Load LoTL sources and follow pointers to discover LoTEs.
 	visited := make(map[string]bool)
 	for _, src := range r.config.LoTLSources {
@@ -715,6 +722,7 @@ func (r *Registry) refresh() error {
 			slog.Int("sources", len(r.config.Sources)),
 			slog.Int("lotl_sources", len(r.config.LoTLSources)),
 			slog.Int("lotes_loaded", len(lotes)),
+			slog.Int64("lotl_pointers_skipped", r.skippedPointers.Load()),
 			slog.Int("entities", len(idx.byID)))
 	}
 
@@ -731,6 +739,7 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 		territory := lote.ListAndSchemeInformation.SchemeTerritory
 		schemeType := lote.ListAndSchemeInformation.LoTEType
 		isPubEAA := etsi119602.IsPubEAASchemeType(schemeType)
+		isClassic := IsClassicTSLSchemeType(schemeType)
 		for _, ent := range lote.TrustedEntitiesList {
 			id := entityID(ent)
 			ie := &indexedEntity{
@@ -750,14 +759,8 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 			//   also has a notified service.
 			for _, svc := range ent.TrustedEntityServices {
 				status := svc.ServiceInformation.ServiceStatus
-				if isPubEAA {
-					if status != pubEAAStatusNotified {
-						continue
-					}
-				} else {
-					if isWithdrawnStatus(status) {
-						continue
-					}
+				if !serviceStatusIndexed(isPubEAA, isClassic, status) {
+					continue
 				}
 				sdi := svc.ServiceInformation.ServiceDigitalIdentity
 				hashes := hashServiceDigitalIdentity(sdi, ext)
@@ -795,6 +798,22 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 	}
 
 	return idx
+}
+
+// serviceStatusIndexed reports whether a service with the given status is
+// indexed (reachable for trust decisions).
+//   - Pub-EAA: only the explicit "notified" status.
+//   - Classic TS 119 612 TSL: only the trusted statuses (see classicTrustedStatuses).
+//   - Everything else: anything but withdrawn.
+func serviceStatusIndexed(isPubEAA, isClassic bool, status string) bool {
+	switch {
+	case isPubEAA:
+		return status == pubEAAStatusNotified
+	case isClassic:
+		return classicStatusTrusted(status)
+	default:
+		return !isWithdrawnStatus(status)
+	}
 }
 
 // hashServiceDigitalIdentity produces SHA-256 fingerprints for an ETSI TS 119 602-1
@@ -1056,24 +1075,22 @@ func (r *Registry) loadLoTL(location string, opts *etsi119602.FetchOptions, root
 // signature verification failures) are logged at error level and the target is
 // skipped, so an unverified document never contributes entities.
 func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119602.FetchOptions, depth int, visited map[string]bool, roots *x509.CertPool) []*etsi119602.ListOfTrustedEntities {
+	schemeType := pointerSchemeType(ptr)
 	var out []*etsi119602.ListOfTrustedEntities
 	var err error
 	kind := "LoTE"
-	if etsi119602.IsLoTLSchemeType(pointerSchemeType(ptr)) {
+	switch {
+	case etsi119602.IsLoTLSchemeType(schemeType):
 		kind = "nested LoTL"
 		out, err = r.resolveLoTL(ptr.LoTELocation, opts, depth+1, visited, roots)
-	} else {
-		var lote *etsi119602.ListOfTrustedEntities
-		if roots != nil {
-			lote, err = r.fetchVerifiedLoTE(ptr.LoTELocation, roots)
-		} else {
-			lote, err = etsi119602.FetchLoTE(ptr.LoTELocation, opts)
-		}
-		if err == nil {
-			out = []*etsi119602.ListOfTrustedEntities{lote}
-		}
+	case IsClassicTSLSchemeType(schemeType):
+		kind = "classic TSL"
+		out, err = r.resolveClassicPointer(ptr.LoTELocation, roots)
+	default:
+		out, err = r.resolveLoTEPointer(ptr.LoTELocation, opts, roots)
 	}
 	if err != nil {
+		r.skippedPointers.Add(1)
 		if r.config.Logger != nil {
 			r.config.Logger.Error("failed to load "+kind+" from LoTL pointer; source skipped",
 				slog.String("location", ptr.LoTELocation),
@@ -1082,6 +1099,30 @@ func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119
 		return nil
 	}
 	return out
+}
+
+// resolveLoTEPointer loads a native LoTE pointer target, JWS-verified when roots is non-nil.
+func (r *Registry) resolveLoTEPointer(location string, opts *etsi119602.FetchOptions, roots *x509.CertPool) ([]*etsi119602.ListOfTrustedEntities, error) {
+	var lote *etsi119602.ListOfTrustedEntities
+	var err error
+	if roots != nil {
+		lote, err = r.fetchVerifiedLoTE(location, roots)
+	} else {
+		lote, err = etsi119602.FetchLoTE(location, opts)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []*etsi119602.ListOfTrustedEntities{lote}, nil
+}
+
+// resolveClassicPointer loads a classic TS 119 612 TSL pointer target as a LoTE.
+func (r *Registry) resolveClassicPointer(location string, roots *x509.CertPool) ([]*etsi119602.ListOfTrustedEntities, error) {
+	lote, err := r.loadClassicTSL(location, roots)
+	if err != nil {
+		return nil, err
+	}
+	return []*etsi119602.ListOfTrustedEntities{lote}, nil
 }
 
 // entityID derives the entity identifier from a TrustedEntity.

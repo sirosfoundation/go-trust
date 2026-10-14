@@ -226,7 +226,7 @@ ETSI TS 119 602 LoTE registry
 | `registries.lote.lotl_sources` | — | string list |  |
 | `registries.lote.max_dereference_depth` | — | integer |  |
 | `registries.lote.verify_jws` | — | boolean |  |
-| `registries.lote.trust_anchor_bundle` | — | string | TrustAnchorBundle is the path to a PEM file of CA certificates that anchor the x5c chain of the JWS signer of every LoTE and LoTL. Required when verify_jws is true (startup is refused without it). When set, signatures are verified even if verify_jws is false: configured anchors are never silently ignored. |
+| `registries.lote.trust_anchor_bundle` | — | string | TrustAnchorBundle is the path to a PEM file of CA certificates that anchor the x5c chain of the JWS signer of every LoTE and LoTL, and the XMLDSig signer certificate chain of every classic TS 119 612 TSL reached through a LoTL pointer. Required when verify_jws is true (startup is refused without it). When set, signatures are verified even if verify_jws is false: configured anchors are never silently ignored. |
 | `registries.lote.fetch_timeout` | — | string |  |
 | `registries.lote.refresh_interval` | — | string |  |
 
