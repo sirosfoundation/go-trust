@@ -342,10 +342,19 @@ func TestClassicTSL_EntityIDsDoNotCollideAcrossLists(t *testing.T) {
 	assert.True(t, listsCert(t, reg, caB, keyB))
 }
 
-func TestClassicTSL_NativeStatusRuleUnchanged(t *testing.T) {
-	assert.True(t, serviceStatusIndexed(false, false, "http://example/supervisionincessation"), "non-classic keeps skip-withdrawn rule")
-	assert.False(t, serviceStatusIndexed(false, false, "http://example/withdrawn"))
-	assert.False(t, serviceStatusIndexed(true, false, "x"))
+func TestClassicTSL_NativeLoTEWithClassicTypeKeepsLoTEStatusRule(t *testing.T) {
+	// A native JSON LoTE may declare a classic TSLType (walletcompat
+	// lote-demo.json does). The TS 119 612 status vocabulary must not be
+	// applied to it: a service with an absent status stays trusted.
+	f := newJWSFixture(t)
+	ca, caKey := newCA(t, "Native CA")
+	lote := minimalLoTE("SE", x509Entity("https://native.example", ca))
+	lote.ListAndSchemeInformation.LoTEType = tslTypeEUGeneric
+	path := writeLoTE(t, f.dir, "native.json", lote)
+
+	reg, err := New(Config{Sources: []string{path}})
+	require.NoError(t, err)
+	assert.True(t, listsCert(t, reg, ca, caKey))
 }
 
 func TestIsClassicTSLSchemeType(t *testing.T) {
@@ -397,6 +406,20 @@ func TestVerifyTSLSignature_Direct(t *testing.T) {
 		_, _, err := verifyTSLSignature(ctx, nestSignature(t, f.signTSL(classicTSLXML(true, "", classicSvc{svcCA, svcStatusGranted}))), f.roots, time.Now())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "direct child")
+	})
+	t.Run("KeyInfo certificate count bounded", func(t *testing.T) {
+		doc := etree.NewDocument()
+		require.NoError(t, doc.ReadFromBytes(signed))
+		data := doc.Root().FindElement("./Signature/KeyInfo/X509Data")
+		require.NotNil(t, data)
+		for i := 0; i <= maxKeyInfoCerts; i++ {
+			data.AddChild(data.SelectElement("X509Certificate").Copy())
+		}
+		out, err := doc.WriteToBytes()
+		require.NoError(t, err)
+		_, _, err = verifyTSLSignature(ctx, out, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "more than")
 	})
 	t.Run("no certificate in KeyInfo", func(t *testing.T) {
 		doc := etree.NewDocument()

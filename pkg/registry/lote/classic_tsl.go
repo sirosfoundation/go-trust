@@ -34,6 +34,12 @@ const (
 	classicTSLTypeMarker = "/TrstSvc/TrustedList/TSLType/"
 
 	xmlDSigNS = "http://www.w3.org/2000/09/xmldsig#"
+
+	// maxKeyInfoCerts bounds the certificates accepted in a signature's
+	// KeyInfo. KeyInfo is outside the signed digest, so anyone able to alter
+	// the document in transit could otherwise pad it with thousands of
+	// certificates to burn CPU in the per-candidate verification loop.
+	maxKeyInfoCerts = 8
 )
 
 // IsClassicTSLSchemeType reports whether a pointer's scheme type URI names a
@@ -57,8 +63,9 @@ func isClassicTSLPointer(ptr etsi119602.OtherLoTEPointer) bool {
 // segment of the Svcstatus URI) that confer trust. Every other status
 // (withdrawn, deprecatedatnationallevel, supervisionincessation,
 // accreditationceased, accreditationrevoked, ...) means the service is not
-// currently trusted. The registry's default rule for LoTEs, "skip withdrawn",
-// would wrongly trust most of those.
+// currently trusted. The registry's rule for native LoTEs, "skip withdrawn",
+// would wrongly trust most of those, so classic lists are filtered with this
+// set when they are converted (see dropUntrustedClassicEntities).
 var classicTrustedStatuses = map[string]bool{
 	"granted":                   true,
 	"recognisedatnationallevel": true,
@@ -150,17 +157,25 @@ func (r *Registry) fetchVerifiedTSL(location string, roots *x509.CertPool) (*ets
 	return tsl, nil
 }
 
-// dropUntrustedClassicEntities removes entities none of whose services is in a
-// trusted status. Filtering only the indexed keys would still leave the entity
-// reachable by id, where presence in a non-Pub-EAA list means trusted.
+// dropUntrustedClassicEntities removes, from a list converted from a classic
+// TSL, every service whose status does not confer trust, and every entity left
+// without a service. The filtering is done here, on lists known to come from
+// classic XML, rather than in the index: a native JSON LoTE may declare a
+// classic TSLType, and the TS 119 612 status vocabulary must not be applied to
+// it. Dropping the whole entity (not only its keys) matters because presence
+// in a non-Pub-EAA list means trusted.
 func dropUntrustedClassicEntities(lote *etsi119602.ListOfTrustedEntities) {
 	kept := lote.TrustedEntitiesList[:0]
 	for _, ent := range lote.TrustedEntitiesList {
+		svcs := ent.TrustedEntityServices[:0:0]
 		for _, svc := range ent.TrustedEntityServices {
 			if classicStatusTrusted(svc.ServiceInformation.ServiceStatus) {
-				kept = append(kept, ent)
-				break
+				svcs = append(svcs, svc)
 			}
+		}
+		if len(svcs) > 0 {
+			ent.TrustedEntityServices = svcs
+			kept = append(kept, ent)
 		}
 	}
 	lote.TrustedEntitiesList = kept
@@ -238,9 +253,13 @@ func verifyTSLSignature(_ context.Context, raw []byte, roots *x509.CertPool, now
 	if err != nil {
 		return nil, nil, err
 	}
+	intermediates := x509.NewCertPool()
+	for _, c := range certs {
+		intermediates.AddCert(c)
+	}
 	var errs []error
-	for i, cand := range certs {
-		payload, err := verifyWithSigner(doc, i, certs, roots, now)
+	for _, cand := range certs {
+		payload, err := verifyWithSigner(doc, cand, intermediates, roots, now)
 		if err == nil {
 			return cand, payload, nil
 		}
@@ -249,17 +268,11 @@ func verifyTSLSignature(_ context.Context, raw []byte, roots *x509.CertPool, now
 	return nil, nil, errors.Join(errs...)
 }
 
-// verifyWithSigner treats certs[idx] as the signer: it validates its chain to
-// roots, then verifies the document's XMLDSig with it as the only trusted
-// certificate. It returns the serialised verified content.
-func verifyWithSigner(doc *etree.Document, idx int, certs []*x509.Certificate, roots *x509.CertPool, now time.Time) ([]byte, error) {
-	cand := certs[idx]
-	intermediates := x509.NewCertPool()
-	for j, c := range certs {
-		if j != idx {
-			intermediates.AddCert(c)
-		}
-	}
+// verifyWithSigner treats cand as the signer: it validates its chain to roots
+// (intermediates holds the KeyInfo certificates, including cand itself, which
+// is harmless), then verifies the document's XMLDSig with it as the only
+// trusted certificate. It returns the serialised verified content.
+func verifyWithSigner(doc *etree.Document, cand *x509.Certificate, intermediates, roots *x509.CertPool, now time.Time) ([]byte, error) {
 	if _, err := cand.Verify(x509.VerifyOptions{
 		Roots:         roots,
 		Intermediates: intermediates,
@@ -376,6 +389,9 @@ func signatureKeyInfoCerts(sig *etree.Element) ([]*x509.Certificate, error) {
 			return nil, fmt.Errorf("lote: parsing TSL signer chain: %w", err)
 		}
 		certs = append(certs, c)
+		if len(certs) > maxKeyInfoCerts {
+			return nil, fmt.Errorf("lote: TSL signature KeyInfo carries more than %d certificates", maxKeyInfoCerts)
+		}
 	}
 	if len(certs) == 0 {
 		return nil, errors.New("lote: TSL signature has no X509Certificate in KeyInfo")

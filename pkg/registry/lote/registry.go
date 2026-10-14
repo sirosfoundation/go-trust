@@ -732,7 +732,6 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 		territory := lote.ListAndSchemeInformation.SchemeTerritory
 		schemeType := lote.ListAndSchemeInformation.LoTEType
 		isPubEAA := etsi119602.IsPubEAASchemeType(schemeType)
-		isClassic := IsClassicTSLSchemeType(schemeType)
 		for _, ent := range lote.TrustedEntitiesList {
 			id := entityID(ent)
 			ie := &indexedEntity{
@@ -752,8 +751,14 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 			//   also has a notified service.
 			for _, svc := range ent.TrustedEntityServices {
 				status := svc.ServiceInformation.ServiceStatus
-				if !serviceStatusIndexed(isPubEAA, isClassic, status) {
-					continue
+				if isPubEAA {
+					if status != pubEAAStatusNotified {
+						continue
+					}
+				} else {
+					if isWithdrawnStatus(status) {
+						continue
+					}
 				}
 				sdi := svc.ServiceInformation.ServiceDigitalIdentity
 				hashes := hashServiceDigitalIdentity(sdi, ext)
@@ -791,22 +796,6 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 	}
 
 	return idx
-}
-
-// serviceStatusIndexed reports whether a service with the given status is
-// indexed (reachable for trust decisions).
-//   - Pub-EAA: only the explicit "notified" status.
-//   - Classic TS 119 612 TSL: only the trusted statuses (see classicTrustedStatuses).
-//   - Everything else: anything but withdrawn.
-func serviceStatusIndexed(isPubEAA, isClassic bool, status string) bool {
-	switch {
-	case isPubEAA:
-		return status == pubEAAStatusNotified
-	case isClassic:
-		return classicStatusTrusted(status)
-	default:
-		return !isWithdrawnStatus(status)
-	}
 }
 
 // hashServiceDigitalIdentity produces SHA-256 fingerprints for an ETSI TS 119 602-1
