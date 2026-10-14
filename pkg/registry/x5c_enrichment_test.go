@@ -635,16 +635,15 @@ func TestEnrichWithProfiles_NoProfileMatch(t *testing.T) {
 
 func TestEnrichWithProfiles_ProfileValidationWarning(t *testing.T) {
 	profiles := rpcert.DefaultProfileRegistry()
-	// WRPAC cert missing required keyUsage — validation should warn
+	// WRPAC cert without any contact method in subjectAltName — validation should warn
 	cert := &x509.Certificate{
 		Subject: pkix.Name{
 			Organization: []string{"Test Corp"},
 			CommonName:   "test.example.com",
 			SerialNumber: "VATDE-999",
 		},
-		KeyUsage:          x509.KeyUsageDigitalSignature, // missing nonRepudiation
+		KeyUsage:          x509.KeyUsageDigitalSignature,
 		PolicyIdentifiers: []asn1.ObjectIdentifier{wrpacPolicyOID},
-		EmailAddresses:    []string{"admin@test.example.com"},
 		NotBefore:         time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		NotAfter:          time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
@@ -659,7 +658,38 @@ func TestEnrichWithProfiles_ProfileValidationWarning(t *testing.T) {
 
 	assert.True(t, result.Decision, "profile validation warnings should not deny")
 	assert.Equal(t, "wrpac", result.MatchedProfile)
-	assert.Contains(t, result.ProfileValidationError, "nonRepudiation")
+	assert.Contains(t, result.ProfileValidationError, "subjectAltName")
+}
+
+// A conformant access (authentication) certificate: keyUsage digitalSignature,
+// EKU clientAuth, policy NCP-l-eudiwrp. Issue #91: must produce no warning.
+func TestEnrichWithProfiles_DigitalSignatureOnlyNoWarning(t *testing.T) {
+	profiles := rpcert.DefaultProfileRegistry()
+	cert := &x509.Certificate{
+		Subject: pkix.Name{
+			Organization: []string{"Test Corp"},
+			CommonName:   "test.example.com",
+			SerialNumber: "VATDE-999",
+		},
+		KeyUsage:          x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:       []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		PolicyIdentifiers: []asn1.ObjectIdentifier{wrpacPolicyOID},
+		EmailAddresses:    []string{"admin@test.example.com"},
+		NotBefore:         time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		NotAfter:          time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	req := &authzen.EvaluationRequest{
+		Context: map[string]interface{}{
+			"extract_rp_identity": true,
+		},
+	}
+
+	result := EnrichX5CResponseWithProfiles(req, cert, profiles)
+
+	assert.True(t, result.Decision)
+	assert.Equal(t, "wrpac", result.MatchedProfile)
+	assert.Empty(t, result.ProfileValidationError)
 }
 
 func TestEnrichWithProfiles_NilRegistry(t *testing.T) {
@@ -716,12 +746,12 @@ func TestApplyEnrichmentToResponse_ProfileValidationWarning(t *testing.T) {
 	enrichment := &X5CEnrichmentResult{
 		Decision:               true,
 		MatchedProfile:         "wrpac",
-		ProfileValidationError: "wrpac: certificate keyUsage does not include nonRepudiation",
+		ProfileValidationError: "wrpac: subjectAltName missing required contact information (URI or email)",
 	}
 
 	ApplyEnrichmentToResponse(resp, enrichment)
 
-	assert.Equal(t, "wrpac: certificate keyUsage does not include nonRepudiation",
+	assert.Equal(t, "wrpac: subjectAltName missing required contact information (URI or email)",
 		resp.Context.Reason["profile_validation_warning"])
 }
 

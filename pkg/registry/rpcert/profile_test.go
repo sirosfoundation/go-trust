@@ -250,21 +250,35 @@ func TestWRPACProfile_ValidateCredential_Valid(t *testing.T) {
 	}
 }
 
-func TestWRPACProfile_ValidateCredential_MissingKeyUsage(t *testing.T) {
+// An access certificate authenticates the relying party (RFC 5280 4.2.1.3
+// digitalSignature / entity authentication). ETSI TS 119 411-8 mandates no
+// keyUsage, so the profile must not require or warn about contentCommitment.
+func TestWRPACProfile_ValidateCredential_KeyUsageNotConstrained(t *testing.T) {
 	p := NewWRPACProfile()
-	cert := makeCert(t, certOpts{
-		subject: pkix.Name{
-			Organization: []string{"Test RP"},
-			CommonName:   "Test",
-		},
-		keyUsage:   x509.KeyUsageDigitalSignature, // missing nonRepudiation
-		policyOIDs: []asn1.ObjectIdentifier{parseOID(OIDNCPLegalPerson)},
-		emails:     []string{"test@example.test"},
-	})
-
-	err := p.ValidateCredential(cert)
-	if err == nil {
-		t.Error("expected error for missing nonRepudiation keyUsage")
+	tests := []struct {
+		name string
+		ku   x509.KeyUsage
+	}{
+		{"digitalSignature only", x509.KeyUsageDigitalSignature},
+		{"digitalSignature+keyEncipherment", x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment},
+		{"contentCommitment only", x509.KeyUsageContentCommitment},
+		{"no keyUsage", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cert := makeCert(t, certOpts{
+				subject: pkix.Name{
+					Organization: []string{"Test RP"},
+					CommonName:   "Test",
+				},
+				keyUsage:   tt.ku,
+				policyOIDs: []asn1.ObjectIdentifier{parseOID(OIDNCPLegalPerson)},
+				emails:     []string{"test@example.test"},
+			})
+			if err := p.ValidateCredential(cert); err != nil {
+				t.Errorf("keyUsage %v must not fail wrpac validation: %v", tt.ku, err)
+			}
+		})
 	}
 }
 
