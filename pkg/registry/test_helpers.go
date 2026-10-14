@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 )
@@ -97,4 +98,34 @@ func createTestRequest() *authzen.EvaluationRequest {
 			Key:  []interface{}{"dummy-cert"},
 		},
 	}
+}
+
+// CheckRequiredVerificationMethodsEnforcement is a shared conformance check for
+// DID registries: check must evaluate the registry's policy constraints for a
+// DID document whose verificationMethod types are vmTypes, with ctx as the
+// request context, and return the denial (nil when allowed). It returns an
+// error describing the first case the registry gets wrong.
+func CheckRequiredVerificationMethodsEnforcement(check func(ctx map[string]interface{}, vmTypes []string) *authzen.EvaluationResponse) error {
+	have := []string{"JsonWebKey2020", "Multikey"}
+	cases := []struct {
+		name     string
+		required []string
+		deny     bool
+	}{
+		{"all present", []string{"JsonWebKey2020", "Multikey"}, false},
+		{"missing type", []string{"Ed25519VerificationKey2020"}, true},
+		{"partially present", []string{"JsonWebKey2020", "Ed25519VerificationKey2020"}, true},
+		{"unset", nil, false},
+	}
+	for _, c := range cases {
+		ctx := map[string]interface{}{}
+		if c.required != nil {
+			ctx["required_verification_methods"] = c.required
+		}
+		resp := check(ctx, have)
+		if denied := resp != nil && !resp.Decision; denied != c.deny {
+			return fmt.Errorf("%s: deny=%v, want %v", c.name, denied, c.deny)
+		}
+	}
+	return nil
 }
