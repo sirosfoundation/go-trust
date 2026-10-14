@@ -23,7 +23,7 @@ services:
     command:
       - --etsi-cert-bundle=/etc/go-trust/trusted-certs.pem
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:6001/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:6001/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
