@@ -1006,65 +1006,28 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 		}
 		return nil, nil
 	}
-	visited[location] = true
 
 	if r.config.Logger != nil {
 		r.config.Logger.Info("resolving LoTL", slog.String("location", location), slog.Int("depth", depth))
 	}
 
-	var lotl *etsi119602.ListOfTrustedLists
-	var err error
-	if roots != nil {
-		var payload []byte
-		payload, err = r.fetchVerifiedPayload(location, roots)
-		if err == nil {
-			lotl, err = etsi119602.ParseLoTL(payload)
-		}
-	} else {
-		lotl, err = etsi119602.FetchLoTL(location, opts)
-	}
+	lotl, err := r.loadLoTL(location, opts, roots)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch LoTL from %s: %w", location, err)
 	}
+	// Mark visited only once the LoTL has loaded (and verified, when required)
+	// and before following its pointers, so cycles are still cut. A LoTL that
+	// failed to verify must stay unvisited: the visited set is shared across
+	// top-level sources, and marking it earlier would let a later top-level
+	// reference to the same location skip verification and "succeed".
+	visited[location] = true
 
 	var lotes []*etsi119602.ListOfTrustedEntities
-
 	for _, ptr := range lotl.ListAndSchemeInformation.PointersToOtherLoTE {
 		if ptr.LoTELocation == "" {
 			continue
 		}
-
-		if etsi119602.IsLoTLSchemeType(pointerSchemeType(ptr)) {
-			// Nested LoTL — resolve recursively.
-			nested, err := r.resolveLoTL(ptr.LoTELocation, opts, depth+1, visited, roots)
-			if err != nil {
-				if r.config.Logger != nil {
-					r.config.Logger.Warn("failed to resolve nested LoTL",
-						slog.String("location", ptr.LoTELocation),
-						slog.String("error", err.Error()))
-				}
-				continue
-			}
-			lotes = append(lotes, nested...)
-		} else {
-			// LoTE pointer — fetch the LoTE directly.
-			var lote *etsi119602.ListOfTrustedEntities
-			var err error
-			if roots != nil {
-				lote, err = r.fetchVerifiedLoTE(ptr.LoTELocation, roots)
-			} else {
-				lote, err = etsi119602.FetchLoTE(ptr.LoTELocation, opts)
-			}
-			if err != nil {
-				if r.config.Logger != nil {
-					r.config.Logger.Error("failed to load LoTE from LoTL pointer; source skipped",
-						slog.String("location", ptr.LoTELocation),
-						slog.String("error", err.Error()))
-				}
-				continue
-			}
-			lotes = append(lotes, lote)
-		}
+		lotes = append(lotes, r.resolvePointer(ptr, opts, depth, visited, roots)...)
 	}
 
 	if r.config.Logger != nil {
@@ -1074,6 +1037,51 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 	}
 
 	return lotes, nil
+}
+
+// loadLoTL fetches a LoTL, verifying its JWS first when roots is non-nil.
+func (r *Registry) loadLoTL(location string, opts *etsi119602.FetchOptions, roots *x509.CertPool) (*etsi119602.ListOfTrustedLists, error) {
+	if roots == nil {
+		return etsi119602.FetchLoTL(location, opts)
+	}
+	payload, err := r.fetchVerifiedPayload(location, roots)
+	if err != nil {
+		return nil, err
+	}
+	return etsi119602.ParseLoTL(payload)
+}
+
+// resolvePointer loads the target of one LoTL pointer: a nested LoTL is
+// resolved recursively, anything else is loaded as a LoTE. Failures (including
+// signature verification failures) are logged at error level and the target is
+// skipped, so an unverified document never contributes entities.
+func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119602.FetchOptions, depth int, visited map[string]bool, roots *x509.CertPool) []*etsi119602.ListOfTrustedEntities {
+	var out []*etsi119602.ListOfTrustedEntities
+	var err error
+	kind := "LoTE"
+	if etsi119602.IsLoTLSchemeType(pointerSchemeType(ptr)) {
+		kind = "nested LoTL"
+		out, err = r.resolveLoTL(ptr.LoTELocation, opts, depth+1, visited, roots)
+	} else {
+		var lote *etsi119602.ListOfTrustedEntities
+		if roots != nil {
+			lote, err = r.fetchVerifiedLoTE(ptr.LoTELocation, roots)
+		} else {
+			lote, err = etsi119602.FetchLoTE(ptr.LoTELocation, opts)
+		}
+		if err == nil {
+			out = []*etsi119602.ListOfTrustedEntities{lote}
+		}
+	}
+	if err != nil {
+		if r.config.Logger != nil {
+			r.config.Logger.Error("failed to load "+kind+" from LoTL pointer; source skipped",
+				slog.String("location", ptr.LoTELocation),
+				slog.String("error", err.Error()))
+		}
+		return nil
+	}
+	return out
 }
 
 // entityID derives the entity identifier from a TrustedEntity.

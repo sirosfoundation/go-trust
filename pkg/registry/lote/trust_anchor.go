@@ -13,6 +13,7 @@
 package lote
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/pem"
@@ -89,6 +90,11 @@ func LoadTrustAnchorBundle(path string) (*StaticTrustAnchorProvider, error) {
 		}
 		pool.AddCert(cert)
 		n++
+	}
+	// pem.Decode stops (returns nil) at the first malformed block and leaves it
+	// in rest; do not let a valid anchor mask a corrupt one after it.
+	if bytes.Contains(rest, []byte("-----BEGIN ")) {
+		return nil, fmt.Errorf("lote: trust anchor bundle %s: malformed PEM block after certificate #%d", path, n)
 	}
 	if n == 0 {
 		return nil, fmt.Errorf("lote: trust anchor bundle %s contains no certificates", path)
