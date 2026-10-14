@@ -311,18 +311,30 @@ func NewPolicyManager() *PolicyManager {
 	}
 }
 
-// RegisterPolicy adds a policy to the manager.
-func (pm *PolicyManager) RegisterPolicy(policy *Policy) {
+// RegisterPolicy adds a policy to the manager. A policy whose constraints fail
+// validation (an unknown return_verifier_ids type) is not registered and the
+// error is returned, so that a mis-typed policy is rejected at installation
+// rather than silently returning nothing.
+func (pm *PolicyManager) RegisterPolicy(policy *Policy) error {
+	if err := policy.Constraints.Validate(); err != nil {
+		return fmt.Errorf("policy %q: %w", policy.Name, err)
+	}
 	pm.policies[policy.Name] = policy
 	if len(policy.Registries) > 0 {
 		pm.registryFilter[policy.Name] = policy.Registries
 	}
+	return nil
 }
 
-// SetDefaultPolicy sets the policy used when action.name is not specified.
-func (pm *PolicyManager) SetDefaultPolicy(policy *Policy) {
+// SetDefaultPolicy sets the policy used when action.name is not specified. It
+// returns the validation error of RegisterPolicy, in which case the default is
+// left unchanged.
+func (pm *PolicyManager) SetDefaultPolicy(policy *Policy) error {
+	if err := pm.RegisterPolicy(policy); err != nil {
+		return err
+	}
 	pm.defaultPolicy = policy
-	pm.RegisterPolicy(policy)
+	return nil
 }
 
 // GetPolicy returns the policy for the given action name.

@@ -70,6 +70,26 @@ func TestSemanticIdentifier(t *testing.T) {
 	}
 }
 
+// Contradictory policies are not "unclassified": a policy-less certificate may
+// yield a semantic identifier, one claiming to be both natural and legal may not.
+func TestSemanticIdentifier_ContradictoryPoliciesFailClosed(t *testing.T) {
+	both := []asn1.ObjectIdentifier{parseOID(OIDNCPNaturalPerson), parseOID(OIDNCPLegalPerson)}
+	for _, subject := range []pkix.Name{
+		orgIDName("VATSE-556000000101", ""),
+		orgIDName("", "PNOSE-196001010101"),
+		orgIDName("", "VATSE-556000000101"),
+	} {
+		cert := makeCert(t, certOpts{subject: subject, policyOIDs: both})
+		if got, ok := SemanticIdentifier(cert); ok || got != "" {
+			t.Fatalf("contradictory policies must not yield a semantic id, got (%q, %v)", got, ok)
+		}
+		// Same subject without any policy OID is accepted: the refusal is the contradiction's.
+		if _, ok := SemanticIdentifier(makeCert(t, certOpts{subject: subject})); !ok {
+			t.Fatalf("policy-less certificate with %v should still yield one", subject)
+		}
+	}
+}
+
 func TestSubjectKindFromPolicies(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -81,7 +101,7 @@ func TestSubjectKindFromPolicies(t *testing.T) {
 		{"QCP-n", []string{OIDQCPNaturalPerson}, SubjectKindNaturalPerson},
 		{"NCP-l", []string{OIDNCPLegalPerson}, SubjectKindLegalPerson},
 		{"QCP-l", []string{OIDQCPLegalPerson}, SubjectKindLegalPerson},
-		{"both is contradictory", []string{OIDNCPNaturalPerson, OIDNCPLegalPerson}, SubjectKindUnknown},
+		{"both is contradictory", []string{OIDNCPNaturalPerson, OIDNCPLegalPerson}, SubjectKindContradictory},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -105,6 +125,30 @@ func TestSubjectKindFromPolicies(t *testing.T) {
 // person's semantic identifier (TS 119 475 5.1.5), not an organisation
 // identifier, and a natural person affiliated with an organisation is still a
 // natural person.
+func TestWRPACProfile_ExtractIdentity_NaturalPersonWithAffiliationID(t *testing.T) {
+	p := NewWRPACProfile()
+	cert := makeCert(t, certOpts{
+		// serialNumber is the person's identifier; 2.5.4.97 names the affiliated organisation.
+		subject:    orgIDName("VATSE-556000000101", "PNOSE-196001010101"),
+		keyUsage:   x509.KeyUsageContentCommitment,
+		policyOIDs: []asn1.ObjectIdentifier{parseOID(OIDNCPNaturalPerson)},
+		emails:     []string{"alice@example.test"},
+	})
+	identity, err := p.ExtractIdentity(cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity["subject_type"] != "natural_person" {
+		t.Errorf("subject_type = %v, want natural_person", identity["subject_type"])
+	}
+	if identity["serial_number"] != "PNOSE-196001010101" {
+		t.Errorf("serial_number = %v, want the person's identifier preserved", identity["serial_number"])
+	}
+	if identity["organization_identifier"] != "VATSE-556000000101" {
+		t.Errorf("organization_identifier = %v, want the real organisation identifier exposed", identity["organization_identifier"])
+	}
+}
+
 func TestWRPACProfile_ExtractIdentity_NaturalPersonSerialNumber(t *testing.T) {
 	p := NewWRPACProfile()
 	cert := makeCert(t, certOpts{

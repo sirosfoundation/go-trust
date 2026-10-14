@@ -205,7 +205,12 @@ func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]inter
 	}
 	if orgID != "" {
 		identity["organization_identifier"] = orgID
-		delete(identity, "serial_number")
+		// Only an organisation identifier that came from serialNumber replaces
+		// it. A natural person's serialNumber is their own identifier and stays,
+		// next to the affiliated organisation's real identifier.
+		if !naturalPerson {
+			delete(identity, "serial_number")
+		}
 	}
 
 	// Determine subject type (natural vs legal person). Keyed off the same

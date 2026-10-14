@@ -12,6 +12,10 @@ const (
 	// SubjectKindUnknown means the certificate carries no (or contradictory)
 	// WRPAC policy OIDs, so its kind cannot be told from the policy.
 	SubjectKindUnknown SubjectKind = iota
+	// SubjectKindContradictory means the certificate carries both natural- and
+	// legal-person WRPAC policy OIDs. It is not "unclassified": consumers that
+	// accept unclassified certificates must still refuse this one.
+	SubjectKindContradictory
 	// SubjectKindNaturalPerson is a certificate under NCP-n-eudiwrp or QCP-n-eudiwrp.
 	SubjectKindNaturalPerson
 	// SubjectKindLegalPerson is a certificate under NCP-l-eudiwrp or QCP-l-eudiwrp.
@@ -20,8 +24,8 @@ const (
 
 // SubjectKindFromPolicies classifies cert by its WRPAC certificate policy OIDs
 // (ETSI TS 119 411-8: the -n and -l policies are what distinguish natural from
-// legal person certificates). A certificate carrying both kinds, or neither,
-// is SubjectKindUnknown.
+// legal person certificates). A certificate carrying neither kind is
+// SubjectKindUnknown; one carrying both is SubjectKindContradictory.
 func SubjectKindFromPolicies(cert *x509.Certificate) SubjectKind {
 	if cert == nil {
 		return SubjectKindUnknown
@@ -36,9 +40,11 @@ func SubjectKindFromPolicies(cert *x509.Certificate) SubjectKind {
 		}
 	}
 	switch {
-	case natural && !legal:
+	case natural && legal:
+		return SubjectKindContradictory
+	case natural:
 		return SubjectKindNaturalPerson
-	case legal && !natural:
+	case legal:
 		return SubjectKindLegalPerson
 	}
 	return SubjectKindUnknown
@@ -92,12 +98,18 @@ func realOrganizationIdentifier(cert *x509.Certificate) string {
 // policy OIDs tell the two apart. A serialNumber that is merely a certificate
 // serial (or anything else non-semantic) is therefore never returned. An
 // organizationIdentifier that is present but not valid is not papered over by
-// falling back to serialNumber.
+// falling back to serialNumber. A certificate carrying both natural- and
+// legal-person policy OIDs has no semantic identifier.
 func SemanticIdentifier(cert *x509.Certificate) (string, bool) {
 	if cert == nil {
 		return "", false
 	}
 	kind := SubjectKindFromPolicies(cert)
+	if kind == SubjectKindContradictory {
+		// Both a natural- and a legal-person policy: which identifier is the
+		// subject's cannot be told, so none is returned (fail closed).
+		return "", false
+	}
 
 	var candidate string
 	if kind == SubjectKindNaturalPerson {

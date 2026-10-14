@@ -1374,14 +1374,12 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 			}
 		}
 
-		// config.Validate rejects unknown verifier id types at startup; this
-		// keeps any other caller from installing an unvalidated policy.
-		if err := policy.Constraints.Validate(); err != nil {
-			logger.Fatal("Invalid policy constraints",
+		// config.Validate rejects unknown verifier id types at startup;
+		// RegisterPolicy re-checks so no caller can install an unvalidated one.
+		if err := policyMgr.RegisterPolicy(policy); err != nil {
+			logger.Fatal("Invalid policy",
 				logging.F("policy", name), logging.F("error", err.Error()))
 		}
-
-		policyMgr.RegisterPolicy(policy)
 		policyCount++
 
 		logger.Debug("Registered policy from config",
@@ -1395,7 +1393,10 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 	if cfg.Policies.DefaultPolicy != "" {
 		defaultPolicy := policyMgr.GetPolicy(cfg.Policies.DefaultPolicy)
 		if defaultPolicy != nil {
-			policyMgr.SetDefaultPolicy(defaultPolicy)
+			if err := policyMgr.SetDefaultPolicy(defaultPolicy); err != nil {
+				logger.Fatal("Invalid default policy",
+					logging.F("policy", cfg.Policies.DefaultPolicy), logging.F("error", err.Error()))
+			}
 			logger.Info("Default policy set from config",
 				logging.F("policy", cfg.Policies.DefaultPolicy))
 		} else {
