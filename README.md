@@ -382,7 +382,7 @@ Evaluates trust from ETSI TS 119 602 Lists of Trusted Entities (LoTE) — the JS
 - Indexes entities by ID and digital identity fingerprint
 - X.509 PKIX path validation against entity certificates
 - JWK key matching via SHA-256 fingerprints
-- Optional JWS signature verification on LoTE documents
+- Optional JWS signature verification of LoTE and LoTL documents against a pinned trust anchor bundle (`trust_anchor_bundle`); applies to LoTL-resolved sources too
 - Periodic refresh with configurable interval
 
 **Supported resource types:** `x5c`, `jwk`
@@ -399,10 +399,21 @@ registries:
       - "https://example.com/lote-se.json"
       - "https://example.com/lote-de.json"
       - "/etc/go-trust/local-lote.json"
-    verify_jws: false
+    # JWS verification (JSON/JWS documents only). verify_jws: true REQUIRES
+    # trust_anchor_bundle - go-trust refuses to start without it. Setting
+    # trust_anchor_bundle alone also turns verification on.
+    verify_jws: true
+    trust_anchor_bundle: "/etc/go-trust/lote-anchors.pem"  # PEM, CA certs
     fetch_timeout: "30s"
     refresh_interval: "1h"
 ```
+
+When verification is on, every LoTE and LoTL (including nested LoTLs) must carry
+a JWS whose `x5c` chain validates to the bundle; unsigned or badly signed
+documents are never used. A direct source or top-level LoTL that fails
+verification makes the registry fail to load; a LoTE or nested LoTL reached
+through a LoTL pointer that fails is logged at error level and skipped, like a
+pointer that cannot be fetched.
 
 **Programmatic usage:**
 

@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -41,7 +42,12 @@ type Config struct {
 	// MaxDereferenceDepth limits nested LoTL resolution. Zero means no limit.
 	MaxDereferenceDepth int
 
-	// VerifyJWS controls whether JWS signatures on LoTE documents are verified.
+	// VerifyJWS requires JWS signature verification of every LoTE and LoTL
+	// document (direct sources, LoTL sources and everything reached through
+	// LoTL pointers). It needs trust anchors: New fails if VerifyJWS is set
+	// and TrustAnchorProvider is nil or yields no pool. Verification is also
+	// enabled whenever a TrustAnchorProvider yields a pool, even if VerifyJWS is
+	// false, so configuring anchors can never be silently ineffective.
 	VerifyJWS bool
 
 	// FetchTimeout is the timeout for fetching remote LoTE documents.
@@ -59,9 +65,10 @@ type Config struct {
 
 	// TrustAnchorProvider supplies root certificates used to anchor the LoTE
 	// signer certificate chain for JWS signature verification per ETSI TS 119 615.
-	// When nil (or when the provider returns a nil pool), signature verification
-	// is skipped — suitable for test environments or deployments where the source
-	// is trusted through other means (HTTPS, controlled distribution).
+	// When nil (or when the provider returns a nil pool) and VerifyJWS is false,
+	// signature verification is skipped — suitable for test environments or
+	// deployments where the source is trusted through other means (HTTPS,
+	// controlled distribution). With VerifyJWS true a missing pool is an error.
 	// For APTITUDE/EUDI production use, inject an implementation that fetches
 	// roots from the OJEU or a pinned bundle.
 	TrustAnchorProvider LoTETrustAnchorProvider
@@ -155,6 +162,9 @@ var _ registry.TrustRegistry = (*Registry)(nil)
 func New(cfg Config) (*Registry, error) {
 	if len(cfg.Sources) == 0 && len(cfg.LoTLSources) == 0 {
 		return nil, fmt.Errorf("lote registry requires at least one source or lotl_sources")
+	}
+	if cfg.VerifyJWS && cfg.TrustAnchorProvider == nil {
+		return nil, ErrVerifyJWSNoAnchors
 	}
 	if cfg.Name == "" {
 		cfg.Name = "LoTE"
@@ -650,7 +660,8 @@ func (r *Registry) refresh() error {
 		Timeout: r.config.FetchTimeout,
 	}
 
-	// Resolve trust anchors once per refresh (may be nil → skip sig verification).
+	// Resolve trust anchors once per refresh. A nil pool skips verification
+	// unless VerifyJWS demands it, in which case refresh fails closed.
 	var taPool *x509.CertPool
 	if r.config.TrustAnchorProvider != nil {
 		var taErr error
@@ -659,31 +670,16 @@ func (r *Registry) refresh() error {
 			return fmt.Errorf("lote: resolving trust anchors: %w", taErr)
 		}
 	}
+	if r.config.VerifyJWS && taPool == nil {
+		return ErrVerifyJWSNoAnchors
+	}
 
 	// Load direct LoTE sources (JSON or XML, auto-detected).
 	for _, src := range r.config.Sources {
-		// When a TrustAnchorProvider is configured, fetch raw bytes first so we
-		// can verify the JWS signature before accepting the parsed content.
 		if taPool != nil {
-			raw, rawErr := fetchRawSource(src, r.config.FetchTimeout)
-			if rawErr != nil {
-				return fmt.Errorf("failed to fetch raw LoTE from %s: %w", src, rawErr)
-			}
-			signerCert, sigErr := VerifyLoTESignature(context.Background(), raw, taPool, time.Now())
-			if sigErr != nil {
-				return fmt.Errorf("LoTE signature verification failed for %s: %w", src, sigErr)
-			}
-			if signerCert != nil && r.config.Logger != nil {
-				r.config.Logger.Info("LoTE JWS signature verified",
-					slog.String("source", src),
-					slog.String("signer", signerCert.Subject.CommonName))
-			}
-			// Parse from the same raw bytes that were verified to eliminate the
-			// TOCTOU race: a second fetch via FetchLoTE could return different
-			// content between signature verification and index building.
-			lote, err := etsi119602.ParseLoTE(raw)
+			lote, err := r.fetchVerifiedLoTE(src, taPool)
 			if err != nil {
-				return fmt.Errorf("failed to parse verified LoTE from %s: %w", src, err)
+				return err
 			}
 			lotes = append(lotes, lote)
 			continue
@@ -698,7 +694,7 @@ func (r *Registry) refresh() error {
 	// Load LoTL sources and follow pointers to discover LoTEs.
 	visited := make(map[string]bool)
 	for _, src := range r.config.LoTLSources {
-		discovered, err := r.resolveLoTL(src, opts, 0, visited)
+		discovered, err := r.resolveLoTL(src, opts, 0, visited, taPool)
 		if err != nil {
 			return fmt.Errorf("failed to resolve LoTL from %s: %w", src, err)
 		}
@@ -946,10 +942,54 @@ func hashResourceKey(req *authzen.EvaluationRequest, ext *cryptoutil.Extensions)
 	}
 }
 
+// ErrVerifyJWSNoAnchors is returned when JWS verification is required but no
+// trust anchors are available. The registry refuses to load rather than fall
+// back to unverified content.
+var ErrVerifyJWSNoAnchors = errors.New("lote: verify_jws is enabled but no trust anchors are available")
+
+// fetchVerifiedPayload fetches src, verifies its JWS against roots and returns
+// the verified payload. The returned bytes are what was signed, so there is no
+// second fetch between verification and use.
+func (r *Registry) fetchVerifiedPayload(src string, roots *x509.CertPool) ([]byte, error) {
+	raw, err := fetchRawSource(src, r.config.FetchTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch raw LoTE from %s: %w", src, err)
+	}
+	signer, payload, err := verifyLoTEJWS(context.Background(), raw, roots, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("LoTE signature verification failed for %s: %w", src, err)
+	}
+	if r.config.Logger != nil {
+		r.config.Logger.Info("LoTE JWS signature verified",
+			slog.String("source", src),
+			slog.String("signer", signer.Subject.CommonName))
+	}
+	return payload, nil
+}
+
+// fetchVerifiedLoTE is fetchVerifiedPayload followed by parsing the payload.
+func (r *Registry) fetchVerifiedLoTE(src string, roots *x509.CertPool) (*etsi119602.ListOfTrustedEntities, error) {
+	payload, err := r.fetchVerifiedPayload(src, roots)
+	if err != nil {
+		return nil, err
+	}
+	lote, err := etsi119602.ParseLoTE(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse verified LoTE from %s: %w", src, err)
+	}
+	return lote, nil
+}
+
 // resolveLoTL fetches a LoTL document and follows its pointers to load LoTEs.
 // Nested LoTLs (pointers with LoTL scheme types) are resolved recursively up
 // to MaxDereferenceDepth. The visited set prevents cycles.
-func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int, visited map[string]bool) ([]*etsi119602.ListOfTrustedEntities, error) {
+//
+// When roots is non-nil every document is JWS-verified against it: the LoTL
+// itself and each LoTE or nested LoTL it points to. A LoTL that fails
+// verification is an error (never parsed); a pointer target that fails
+// verification is logged at error level and skipped, exactly like a pointer
+// target that cannot be fetched, so it never contributes entities.
+func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int, visited map[string]bool, roots *x509.CertPool) ([]*etsi119602.ListOfTrustedEntities, error) {
 	if r.config.MaxDereferenceDepth > 0 && depth >= r.config.MaxDereferenceDepth {
 		if r.config.Logger != nil {
 			r.config.Logger.Warn("LoTL dereference depth limit reached",
@@ -966,49 +1006,28 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 		}
 		return nil, nil
 	}
-	visited[location] = true
 
 	if r.config.Logger != nil {
 		r.config.Logger.Info("resolving LoTL", slog.String("location", location), slog.Int("depth", depth))
 	}
 
-	lotl, err := etsi119602.FetchLoTL(location, opts)
+	lotl, err := r.loadLoTL(location, opts, roots)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch LoTL from %s: %w", location, err)
 	}
+	// Mark visited only once the LoTL has loaded (and verified, when required)
+	// and before following its pointers, so cycles are still cut. A LoTL that
+	// failed to verify must stay unvisited: the visited set is shared across
+	// top-level sources, and marking it earlier would let a later top-level
+	// reference to the same location skip verification and "succeed".
+	visited[location] = true
 
 	var lotes []*etsi119602.ListOfTrustedEntities
-
 	for _, ptr := range lotl.ListAndSchemeInformation.PointersToOtherLoTE {
 		if ptr.LoTELocation == "" {
 			continue
 		}
-
-		if etsi119602.IsLoTLSchemeType(pointerSchemeType(ptr)) {
-			// Nested LoTL — resolve recursively.
-			nested, err := r.resolveLoTL(ptr.LoTELocation, opts, depth+1, visited)
-			if err != nil {
-				if r.config.Logger != nil {
-					r.config.Logger.Warn("failed to resolve nested LoTL",
-						slog.String("location", ptr.LoTELocation),
-						slog.String("error", err.Error()))
-				}
-				continue
-			}
-			lotes = append(lotes, nested...)
-		} else {
-			// LoTE pointer — fetch the LoTE directly.
-			lote, err := etsi119602.FetchLoTE(ptr.LoTELocation, opts)
-			if err != nil {
-				if r.config.Logger != nil {
-					r.config.Logger.Warn("failed to fetch LoTE from LoTL pointer",
-						slog.String("location", ptr.LoTELocation),
-						slog.String("error", err.Error()))
-				}
-				continue
-			}
-			lotes = append(lotes, lote)
-		}
+		lotes = append(lotes, r.resolvePointer(ptr, opts, depth, visited, roots)...)
 	}
 
 	if r.config.Logger != nil {
@@ -1018,6 +1037,51 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 	}
 
 	return lotes, nil
+}
+
+// loadLoTL fetches a LoTL, verifying its JWS first when roots is non-nil.
+func (r *Registry) loadLoTL(location string, opts *etsi119602.FetchOptions, roots *x509.CertPool) (*etsi119602.ListOfTrustedLists, error) {
+	if roots == nil {
+		return etsi119602.FetchLoTL(location, opts)
+	}
+	payload, err := r.fetchVerifiedPayload(location, roots)
+	if err != nil {
+		return nil, err
+	}
+	return etsi119602.ParseLoTL(payload)
+}
+
+// resolvePointer loads the target of one LoTL pointer: a nested LoTL is
+// resolved recursively, anything else is loaded as a LoTE. Failures (including
+// signature verification failures) are logged at error level and the target is
+// skipped, so an unverified document never contributes entities.
+func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119602.FetchOptions, depth int, visited map[string]bool, roots *x509.CertPool) []*etsi119602.ListOfTrustedEntities {
+	var out []*etsi119602.ListOfTrustedEntities
+	var err error
+	kind := "LoTE"
+	if etsi119602.IsLoTLSchemeType(pointerSchemeType(ptr)) {
+		kind = "nested LoTL"
+		out, err = r.resolveLoTL(ptr.LoTELocation, opts, depth+1, visited, roots)
+	} else {
+		var lote *etsi119602.ListOfTrustedEntities
+		if roots != nil {
+			lote, err = r.fetchVerifiedLoTE(ptr.LoTELocation, roots)
+		} else {
+			lote, err = etsi119602.FetchLoTE(ptr.LoTELocation, opts)
+		}
+		if err == nil {
+			out = []*etsi119602.ListOfTrustedEntities{lote}
+		}
+	}
+	if err != nil {
+		if r.config.Logger != nil {
+			r.config.Logger.Error("failed to load "+kind+" from LoTL pointer; source skipped",
+				slog.String("location", ptr.LoTELocation),
+				slog.String("error", err.Error()))
+		}
+		return nil
+	}
+	return out
 }
 
 // entityID derives the entity identifier from a TrustedEntity.

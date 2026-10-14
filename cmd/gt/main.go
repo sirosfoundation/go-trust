@@ -727,6 +727,11 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			CryptoExt:           cryptoExt,
 		}
 
+		if err := applyLoTETrustAnchors(loteCfg, &loteConfig); err != nil {
+			logger.Fatal("Invalid LoTE trust anchor configuration",
+				logging.F("error", err.Error()))
+		}
+
 		if loteCfg.FetchTimeout != "" {
 			if timeout, err := time.ParseDuration(loteCfg.FetchTimeout); err == nil {
 				loteConfig.FetchTimeout = timeout
@@ -1079,6 +1084,25 @@ func rateLimitBurst(rps int) int {
 		return burst
 	}
 	return 1
+}
+
+// applyLoTETrustAnchors loads the pinned trust anchor bundle into the LoTE
+// registry config. verify_jws without a bundle is refused (never ignored):
+// Config.Validate rejects it earlier, this is the defence in depth for callers
+// that skip validation.
+func applyLoTETrustAnchors(loteCfg *config.LoTERegistryConfig, out *lote.Config) error {
+	if loteCfg.TrustAnchorBundle == "" {
+		if loteCfg.VerifyJWS {
+			return lote.ErrVerifyJWSNoAnchors
+		}
+		return nil
+	}
+	provider, err := lote.LoadTrustAnchorBundle(loteCfg.TrustAnchorBundle)
+	if err != nil {
+		return err
+	}
+	out.TrustAnchorProvider = provider
+	return nil
 }
 
 // configureSystemCertPoolRegistry registers the host trust store as a registry.

@@ -351,8 +351,12 @@ registries:
   #   # Max depth for nested LoTL resolution (0 = unlimited)
   #   max_dereference_depth: 3
   #
-  #   # JWS signature verification for JSON LoTE documents
-  #   verify_jws: false
+  #   # JWS signature verification for JSON/JWS LoTE and LoTL documents
+  #   # (including LoTL-resolved sources). verify_jws: true REQUIRES
+  #   # trust_anchor_bundle: go-trust refuses to start without it. Setting the
+  #   # bundle alone also enables verification.
+  #   verify_jws: true
+  #   trust_anchor_bundle: "/etc/go-trust/lote-anchors.pem"  # PEM, CA certs
   #
   #   # Fetch settings
   #   fetch_timeout: "30s"

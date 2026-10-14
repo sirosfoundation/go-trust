@@ -7,8 +7,9 @@
 //
 // General JSON serialization (multiple signatures array) is NOT supported.
 //
-// If the trust anchor pool is nil the function returns nil (verification skipped).
-// This preserves backwards compatibility for callers that use NilTrustAnchorProvider.
+// If the trust anchor pool is nil VerifyLoTESignature returns nil (verification
+// skipped); the Registry itself never calls it that way when Config.VerifyJWS is
+// set, and refuses to load instead.
 //
 // References:
 //   - ETSI TS 119 615 v1.1.1 — Trust Anchor validation procedures
@@ -49,6 +50,19 @@ func VerifyLoTESignature(ctx context.Context, raw []byte, roots *x509.CertPool, 
 	if roots == nil {
 		return nil, nil
 	}
+	leaf, _, err := verifyLoTEJWS(ctx, raw, roots, now)
+	return leaf, err
+}
+
+// verifyLoTEJWS verifies the JWS envelope in raw against roots (which must be
+// non-nil) and returns the signer leaf certificate together with the verified
+// JWS payload. Callers that go on to parse the document MUST parse this
+// returned payload, never raw: raw is the JWS envelope, and the payload is the
+// only content the signature covers.
+func verifyLoTEJWS(_ context.Context, raw []byte, roots *x509.CertPool, now time.Time) (*x509.Certificate, []byte, error) {
+	if roots == nil {
+		return nil, nil, fmt.Errorf("lote: no trust anchors available for JWS verification")
+	}
 
 	token := strings.TrimSpace(string(raw))
 
@@ -64,7 +78,7 @@ func VerifyLoTESignature(ctx context.Context, raw []byte, roots *x509.CertPool, 
 			Signature string `json:"signature"`
 		}
 		if err := json.Unmarshal(raw, &flat); err != nil {
-			return nil, fmt.Errorf("lote: cannot parse as compact JWT or JSON JWS: %w", err)
+			return nil, nil, fmt.Errorf("lote: cannot parse as compact JWT or JSON JWS: %w", err)
 		}
 		headerB64 = flat.Protected
 		payloadB64 = flat.Payload
@@ -74,23 +88,23 @@ func VerifyLoTESignature(ctx context.Context, raw []byte, roots *x509.CertPool, 
 	// Decode header
 	headerBytes, err := base64.RawURLEncoding.DecodeString(headerB64)
 	if err != nil {
-		return nil, fmt.Errorf("lote: decoding JWS header: %w", err)
+		return nil, nil, fmt.Errorf("lote: decoding JWS header: %w", err)
 	}
 	var header struct {
 		Alg string   `json:"alg"`
 		X5C []string `json:"x5c"`
 	}
 	if err := json.Unmarshal(headerBytes, &header); err != nil {
-		return nil, fmt.Errorf("lote: parsing JWS header: %w", err)
+		return nil, nil, fmt.Errorf("lote: parsing JWS header: %w", err)
 	}
 	if len(header.X5C) == 0 {
-		return nil, fmt.Errorf("lote: JWS header missing x5c certificate chain required by ETSI TS 119 615")
+		return nil, nil, fmt.Errorf("lote: JWS header missing x5c certificate chain required by ETSI TS 119 615")
 	}
 
 	// Parse x5c chain
 	leaf, intermediates, err := parseX5CChainRaw(header.X5C)
 	if err != nil {
-		return nil, fmt.Errorf("lote: parsing x5c from JWS header: %w", err)
+		return nil, nil, fmt.Errorf("lote: parsing x5c from JWS header: %w", err)
 	}
 
 	// Verify signer certificate against trust anchors
@@ -101,20 +115,25 @@ func VerifyLoTESignature(ctx context.Context, raw []byte, roots *x509.CertPool, 
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
 	if _, err := leaf.Verify(verifyOpts); err != nil {
-		return nil, fmt.Errorf("lote: signer certificate chain validation failed: %w", err)
+		return nil, nil, fmt.Errorf("lote: signer certificate chain validation failed: %w", err)
 	}
 
 	// Verify JWS signature
 	signingInput := headerB64 + "." + payloadB64
 	sigBytes, err := base64.RawURLEncoding.DecodeString(sigB64)
 	if err != nil {
-		return nil, fmt.Errorf("lote: decoding JWS signature: %w", err)
+		return nil, nil, fmt.Errorf("lote: decoding JWS signature: %w", err)
 	}
 	if err := verifyJWSSignature(header.Alg, leaf.PublicKey, []byte(signingInput), sigBytes); err != nil {
-		return nil, fmt.Errorf("lote: JWS signature verification failed: %w", err)
+		return nil, nil, fmt.Errorf("lote: JWS signature verification failed: %w", err)
 	}
 
-	return leaf, nil
+	payload, err := base64.RawURLEncoding.DecodeString(payloadB64)
+	if err != nil {
+		return nil, nil, fmt.Errorf("lote: decoding JWS payload: %w", err)
+	}
+
+	return leaf, payload, nil
 }
 
 // verifyJWSSignature checks a JWS signature given the algorithm name, public key,
