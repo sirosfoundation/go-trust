@@ -727,6 +727,17 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			CryptoExt:           cryptoExt,
 		}
 
+		if loteCfg.TrustAnchorBundle != "" {
+			provider, err := lote.LoadTrustAnchorBundle(loteCfg.TrustAnchorBundle)
+			if err != nil {
+				logger.Fatal("Failed to load LoTE trust anchor bundle",
+					logging.F("error", err.Error()))
+			}
+			loteConfig.TrustAnchorProvider = provider
+		} else if loteCfg.VerifyJWS {
+			logger.Fatal("LoTE registry: verify_jws is true but trust_anchor_bundle is not set")
+		}
+
 		if loteCfg.FetchTimeout != "" {
 			if timeout, err := time.ParseDuration(loteCfg.FetchTimeout); err == nil {
 				loteConfig.FetchTimeout = timeout

@@ -389,8 +389,14 @@ type LoTERegistryConfig struct {
 	LoTLSources         []string `yaml:"lotl_sources,omitempty"`
 	MaxDereferenceDepth int      `yaml:"max_dereference_depth,omitempty"`
 	VerifyJWS           bool     `yaml:"verify_jws,omitempty"`
-	FetchTimeout        string   `yaml:"fetch_timeout,omitempty"`
-	RefreshInterval     string   `yaml:"refresh_interval,omitempty"`
+	// TrustAnchorBundle is the path to a PEM file of CA certificates that anchor
+	// the x5c chain of the JWS signer of every LoTE and LoTL. Required when
+	// verify_jws is true (startup is refused without it). When set, signatures
+	// are verified even if verify_jws is false: configured anchors are never
+	// silently ignored.
+	TrustAnchorBundle string `yaml:"trust_anchor_bundle,omitempty"`
+	FetchTimeout      string `yaml:"fetch_timeout,omitempty"`
+	RefreshInterval   string `yaml:"refresh_interval,omitempty"`
 }
 
 // =============================================================================
@@ -779,6 +785,14 @@ func (c *Config) Validate() error {
 	if c.Registries.ETSI != nil && c.Registries.ETSI.Enabled {
 		if c.Registries.ETSI.RequireSignature && c.Registries.ETSI.LOTLSignerBundle == "" {
 			return fmt.Errorf("ETSI registry: lotl_signer_bundle is required when require_signature is true")
+		}
+	}
+
+	// Validate LoTE registry configuration: signature verification without
+	// trust anchors would verify nothing, so it is refused (issue #200).
+	if l := c.Registries.LoTE; l != nil && l.Enabled {
+		if l.VerifyJWS && l.TrustAnchorBundle == "" {
+			return fmt.Errorf("LoTE registry: trust_anchor_bundle is required when verify_jws is true")
 		}
 	}
 

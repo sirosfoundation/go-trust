@@ -15,6 +15,9 @@ package lote
 import (
 	"context"
 	"crypto/x509"
+	"encoding/pem"
+	"fmt"
+	"os"
 )
 
 // LoTETrustAnchorProvider supplies the root certificates used to anchor the
@@ -55,4 +58,40 @@ func NewStaticTrustAnchorProvider(pool *x509.CertPool) *StaticTrustAnchorProvide
 // TrustAnchors returns the configured pool.
 func (p *StaticTrustAnchorProvider) TrustAnchors(_ context.Context) (*x509.CertPool, error) {
 	return p.pool, nil
+}
+
+// LoadTrustAnchorBundle reads a PEM file of CA certificates and returns a
+// StaticTrustAnchorProvider over them. It is strict, because this is the
+// pinned root of trust for LoTE signatures: an unreadable file, a CERTIFICATE
+// block that does not parse, or a file with no certificate at all is an error
+// (a silently shrunken anchor set would make verification fail confusingly or,
+// worse, mask a pinning mistake). Non-CERTIFICATE PEM blocks are ignored.
+func LoadTrustAnchorBundle(path string) (*StaticTrustAnchorProvider, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("lote: reading trust anchor bundle %s: %w", path, err)
+	}
+	pool := x509.NewCertPool()
+	n := 0
+	rest := data
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("lote: trust anchor bundle %s: invalid certificate #%d: %w", path, n+1, err)
+		}
+		pool.AddCert(cert)
+		n++
+	}
+	if n == 0 {
+		return nil, fmt.Errorf("lote: trust anchor bundle %s contains no certificates", path)
+	}
+	return NewStaticTrustAnchorProvider(pool), nil
 }
