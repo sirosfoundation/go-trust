@@ -87,7 +87,7 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 | `policies.policies.<name>.etsi.strict_entitlement_check` | — | boolean | StrictEntitlementCheck rejects over-requesting RPs instead of returning warnings alongside an allow decision. |
 | `policies.policies.<name>.etsi.allow_intermediaries` | — | boolean | AllowIntermediaries accepts intermediary/broker presentation requests and surfaces intermediary metadata. Defaults to false. |
 | `policies.policies.<name>.did.allowed_domains` | — | string list | AllowedDomains restricts DIDs to specific domains. Supports wildcards: "*.example.com" matches "sub.example.com" |
-| `policies.policies.<name>.did.required_verification_methods` | — | string list | RequiredVerificationMethods requires specific verification method types. |
+| `policies.policies.<name>.did.required_verification_methods` | — | string list | RequiredVerificationMethods requires the DID document to contain every listed verification method type (exact, case-sensitive match on verificationMethod[].type). |
 | `policies.policies.<name>.did.required_services` | — | string list | RequiredServices requires specific service types in the DID document. |
 | `policies.policies.<name>.did.require_verifiable_history` | — | boolean | RequireVerifiableHistory (did:webvh only) requires valid verifiable history. |
 | `policies.policies.<name>.mdociaca.issuer_allowlist` | — | string list | IssuerAllowlist restricts to specific credential issuers. |

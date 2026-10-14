@@ -155,7 +155,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	}
 
 	// Check policy constraints from request context
-	if denial := checkPolicyConstraints(req, domain, startTime); denial != nil {
+	if denial := checkPolicyConstraints(req, didDoc, domain, startTime); denial != nil {
 		return denial, nil
 	}
 
@@ -674,8 +674,8 @@ func didDocToTrustMetadata(doc *DIDDocument) map[string]interface{} {
 	return meta
 }
 
-// checkPolicyConstraints checks domain-based policy constraints from request context.
-func checkPolicyConstraints(req *authzen.EvaluationRequest, domain string, startTime time.Time) *authzen.EvaluationResponse {
+// checkPolicyConstraints checks domain and verification-method policy constraints from request context.
+func checkPolicyConstraints(req *authzen.EvaluationRequest, didDoc *DIDDocument, domain string, startTime time.Time) *authzen.EvaluationResponse {
 	if req.Context == nil {
 		return nil
 	}
@@ -697,7 +697,42 @@ func checkPolicyConstraints(req *authzen.EvaluationRequest, domain string, start
 		}
 	}
 
+	// Check required_verification_methods: the DID document must contain every
+	// listed verification method type (exact, case-sensitive match on the
+	// verificationMethod[].type values, like required_services elsewhere).
+	if requiredVMs := extractStringSlice(req.Context, "required_verification_methods"); len(requiredVMs) > 0 {
+		if !hasRequiredVerificationMethods(didDoc.VerificationMethod, requiredVMs) {
+			return &authzen.EvaluationResponse{
+				Decision: false,
+				Context: &authzen.EvaluationResponseContext{
+					Reason: map[string]interface{}{
+						"error":                         "DID document missing required verification methods for this role",
+						"required_verification_methods": requiredVMs,
+						"resolution_ms":                 time.Since(startTime).Milliseconds(),
+					},
+				},
+			}
+		}
+	}
+
 	return nil
+}
+
+// hasRequiredVerificationMethods reports whether the verificationMethod array
+// contains every required type. Matching is exact and case-sensitive. Only the
+// top-level verificationMethod array counts; relationship arrays hold
+// references here.
+func hasRequiredVerificationMethods(methods []VerificationMethod, requiredTypes []string) bool {
+	present := make(map[string]bool, len(methods))
+	for _, m := range methods {
+		present[m.Type] = true
+	}
+	for _, required := range requiredTypes {
+		if !present[required] {
+			return false
+		}
+	}
+	return true
 }
 
 func extractStringSlice(ctx map[string]interface{}, key string) []string {

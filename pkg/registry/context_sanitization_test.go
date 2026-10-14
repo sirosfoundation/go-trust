@@ -300,6 +300,7 @@ func TestClientSuppliableKeysExcludePolicyControls(t *testing.T) {
 		"credential_type_trust_marks",
 		"allowed_domains",
 		"required_services",
+		"required_verification_methods",
 		"issuer_allowlist",
 		"allowed_aaguids",
 		"blocked_aaguids",

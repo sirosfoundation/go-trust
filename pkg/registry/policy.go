@@ -139,7 +139,11 @@ type DIDPolicyConstraints struct {
 	// If empty, all domains are allowed.
 	AllowedDomains []string `json:"allowed_domains,omitempty" yaml:"allowed_domains,omitempty"`
 
-	// RequiredVerificationMethods requires specific verification method types.
+	// RequiredVerificationMethods requires the DID document to contain every
+	// listed verification method type (exact, case-sensitive match on the
+	// top-level verificationMethod[].type values). Enforced by the did:web,
+	// did:webvh, did:jwks and generic DID registries; a DID that lacks any
+	// listed type is denied.
 	// E.g., ["Ed25519VerificationKey2020", "JsonWebKey2020"]
 	RequiredVerificationMethods []string `json:"required_verification_methods,omitempty" yaml:"required_verification_methods,omitempty"`
 

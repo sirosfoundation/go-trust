@@ -539,6 +539,10 @@ policies:
         allowed_domains:
           - "*.eudiw.dev"
           - "*.example.com"
+        # DID document must contain ALL of these verificationMethod[].type values
+        # (exact match; a DID missing any of them is denied)
+        required_verification_methods:
+          - "JsonWebKey2020"
         require_verifiable_history: true
 
     # Policy for wallet providers

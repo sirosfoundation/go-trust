@@ -523,7 +523,7 @@ type DIDPolicyConfig struct {
 	// Supports wildcards: "*.example.com" matches "sub.example.com"
 	AllowedDomains []string `yaml:"allowed_domains,omitempty"`
 
-	// RequiredVerificationMethods requires specific verification method types.
+	// RequiredVerificationMethods requires the DID document to contain every listed verification method type (exact, case-sensitive match on verificationMethod[].type).
 	RequiredVerificationMethods []string `yaml:"required_verification_methods,omitempty"`
 
 	// RequiredServices requires specific service types in the DID document.

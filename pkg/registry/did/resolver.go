@@ -227,6 +227,24 @@ func checkDIDPolicyConstraints(req *authzen.EvaluationRequest, didDoc *DIDDocume
 		}
 	}
 
+	// Check required_verification_methods: the DID document must contain every
+	// listed verification method type (exact, case-sensitive match on the
+	// verificationMethod[].type values, like required_services).
+	if requiredVMs := extractStringSliceFromCtx(req.Context, "required_verification_methods"); len(requiredVMs) > 0 {
+		if !didDocVerificationMethodsMatch(didDoc.VerificationMethod, requiredVMs) {
+			return &authzen.EvaluationResponse{
+				Decision: false,
+				Context: &authzen.EvaluationResponseContext{
+					Reason: map[string]interface{}{
+						"error":                         "DID document missing required verification methods for this role",
+						"required_verification_methods": requiredVMs,
+						"resolution_ms":                 time.Since(startTime).Milliseconds(),
+					},
+				},
+			}
+		}
+	}
+
 	// Check required_services: DID document must have specific service types
 	if requiredServices := extractStringSliceFromCtx(req.Context, "required_services"); len(requiredServices) > 0 {
 		if !didDocServicesMatch(didDoc.Service, requiredServices) {
@@ -804,3 +822,20 @@ var _ registry.TrustRegistry = (*GenericDIDRegistry)(nil)
 
 // Suppress unused warning for ed25519 import (used for key type reference)
 var _ = ed25519.PublicKeySize
+
+// didDocVerificationMethodsMatch reports whether the verificationMethod array contains every required
+// type. Matching is exact and case-sensitive. Only the top-level
+// verificationMethod array counts; methods embedded in relationship arrays
+// (authentication, assertionMethod, ...) are not considered.
+func didDocVerificationMethodsMatch(methods []VerificationMethod, requiredTypes []string) bool {
+	present := make(map[string]bool, len(methods))
+	for _, m := range methods {
+		present[m.Type] = true
+	}
+	for _, required := range requiredTypes {
+		if !present[required] {
+			return false
+		}
+	}
+	return true
+}
