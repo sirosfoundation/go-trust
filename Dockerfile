@@ -70,9 +70,11 @@ ENV GT_HOST=0.0.0.0 \
 EXPOSE 6001
 
 # Health check using wget against the loopback address on the configured port.
-# Shell form, so ${GT_PORT} is expanded by /bin/sh at check time.
+# Shell form, so ${GT_PORT} is expanded by /bin/sh at check time. A real GET
+# (-O /dev/null) is used rather than --spider: --spider sends HEAD, which
+# /healthz does not serve (wget reports "Remote file does not exist").
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:${GT_PORT}/healthz || exit 1
+    CMD wget -q --tries=1 -O /dev/null http://127.0.0.1:${GT_PORT}/healthz || exit 1
 
 ENTRYPOINT ["/app/gt"]
 CMD ["serve"]
