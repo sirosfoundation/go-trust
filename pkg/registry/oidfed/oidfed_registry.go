@@ -1423,14 +1423,14 @@ func (r *OIDFedRegistry) extractEntityID(req *authzen.EvaluationRequest) (string
 	// Try subject.entity_id or subject.id first
 	if req.Subject.Type == "key" && req.Subject.ID != "" {
 		// Check if ID looks like a URL (entity identifier)
-		if strings.HasPrefix(req.Subject.ID, "http://") || strings.HasPrefix(req.Subject.ID, "https://") {
+		if isHTTPURL(req.Subject.ID) {
 			return strings.TrimRight(req.Subject.ID, "/"), nil
 		}
 	}
 
 	// Try resource.entity_id or resource.id
 	if req.Resource.ID != "" {
-		if strings.HasPrefix(req.Resource.ID, "http://") || strings.HasPrefix(req.Resource.ID, "https://") {
+		if isHTTPURL(req.Resource.ID) {
 			return strings.TrimRight(req.Resource.ID, "/"), nil
 		}
 	}
@@ -1438,14 +1438,19 @@ func (r *OIDFedRegistry) extractEntityID(req *authzen.EvaluationRequest) (string
 	return "", fmt.Errorf("no entity_id found in request subject or resource")
 }
 
+// isHTTPURL reports whether s looks like an entity identifier (an http or https URL).
+func isHTTPURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
 // rawRequestedEntityID returns the entity identifier exactly as the request
 // named it (the same field extractEntityID reads, without its trailing-slash
 // normalisation), or "" if the request names none.
 func rawRequestedEntityID(req *authzen.EvaluationRequest) string {
-	if req.Subject.Type == "key" && (strings.HasPrefix(req.Subject.ID, "http://") || strings.HasPrefix(req.Subject.ID, "https://")) {
+	if req.Subject.Type == "key" && isHTTPURL(req.Subject.ID) {
 		return req.Subject.ID
 	}
-	if strings.HasPrefix(req.Resource.ID, "http://") || strings.HasPrefix(req.Resource.ID, "https://") {
+	if isHTTPURL(req.Resource.ID) {
 		return req.Resource.ID
 	}
 	return ""
