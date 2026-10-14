@@ -1035,8 +1035,8 @@ func (r *DIDWebVHRegistry) checkPolicyConstraints(req *authzen.EvaluationRequest
 
 	// Check required_verification_methods: the DID document must contain every
 	// listed verificationMethod[].type (exact match, like required_services).
-	if denial := registry.DenyMissingVerificationMethods(req.Context, didDoc.VerificationMethod, func(m VerificationMethod) string { return m.Type }, startTime); denial != nil {
-		return denial
+	if webvhVMDenial := registry.DenyMissingVerificationMethods(req.Context, didDoc.VerificationMethod, verificationMethodType, startTime); webvhVMDenial != nil {
+		return webvhVMDenial
 	}
 
 	// Check required_services: DID document must have specific service types
@@ -1181,3 +1181,6 @@ func (r *DIDWebVHRegistry) Refresh(ctx context.Context) error {
 func (r *DIDWebVHRegistry) SetHTTPClient(client *http.Client) {
 	r.httpClient = client
 }
+
+// verificationMethodType returns the verification method's type string.
+func verificationMethodType(m VerificationMethod) string { return m.Type }

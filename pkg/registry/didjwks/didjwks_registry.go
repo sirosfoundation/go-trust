@@ -699,8 +699,8 @@ func checkPolicyConstraints(req *authzen.EvaluationRequest, didDoc *DIDDocument,
 
 	// Check required_verification_methods: the DID document must contain every
 	// listed verificationMethod[].type (exact match, like required_services).
-	if denial := registry.DenyMissingVerificationMethods(req.Context, didDoc.VerificationMethod, func(m VerificationMethod) string { return m.Type }, startTime); denial != nil {
-		return denial
+	if jwksVMDenial := registry.DenyMissingVerificationMethods(req.Context, didDoc.VerificationMethod, verificationMethodType, startTime); jwksVMDenial != nil {
+		return jwksVMDenial
 	}
 
 	return nil
@@ -740,3 +740,6 @@ func matchesDomain(domain string, allowedDomains []string) bool {
 	}
 	return false
 }
+
+// verificationMethodType returns the verification method's type string.
+func verificationMethodType(m VerificationMethod) string { return m.Type }
