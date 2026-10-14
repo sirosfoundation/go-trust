@@ -4,9 +4,11 @@
 // in the EUDI Wallet ecosystem. It defines:
 //
 //   - Four certificate policy OIDs (NCP/QCP × natural/legal person)
-//   - Required extensions (keyUsage, subjectAltName, certificatePolicies, AIA)
+//   - Required extensions (subjectAltName, certificatePolicies, AIA)
 //   - Identity extraction from Subject DN and SANs
-//   - Security constraints (key usage restricted to nonRepudiation)
+//   - No keyUsage constraint: the access certificate authenticates the relying
+//     party (RFC 5280 4.2.1.3 digitalSignature), and TS 119 411-8 specifies no
+//     keyUsage bit, so none is enforced
 //
 // The profile is based on the APTITUDE wp2-trust-specifications access-certificate
 // topic (derived from ETSI TS 119 411-8, ETSI EN 319 412-x, and CIR 2025/848).
@@ -274,18 +276,16 @@ func extractSubjectAttribute(cert *x509.Certificate, oid asn1.ObjectIdentifier) 
 
 // ValidateCredential performs WRPAC-specific validation on an X.509 certificate.
 // Checks required by the profile beyond basic chain verification:
-//   - keyUsage must include nonRepudiation (Type A, B, or F per ETSI EN 319 412)
 //   - subjectAltName must be present with at least one contact method
 //   - certificatePolicies must contain at least one WRPAC policy OID
+//
+// keyUsage is deliberately not checked: ETSI TS 119 411-8 specifies none, and
+// an access certificate authenticates the relying party (digitalSignature),
+// it does not commit to content (contentCommitment/nonRepudiation).
 func (p *WRPACProfile) ValidateCredential(credential interface{}) error {
 	cert, ok := credential.(*x509.Certificate)
 	if !ok {
 		return fmt.Errorf("wrpac: expected *x509.Certificate, got %T", credential)
-	}
-
-	// Check keyUsage — WRPAC requires nonRepudiation (contentCommitment)
-	if cert.KeyUsage&x509.KeyUsageContentCommitment == 0 {
-		return fmt.Errorf("wrpac: certificate keyUsage does not include nonRepudiation (contentCommitment)")
 	}
 
 	// Check subjectAltName — must contain at least one contact method
