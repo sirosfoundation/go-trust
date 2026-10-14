@@ -419,7 +419,8 @@ skipped pointers as `lotl_pointers_skipped`.
 
 **Classic TSL pointers.** A LoTL pointer whose scheme type is a TS 119 612 TSL
 type (e.g. `EUgeneric`) is fetched as XML, converted with `FromTSL` and indexed
-with the native LoTEs. With verification off it is loaded as is. With
+with the native LoTEs (a pointer whose `MimeType` is JSON stays a native LoTE even
+if it reuses a TSL type). With verification off it is loaded as is. With
 verification on (`verify_jws` and/or `trust_anchor_bundle`) it is never loaded
 unverified: the TSL is fetched once, its enveloped XMLDSig is verified over
 those bytes, and only the verified content is parsed. The same

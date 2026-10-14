@@ -42,6 +42,17 @@ func IsClassicTSLSchemeType(schemeType string) bool {
 	return strings.Contains(schemeType, classicTSLTypeMarker)
 }
 
+// isClassicTSLPointer reports whether a LoTL pointer targets an XML TSL. The
+// scheme type decides, unless the pointer's MimeType says the target is JSON:
+// a native JSON LoTE may reuse a classic TSLType (e.g. EUgeneric) in its
+// qualifier, and must keep loading as a LoTE.
+func isClassicTSLPointer(ptr etsi119602.OtherLoTEPointer) bool {
+	if !IsClassicTSLSchemeType(pointerSchemeType(ptr)) {
+		return false
+	}
+	return len(ptr.LoTEQualifiers) == 0 || !strings.Contains(strings.ToLower(ptr.LoTEQualifiers[0].MimeType), "json")
+}
+
 // classicTrustedStatuses are the TS 119 612 service status names (last path
 // segment of the Svcstatus URI) that confer trust. Every other status
 // (withdrawn, deprecatedatnationallevel, supervisionincessation,

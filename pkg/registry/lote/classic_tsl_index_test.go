@@ -113,6 +113,28 @@ func (f *jwsFixture) intermediate() (*x509.Certificate, *ecdsa.PrivateKey) {
 	return cert, key
 }
 
+func TestClassicTSL_JSONMimeTypeKeepsLoTERouting(t *testing.T) {
+	// A native JSON LoTE pointer may reuse the classic EUgeneric type in its
+	// qualifier (see walletcompat/testdata/fixtures/lotl-demo.json). The
+	// MimeType says it is JSON, so it must still load as a LoTE.
+	f := newJWSFixture(t)
+	lotePath := writeLoTE(t, f.dir, "lote.json", minimalLoTE("SE", simpleEntity("https://json-lote.example")))
+	ptr := classicPointer(lotePath)
+	ptr.LoTEQualifiers[0].MimeType = "application/json"
+	lotl := f.plainLoTL("lotl.json", ptr)
+
+	reg, err := New(Config{LoTLSources: []string{lotl}})
+	require.NoError(t, err)
+	assert.True(t, evaluates(t, reg, "https://json-lote.example"))
+
+	assert.False(t, isClassicTSLPointer(ptr))
+	ptr.LoTEQualifiers[0].MimeType = "application/vnd.etsi.tsl+xml"
+	assert.True(t, isClassicTSLPointer(ptr))
+	ptr.LoTEQualifiers[0].MimeType = ""
+	assert.True(t, isClassicTSLPointer(ptr))
+	assert.False(t, isClassicTSLPointer(etsi119602.OtherLoTEPointer{LoTELocation: "x"}))
+}
+
 func TestClassicTSL_SkippedCountIsPerRefresh(t *testing.T) {
 	f := newJWSFixture(t)
 	lotl := f.plainLoTL("lotl.json", classicPointer(filepath.Join(f.dir, "missing.xml")))

@@ -1085,7 +1085,7 @@ func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119
 	case etsi119602.IsLoTLSchemeType(schemeType):
 		kind = "nested LoTL"
 		out, err = r.resolveLoTL(ptr.LoTELocation, opts, depth+1, st, roots)
-	case IsClassicTSLSchemeType(schemeType):
+	case isClassicTSLPointer(ptr):
 		kind = "classic TSL"
 		out, err = r.resolveClassicPointer(ptr.LoTELocation, roots)
 	default:
