@@ -251,7 +251,7 @@ func TestWRPACProfile_ValidateCredential_Valid(t *testing.T) {
 }
 
 // An access certificate authenticates the relying party (RFC 5280 4.2.1.3
-// digitalSignature / entity authentication). ETSI TS 119 411-8 mandates no
+// digitalSignature / entity authentication). ETSI TS 119 411-8 specifies no
 // keyUsage, so the profile must not require or warn about contentCommitment.
 func TestWRPACProfile_ValidateCredential_KeyUsageNotConstrained(t *testing.T) {
 	p := NewWRPACProfile()

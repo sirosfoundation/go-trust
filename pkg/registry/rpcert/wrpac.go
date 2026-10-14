@@ -7,7 +7,7 @@
 //   - Required extensions (subjectAltName, certificatePolicies, AIA)
 //   - Identity extraction from Subject DN and SANs
 //   - No keyUsage constraint: the access certificate authenticates the relying
-//     party (RFC 5280 4.2.1.3 digitalSignature), and TS 119 411-8 mandates no
+//     party (RFC 5280 4.2.1.3 digitalSignature), and TS 119 411-8 specifies no
 //     keyUsage bit, so none is enforced
 //
 // The profile is based on the APTITUDE wp2-trust-specifications access-certificate
