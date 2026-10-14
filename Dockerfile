@@ -61,11 +61,18 @@ COPY --from=builder /app/example /app/example
 RUN adduser -D -u 1000 appuser
 USER appuser
 
-EXPOSE 8080
+# The gt binary defaults to 127.0.0.1:6001, which is unreachable through a
+# published container port. Bind all interfaces inside the container; override
+# with -e GT_HOST/GT_PORT (the HEALTHCHECK follows GT_PORT).
+ENV GT_HOST=0.0.0.0 \
+    GT_PORT=6001
 
-# Health check using wget (assumes server has /healthz endpoint)
+EXPOSE 6001
+
+# Health check using wget against the loopback address on the configured port.
+# Shell form, so ${GT_PORT} is expanded by /bin/sh at check time.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/healthz || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:${GT_PORT}/healthz || exit 1
 
 ENTRYPOINT ["/app/gt"]
 CMD ["serve"]
