@@ -16,7 +16,6 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirosfoundation/g119612/pkg/etsi119602"
@@ -94,10 +93,6 @@ type Registry struct {
 	lastUpdated time.Time
 
 	stopCh chan struct{}
-
-	// skippedPointers counts LoTL pointer targets skipped (fetch, parse or
-	// signature failure) in the current refresh; reported in the refresh log.
-	skippedPointers atomic.Int64
 }
 
 // entityIndex is a lookup structure built from loaded LoTEs.
@@ -696,12 +691,10 @@ func (r *Registry) refresh() error {
 		lotes = append(lotes, lote)
 	}
 
-	r.skippedPointers.Store(0)
-
 	// Load LoTL sources and follow pointers to discover LoTEs.
-	visited := make(map[string]bool)
+	st := &resolveState{visited: make(map[string]bool)}
 	for _, src := range r.config.LoTLSources {
-		discovered, err := r.resolveLoTL(src, opts, 0, visited, taPool)
+		discovered, err := r.resolveLoTL(src, opts, 0, st, taPool)
 		if err != nil {
 			return fmt.Errorf("failed to resolve LoTL from %s: %w", src, err)
 		}
@@ -722,7 +715,7 @@ func (r *Registry) refresh() error {
 			slog.Int("sources", len(r.config.Sources)),
 			slog.Int("lotl_sources", len(r.config.LoTLSources)),
 			slog.Int("lotes_loaded", len(lotes)),
-			slog.Int64("lotl_pointers_skipped", r.skippedPointers.Load()),
+			slog.Int64("lotl_pointers_skipped", int64(st.skipped)),
 			slog.Int("entities", len(idx.byID)))
 	}
 
@@ -999,6 +992,15 @@ func (r *Registry) fetchVerifiedLoTE(src string, roots *x509.CertPool) (*etsi119
 	return lote, nil
 }
 
+// resolveState is the per-refresh state of LoTL resolution: the cycle-detection set
+// shared across top-level sources, and the number of pointer targets skipped
+// (fetch, parse or signature failure). It is local to one refresh so that
+// overlapping refreshes cannot affect each other.
+type resolveState struct {
+	visited map[string]bool
+	skipped int
+}
+
 // resolveLoTL fetches a LoTL document and follows its pointers to load LoTEs.
 // Nested LoTLs (pointers with LoTL scheme types) are resolved recursively up
 // to MaxDereferenceDepth. The visited set prevents cycles.
@@ -1008,7 +1010,7 @@ func (r *Registry) fetchVerifiedLoTE(src string, roots *x509.CertPool) (*etsi119
 // verification is an error (never parsed); a pointer target that fails
 // verification is logged at error level and skipped, exactly like a pointer
 // target that cannot be fetched, so it never contributes entities.
-func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int, visited map[string]bool, roots *x509.CertPool) ([]*etsi119602.ListOfTrustedEntities, error) {
+func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int, st *resolveState, roots *x509.CertPool) ([]*etsi119602.ListOfTrustedEntities, error) {
 	if r.config.MaxDereferenceDepth > 0 && depth >= r.config.MaxDereferenceDepth {
 		if r.config.Logger != nil {
 			r.config.Logger.Warn("LoTL dereference depth limit reached",
@@ -1018,7 +1020,7 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 		return nil, nil
 	}
 
-	if visited[location] {
+	if st.visited[location] {
 		if r.config.Logger != nil {
 			r.config.Logger.Warn("LoTL cycle detected, skipping",
 				slog.String("location", location))
@@ -1039,14 +1041,14 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 	// failed to verify must stay unvisited: the visited set is shared across
 	// top-level sources, and marking it earlier would let a later top-level
 	// reference to the same location skip verification and "succeed".
-	visited[location] = true
+	st.visited[location] = true
 
 	var lotes []*etsi119602.ListOfTrustedEntities
 	for _, ptr := range lotl.ListAndSchemeInformation.PointersToOtherLoTE {
 		if ptr.LoTELocation == "" {
 			continue
 		}
-		lotes = append(lotes, r.resolvePointer(ptr, opts, depth, visited, roots)...)
+		lotes = append(lotes, r.resolvePointer(ptr, opts, depth, st, roots)...)
 	}
 
 	if r.config.Logger != nil {
@@ -1074,7 +1076,7 @@ func (r *Registry) loadLoTL(location string, opts *etsi119602.FetchOptions, root
 // resolved recursively, anything else is loaded as a LoTE. Failures (including
 // signature verification failures) are logged at error level and the target is
 // skipped, so an unverified document never contributes entities.
-func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119602.FetchOptions, depth int, visited map[string]bool, roots *x509.CertPool) []*etsi119602.ListOfTrustedEntities {
+func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119602.FetchOptions, depth int, st *resolveState, roots *x509.CertPool) []*etsi119602.ListOfTrustedEntities {
 	schemeType := pointerSchemeType(ptr)
 	var out []*etsi119602.ListOfTrustedEntities
 	var err error
@@ -1082,7 +1084,7 @@ func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119
 	switch {
 	case etsi119602.IsLoTLSchemeType(schemeType):
 		kind = "nested LoTL"
-		out, err = r.resolveLoTL(ptr.LoTELocation, opts, depth+1, visited, roots)
+		out, err = r.resolveLoTL(ptr.LoTELocation, opts, depth+1, st, roots)
 	case IsClassicTSLSchemeType(schemeType):
 		kind = "classic TSL"
 		out, err = r.resolveClassicPointer(ptr.LoTELocation, roots)
@@ -1090,7 +1092,7 @@ func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119
 		out, err = r.resolveLoTEPointer(ptr.LoTELocation, opts, roots)
 	}
 	if err != nil {
-		r.skippedPointers.Add(1)
+		st.skipped++
 		if r.config.Logger != nil {
 			r.config.Logger.Error("failed to load "+kind+" from LoTL pointer; source skipped",
 				slog.String("location", ptr.LoTELocation),

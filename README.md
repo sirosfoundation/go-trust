@@ -423,9 +423,13 @@ with the native LoTEs. With verification off it is loaded as is. With
 verification on (`verify_jws` and/or `trust_anchor_bundle`) it is never loaded
 unverified: the TSL is fetched once, its enveloped XMLDSig is verified over
 those bytes, and only the verified content is parsed. The same
-`trust_anchor_bundle` anchors the TSL signer: the certificate in the signature's
-`KeyInfo` must chain (using any further certificates in `KeyInfo` as
-intermediates) to a bundle certificate, or be one itself, and be valid now.
+`trust_anchor_bundle` anchors the TSL signer: one of the certificates in the
+signature's `KeyInfo` must verify the signature and chain (using the other
+`KeyInfo` certificates as intermediates) to a bundle certificate, or be one
+itself, and be valid now. Signer certificates are parsed with `crypto/x509`,
+so curves that need the configured crypto extensions (e.g. brainpool) are not
+supported for TSL signers. The pointer's target must itself declare a TS 119 612
+`TSLType`.
 The TSL must carry exactly one `ds:Signature`, a direct child of the root, whose
 reference covers the whole document; SHA-1 signature and digest algorithms are
 refused. Revocation and XAdES signing time are not checked. Any failure skips

@@ -13,6 +13,7 @@ package lote
 import (
 	"context"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -79,6 +80,14 @@ func (r *Registry) loadClassicTSL(location string, roots *x509.CertPool) (*etsi1
 		return nil, err
 	}
 	lote := etsi119602.FromTSL(tsl)
+	// FromTSL copies the document's own TSLType into LoTEType, and the index
+	// selects the classic status rules from that value. A target reached
+	// through a classic pointer must therefore declare a classic type itself,
+	// or it could opt into the permissive LoTE status rule.
+	if declared := lote.ListAndSchemeInformation.LoTEType; !IsClassicTSLSchemeType(declared) {
+		return nil, fmt.Errorf("classic TSL pointer target %s declares TSLType %q, which is not a TS 119 612 TSL type", location, declared)
+	}
+	dropUntrustedClassicEntities(lote)
 	qualifyClassicEntityIDs(lote, location)
 	if len(lote.ListAndSchemeInformation.PointersToOtherLoTE) > 0 && r.config.Logger != nil {
 		r.config.Logger.Warn("classic TSL has pointers to other TSLs; they are not followed",
@@ -130,6 +139,22 @@ func (r *Registry) fetchVerifiedTSL(location string, roots *x509.CertPool) (*ets
 	return tsl, nil
 }
 
+// dropUntrustedClassicEntities removes entities none of whose services is in a
+// trusted status. Filtering only the indexed keys would still leave the entity
+// reachable by id, where presence in a non-Pub-EAA list means trusted.
+func dropUntrustedClassicEntities(lote *etsi119602.ListOfTrustedEntities) {
+	kept := lote.TrustedEntitiesList[:0]
+	for _, ent := range lote.TrustedEntitiesList {
+		for _, svc := range ent.TrustedEntityServices {
+			if classicStatusTrusted(svc.ServiceInformation.ServiceStatus) {
+				kept = append(kept, ent)
+				break
+			}
+		}
+	}
+	lote.TrustedEntitiesList = kept
+}
+
 // qualifyClassicEntityIDs makes the synthetic entity IDs produced by FromTSL
 // unique across lists. FromTSL derives them from service type and position
 // ("<svctype>#tsp0-svc0"), so two classic TSLs would otherwise collide in the
@@ -160,20 +185,29 @@ func qualifyClassicEntityIDs(lote *etsi119602.ListOfTrustedEntities, location st
 // signature whose embedded certificate is byte-equal to one of them. It does no
 // chain building, and an x509.CertPool cannot be enumerated into that list. The
 // trust_anchor_bundle holds CA roots, so go-trust does the chain validation
-// itself and then hands the chain-validated leaf to the library as the sole
+// itself and then hands the chain-validated signer to the library as the sole
 // trusted certificate. The library then checks the signature value, that the
 // signed Reference covers the document root (enveloped-signature transform
-// applied to the root), the digest, and the leaf's validity period, and
+// applied to the root), the digest, and the signer's validity period, and
 // returns the signed content.
+//
+// KeyInfo/X509Data is an unordered set, so every embedded certificate is tried
+// as the signer in turn (the others serve as candidate intermediates); the
+// signer is the one that chains to roots and whose key verifies the signature.
+// The library reads the first KeyInfo certificate, so the verified copy of the
+// document carries only the candidate. KeyInfo is not covered by the signed
+// reference, so this does not change what is verified.
 //
 // go-trust additionally enforces, fail closed:
 //   - exactly one ds:Signature in the whole document, and it is a direct child
 //     of the root element (no signature hidden in an extension or wrapper
 //     element, no second signature the library might pick instead);
-//   - a KeyInfo certificate chain that validates to roots at now;
+//   - a signer certificate chain that validates to roots at now;
 //   - no SHA-1 signature or digest algorithms.
 //
-// Not checked: revocation, XAdES SignedProperties/signing time.
+// Not checked: revocation, XAdES SignedProperties/signing time. Certificates
+// are parsed with crypto/x509, so signers needing the configured CryptoExt
+// (e.g. brainpool) are not supported on this path, as on the JWS path.
 func verifyTSLSignature(_ context.Context, raw []byte, roots *x509.CertPool, now time.Time) (*x509.Certificate, []byte, error) {
 	if roots == nil {
 		return nil, nil, errors.New("lote: no trust anchors available for XMLDSig verification")
@@ -189,29 +223,81 @@ func verifyTSLSignature(_ context.Context, raw []byte, roots *x509.CertPool, now
 	if err := rejectSHA1(sig); err != nil {
 		return nil, nil, err
 	}
-	leaf, intermediates, err := signatureKeyInfoChain(sig)
+	certs, err := signatureKeyInfoCerts(sig)
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := leaf.Verify(x509.VerifyOptions{
+	var errs []error
+	for i, cand := range certs {
+		payload, err := verifyWithSigner(doc, i, certs, roots, now)
+		if err == nil {
+			return cand, payload, nil
+		}
+		errs = append(errs, err)
+	}
+	return nil, nil, errors.Join(errs...)
+}
+
+// verifyWithSigner treats certs[idx] as the signer: it validates its chain to
+// roots, then verifies the document's XMLDSig with it as the only trusted
+// certificate. It returns the serialised verified content.
+func verifyWithSigner(doc *etree.Document, idx int, certs []*x509.Certificate, roots *x509.CertPool, now time.Time) ([]byte, error) {
+	cand := certs[idx]
+	intermediates := x509.NewCertPool()
+	for j, c := range certs {
+		if j != idx {
+			intermediates.AddCert(c)
+		}
+	}
+	if _, err := cand.Verify(x509.VerifyOptions{
 		Roots:         roots,
 		Intermediates: intermediates,
 		CurrentTime:   now,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}); err != nil {
-		return nil, nil, fmt.Errorf("lote: TSL signer certificate chain validation failed: %w", err)
+		return nil, fmt.Errorf("lote: TSL signer certificate chain validation failed: %w", err)
 	}
-	verified, err := dsig.VerifyXMLSignature(raw, []*x509.Certificate{leaf})
+	only, err := withSoleKeyInfoCert(doc, cand)
 	if err != nil {
-		return nil, nil, fmt.Errorf("lote: %w", err)
+		return nil, err
+	}
+	verified, err := dsig.VerifyXMLSignature(only, []*x509.Certificate{cand})
+	if err != nil {
+		return nil, fmt.Errorf("lote: %w", err)
 	}
 	out := etree.NewDocument()
 	out.SetRoot(verified.Copy())
 	payload, err := out.WriteToBytes()
 	if err != nil {
-		return nil, nil, fmt.Errorf("lote: serialising verified TSL: %w", err)
+		return nil, fmt.Errorf("lote: serialising verified TSL: %w", err)
 	}
-	return leaf, payload, nil
+	return payload, nil
+}
+
+// withSoleKeyInfoCert serialises a copy of doc whose signature KeyInfo carries
+// only cert.
+func withSoleKeyInfoCert(doc *etree.Document, cert *x509.Certificate) ([]byte, error) {
+	cp := doc.Copy()
+	sig, err := soleRootSignature(cp)
+	if err != nil {
+		return nil, err
+	}
+	var first *etree.Element
+	for _, e := range sig.FindElements("./KeyInfo/X509Data/X509Certificate") {
+		if !isDSig(e, "X509Certificate") {
+			continue
+		}
+		if first == nil {
+			first = e
+			continue
+		}
+		e.Parent().RemoveChild(e)
+	}
+	if first == nil {
+		return nil, errors.New("lote: TSL signature has no X509Certificate in KeyInfo")
+	}
+	first.SetText(base64.StdEncoding.EncodeToString(cert.Raw))
+	return cp.WriteToBytes()
 }
 
 func isDSig(e *etree.Element, tag string) bool {
@@ -262,23 +348,26 @@ func rejectSHA1(sig *etree.Element) error {
 	return nil
 }
 
-// signatureKeyInfoChain extracts the signer chain from KeyInfo/X509Data. The
-// first X509Certificate is the signer (the same one the library verifies
-// with); the rest are candidate intermediates.
-func signatureKeyInfoChain(sig *etree.Element) (*x509.Certificate, *x509.CertPool, error) {
-	var b64 []string
+// signatureKeyInfoCerts returns every certificate in KeyInfo/X509Data, in
+// document order.
+func signatureKeyInfoCerts(sig *etree.Element) ([]*x509.Certificate, error) {
+	var certs []*x509.Certificate
 	for _, e := range sig.FindElements("./KeyInfo/X509Data/X509Certificate") {
 		if !isDSig(e, "X509Certificate") {
 			continue
 		}
-		b64 = append(b64, strings.Join(strings.Fields(e.Text()), ""))
+		der, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(e.Text()), ""))
+		if err != nil {
+			return nil, fmt.Errorf("lote: decoding TSL signer certificate: %w", err)
+		}
+		c, err := x509.ParseCertificate(der)
+		if err != nil {
+			return nil, fmt.Errorf("lote: parsing TSL signer chain: %w", err)
+		}
+		certs = append(certs, c)
 	}
-	if len(b64) == 0 {
-		return nil, nil, errors.New("lote: TSL signature has no X509Certificate in KeyInfo")
+	if len(certs) == 0 {
+		return nil, errors.New("lote: TSL signature has no X509Certificate in KeyInfo")
 	}
-	leaf, intermediates, err := parseX5CChainRaw(b64)
-	if err != nil {
-		return nil, nil, fmt.Errorf("lote: parsing TSL signer chain: %w", err)
-	}
-	return leaf, intermediates, nil
+	return certs, nil
 }
