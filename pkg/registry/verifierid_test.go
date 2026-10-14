@@ -26,8 +26,7 @@ type vidCertOpts struct {
 	policy   string // WRPAC policy OID, "" for none
 	dns      []string
 	uris     []string
-	noKU     bool // omit nonRepudiation so WRPAC profile validation fails
-	noEmails bool
+	noEmails bool // omit the contact SAN so WRPAC profile validation fails
 }
 
 // makeVIDCert builds a parsed leaf, so organizationIdentifier is visible in
@@ -48,9 +47,7 @@ func makeVIDCert(t *testing.T, o vidCertOpts) *x509.Certificate {
 		NotAfter:     time.Now().Add(time.Hour),
 		DNSNames:     o.dns,
 	}
-	if !o.noKU {
-		tmpl.KeyUsage = x509.KeyUsageContentCommitment
-	}
+	tmpl.KeyUsage = x509.KeyUsageDigitalSignature
 	if !o.noEmails {
 		tmpl.EmailAddresses = []string{"admin@rp.example"}
 	}
@@ -282,7 +279,7 @@ func TestEnrichVerifierIDs_UnverifiedClientIDNeverEchoed(t *testing.T) {
 // Nothing is emitted when profile validation failed, even though that is only a
 // warning for the decision.
 func TestEnrichVerifierIDs_ProfileValidationFailureEmitsNothing(t *testing.T) {
-	cert := makeVIDCert(t, vidCertOpts{orgID: "VATSE-556000000101", policy: rpcert.OIDNCPLegalPerson, dns: []string{"rp.example.com"}, noKU: true})
+	cert := makeVIDCert(t, vidCertOpts{orgID: "VATSE-556000000101", policy: rpcert.OIDNCPLegalPerson, dns: []string{"rp.example.com"}, noEmails: true})
 	req := vidReq("x509_san_dns:rp.example.com", []string{"semantic", "dns"}, nil)
 	res := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry())
 
