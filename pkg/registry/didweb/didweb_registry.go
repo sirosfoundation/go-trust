@@ -451,6 +451,12 @@ func (r *DIDWebRegistry) checkPolicyConstraints(req *authzen.EvaluationRequest, 
 		}
 	}
 
+	// Check required_verification_methods: the DID document must contain every
+	// listed verificationMethod[].type (exact match, like required_services).
+	if didWebVMDenial := registry.DenyMissingVerificationMethods(req.Context, didDoc.VerificationMethod, verificationMethodType, startTime); didWebVMDenial != nil {
+		return didWebVMDenial
+	}
+
 	// Check required_services: DID document must have specific service types
 	if requiredServices := extractStringSlice(req.Context, "required_services"); len(requiredServices) > 0 {
 		if !hasRequiredServices(didDoc.Service, requiredServices) {
@@ -599,3 +605,6 @@ func (r *DIDWebRegistry) Refresh(ctx context.Context) error {
 func (r *DIDWebRegistry) SetHTTPClient(client *http.Client) {
 	r.httpClient = client
 }
+
+// verificationMethodType returns the verification method's type string.
+func verificationMethodType(m VerificationMethod) string { return m.Type }

@@ -227,6 +227,12 @@ func checkDIDPolicyConstraints(req *authzen.EvaluationRequest, didDoc *DIDDocume
 		}
 	}
 
+	// Check required_verification_methods: the DID document must contain every
+	// listed verificationMethod[].type (exact match, like required_services).
+	if resolverVMDenial := registry.DenyMissingVerificationMethods(req.Context, didDoc.VerificationMethod, verificationMethodType, startTime); resolverVMDenial != nil {
+		return resolverVMDenial
+	}
+
 	// Check required_services: DID document must have specific service types
 	if requiredServices := extractStringSliceFromCtx(req.Context, "required_services"); len(requiredServices) > 0 {
 		if !didDocServicesMatch(didDoc.Service, requiredServices) {
@@ -804,3 +810,6 @@ var _ registry.TrustRegistry = (*GenericDIDRegistry)(nil)
 
 // Suppress unused warning for ed25519 import (used for key type reference)
 var _ = ed25519.PublicKeySize
+
+// verificationMethodType returns the verification method's type string.
+func verificationMethodType(m VerificationMethod) string { return m.Type }

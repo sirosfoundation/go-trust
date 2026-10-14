@@ -155,7 +155,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	}
 
 	// Check policy constraints from request context
-	if denial := checkPolicyConstraints(req, domain, startTime); denial != nil {
+	if denial := checkPolicyConstraints(req, didDoc, domain, startTime); denial != nil {
 		return denial, nil
 	}
 
@@ -674,8 +674,8 @@ func didDocToTrustMetadata(doc *DIDDocument) map[string]interface{} {
 	return meta
 }
 
-// checkPolicyConstraints checks domain-based policy constraints from request context.
-func checkPolicyConstraints(req *authzen.EvaluationRequest, domain string, startTime time.Time) *authzen.EvaluationResponse {
+// checkPolicyConstraints checks domain and verification-method policy constraints from request context.
+func checkPolicyConstraints(req *authzen.EvaluationRequest, didDoc *DIDDocument, domain string, startTime time.Time) *authzen.EvaluationResponse {
 	if req.Context == nil {
 		return nil
 	}
@@ -695,6 +695,12 @@ func checkPolicyConstraints(req *authzen.EvaluationRequest, domain string, start
 				},
 			}
 		}
+	}
+
+	// Check required_verification_methods: the DID document must contain every
+	// listed verificationMethod[].type (exact match, like required_services).
+	if jwksVMDenial := registry.DenyMissingVerificationMethods(req.Context, didDoc.VerificationMethod, verificationMethodType, startTime); jwksVMDenial != nil {
+		return jwksVMDenial
 	}
 
 	return nil
@@ -734,3 +740,6 @@ func matchesDomain(domain string, allowedDomains []string) bool {
 	}
 	return false
 }
+
+// verificationMethodType returns the verification method's type string.
+func verificationMethodType(m VerificationMethod) string { return m.Type }
