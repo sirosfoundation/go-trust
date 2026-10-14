@@ -73,6 +73,7 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 | `policies.policies.<name>.registries` | — | string list | Registries limits evaluation to specific registry names. If empty, all registries are considered. |
 | `policies.policies.<name>.constraints.require_key_binding` | — | boolean | RequireKeyBinding requires that a key be provided and validated. |
 | `policies.policies.<name>.constraints.allowed_key_types` | — | string list | AllowedKeyTypes restricts accepted key types (e.g., ["x5c", "jwk"]) |
+| `policies.policies.<name>.constraints.return_verifier_ids` | — | string list | ReturnVerifierIDs lists the verifier identifier types to return in the evaluation response context member verifier_ids. Supported types: semantic, dns, uri, did, oidf_entity. Empty (default) returns none. Unknown names are rejected at startup. |
 | `policies.policies.<name>.oidfed.required_trust_marks` | — | string list | RequiredTrustMarks specifies trust mark types that MUST be present |
 | `policies.policies.<name>.oidfed.entity_types` | — | string list | EntityTypes filters by OpenID Federation entity types |
 | `policies.policies.<name>.oidfed.max_chain_depth` | — | integer | MaxChainDepth limits trust chain resolution depth |

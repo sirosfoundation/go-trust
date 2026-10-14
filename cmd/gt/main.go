@@ -1305,6 +1305,7 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 			policy.Constraints = registry.PolicyConstraints{
 				AllowedKeyTypes:   policyCfg.Constraints.AllowedKeyTypes,
 				RequireKeyBinding: policyCfg.Constraints.RequireKeyBinding,
+				ReturnVerifierIDs: policyCfg.Constraints.ReturnVerifierIDs,
 			}
 		}
 
@@ -1371,6 +1372,13 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 				logger.Fatal("Invalid emrtd policy constraints",
 					logging.F("policy", name), logging.F("error", err.Error()))
 			}
+		}
+
+		// config.Validate rejects unknown verifier id types at startup; this
+		// keeps any other caller from installing an unvalidated policy.
+		if err := policy.Constraints.Validate(); err != nil {
+			logger.Fatal("Invalid policy constraints",
+				logging.F("policy", name), logging.F("error", err.Error()))
 		}
 
 		policyMgr.RegisterPolicy(policy)

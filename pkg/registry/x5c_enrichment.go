@@ -2,6 +2,7 @@ package registry
 
 import (
 	"crypto/x509"
+	"strings"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
@@ -53,6 +54,12 @@ type X5CEnrichmentResult struct {
 	// rpcert.CheckWRPACWRPRCServiceBinding(WRPACServiceID, wrprc) after the
 	// organisation-level binding check.
 	WRPACServiceID string
+
+	// VerifierIDs are the verifier identifiers derived from the verified leaf
+	// certificate, for the types the policy enabled (return_verifier_ids). It is
+	// empty unless Decision is true and ProfileValidationError is empty: nothing
+	// is derived from a certificate that failed profile validation.
+	VerifierIDs []authzen.VerifierID
 
 	// FailureReason is set when Decision is false, describing why.
 	FailureReason map[string]interface{}
@@ -194,6 +201,13 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 		}
 	}
 
+	// Verifier identifiers: only from a certificate that passed every check
+	// above, including the matched profile's validation. A profile failure is
+	// otherwise only a warning, so it has to be tested for explicitly here.
+	if result.Decision && result.ProfileValidationError == "" {
+		result.VerifierIDs = deriveX5CVerifierIDs(req, leaf, result.IsIntermediaryRequest)
+	}
+
 	return result
 }
 
@@ -247,6 +261,12 @@ func ApplyEnrichmentToResponse(resp *authzen.EvaluationResponse, enrichment *X5C
 		} else if resp.Context.TrustMetadata == nil {
 			resp.Context.TrustMetadata = trustMetadata
 		}
+	}
+
+	// Verifier identifiers, fail closed: never on a deny, never when the profile
+	// validation failed, never from a failed enrichment.
+	if resp.Decision && enrichment.Decision && enrichment.ProfileValidationError == "" {
+		resp.Context.VerifierIDs = append(resp.Context.VerifierIDs, enrichment.VerifierIDs...)
 	}
 
 	// Add profile validation warnings if any
@@ -442,4 +462,71 @@ func isIntermediariesAllowed(req *authzen.EvaluationRequest) bool {
 	}
 	b, ok := v.(bool)
 	return ok && b
+}
+
+// deriveX5CVerifierIDs derives the verifier identifiers of the relying party
+// from its verified leaf certificate, for the types the policy enabled.
+// The chain has already been validated by the caller.
+//
+//   - semantic: the ETSI semantic identifier from the leaf (basis x5c-chain),
+//     validated against the semantic-id syntax; "semantic_id:" + the value.
+//   - dns / uri: the client_id of an x509_san_dns / x509_san_uri request, but
+//     only after VerifyLeafBinding confirms it is a SAN of this leaf (basis
+//     client-id-binding). The client_id is never echoed otherwise.
+//
+// For an intermediary request the identifier must be the end relying party's.
+// The leaf is the end RP's certificate (the intermediary's own chain is
+// unvalidated and is never read here), so semantic is established. The
+// client_id of a brokered request cannot be shown to name the end RP, so dns
+// and uri are omitted.
+func deriveX5CVerifierIDs(req *authzen.EvaluationRequest, leaf *x509.Certificate, intermediary bool) []authzen.VerifierID {
+	enabled := VerifierIDTypesEnabled(req)
+	if len(enabled) == 0 || leaf == nil {
+		return nil
+	}
+	want := make(map[string]bool, len(enabled))
+	for _, t := range enabled {
+		want[t] = true
+	}
+
+	var ids []authzen.VerifierID
+	if want[authzen.VerifierIDTypeSemantic] {
+		if sem, ok := rpcert.SemanticIdentifier(leaf); ok {
+			ids = append(ids, authzen.VerifierID{
+				Type:  authzen.VerifierIDTypeSemantic,
+				ID:    authzen.VerifierIDSemanticPrefix + sem,
+				Basis: authzen.VerifierIDBasisX5CChain,
+			})
+		}
+	}
+
+	if intermediary || (!want[authzen.VerifierIDTypeDNS] && !want[authzen.VerifierIDTypeURI]) {
+		return ids
+	}
+	scheme, value, ok := ParseClientIDScheme(OriginalSubjectID(req))
+	if !ok || value == "" {
+		return ids
+	}
+	switch scheme {
+	case ClientIDSchemeX509SANDNS:
+		// A wildcard is not an identifier of one RP.
+		if want[authzen.VerifierIDTypeDNS] && !strings.Contains(value, "*") && VerifyLeafBinding(scheme, value, leaf) == nil {
+			ids = append(ids, authzen.VerifierID{
+				Type:  authzen.VerifierIDTypeDNS,
+				ID:    CanonicalDNSName(value),
+				Basis: authzen.VerifierIDBasisClientIDBinding,
+			})
+		}
+	case ClientIDSchemeX509SANURI:
+		// Byte-for-byte: URISANMatches is an exact comparison, so the bound
+		// value already is the SAN. Not re-serialised through net/url.
+		if want[authzen.VerifierIDTypeURI] && VerifyLeafBinding(scheme, value, leaf) == nil {
+			ids = append(ids, authzen.VerifierID{
+				Type:  authzen.VerifierIDTypeURI,
+				ID:    value,
+				Basis: authzen.VerifierIDBasisClientIDBinding,
+			})
+		}
+	}
+	return ids
 }

@@ -46,7 +46,7 @@ definitions:
       context:
         additionalProperties:
           type: string
-        description: Optional context (MUST NOT be critical)
+        description: Optional context (MUST NOT be critical). Recognised member: verifier_id_type narrows context.verifier_ids in the response to that one type
         type: object
       resource:
         allOf:
@@ -86,6 +86,16 @@ definitions:
           For OpenID Federation: contains the Entity Configuration
           This field is set when trust_metadata is requested or for resolution-only requests.
         type: object
+      verifier_ids:
+        description: |-
+          VerifierIDs lists verifier identifiers the PDP derived from authenticated
+          material, for wallets that need a stable identifier string for the relying
+          party (for example as input to a pseudonym function). It is present only
+          when the policy enables it (constraints.return_verifier_ids), the decision
+          is true, and the identifier was verified. Informational, never critical.
+        items:
+          $ref: '#/definitions/authzen.VerifierID'
+        type: array
     type: object
   authzen.PDPMetadata:
     description: Policy Decision Point metadata for service discovery
@@ -163,6 +173,24 @@ definitions:
       type:
         description: MUST be "key"
         example: key
+        type: string
+    type: object
+  authzen.VerifierID:
+    description: A verifier identifier derived by the PDP from authenticated material
+    properties:
+      basis:
+        description: |-
+          Basis states how the value was verified, for example "x5c-chain",
+          "client-id-binding", "did-resolution" or "oidf-trust-chain".
+        example: x5c-chain
+        type: string
+      verifier_id:
+        description: ID is the identifier in the canonical form defined for the type.
+        example: semantic_id:VATSE-556000000101
+        type: string
+      verifier_id_type:
+        description: Type is an opaque type string, for example "semantic" or "dns".
+        example: semantic
         type: string
     type: object
 host: localhost:6001

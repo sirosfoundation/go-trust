@@ -859,13 +859,21 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 		}
 	}
 
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason:        reasonData,
 			TrustMetadata: trustMetadata,
 		},
-	}, nil
+	}
+	// The Entity ID is returned only when the validated chain's leaf statement
+	// is about that very entity, and byte-for-byte as in the chain: an entity
+	// ID is compared exactly, so a trailing slash or case change names another
+	// entity. It is not re-serialised through net/url.
+	if len(chain) > 0 && chain[0].Subject == entityID {
+		registry.AddVerifierID(resp, req, authzen.VerifierIDTypeOIDFEntity, chain[0].Subject, authzen.VerifierIDBasisOIDFTrustChain)
+	}
+	return resp, nil
 }
 
 // verifyKeyBinding checks if the key in the request matches a key in the entity's JWKS.

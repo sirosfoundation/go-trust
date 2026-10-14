@@ -821,6 +821,50 @@ When enabled, the response includes the relying party's identity extracted from 
 
 X5C enrichment is supported by both ETSI TSL and LoTE registries.
 
+### Verifier Identifiers (`verifier_ids`)
+
+A wallet that answers a request with a pseudonym function needs a stable *verifier identifier* string for the relying party. Go-Trust can return those in the evaluation response `context.verifier_ids`, derived only from material it has authenticated, so the wallet does not have to parse certificates, resolve DIDs or walk federation chains itself. The member is informational (never critical) and **off by default**: existing responses are unchanged unless a policy enables it.
+
+```yaml
+policies:
+  policies:
+    credential-verifier:
+      constraints:
+        return_verifier_ids: [semantic, dns]   # unknown type names are rejected at startup
+```
+
+```json
+{
+  "decision": true,
+  "context": {
+    "verifier_ids": [
+      {"verifier_id_type": "semantic", "verifier_id": "semantic_id:VATSE-556000000101", "basis": "x5c-chain"},
+      {"verifier_id_type": "dns", "verifier_id": "rp.example.com", "basis": "client-id-binding"}
+    ]
+  }
+}
+```
+
+The response lists everything the policy enables and go-trust can derive; a type it cannot establish is omitted. A request may narrow the response to one type with the optional request `context` member `verifier_id_type` (for example `"context": {"verifier_id_type": "dns"}`). The hint only narrows: it cannot enable a type the policy did not. Clients treat `verifier_id_type` as opaque; the order of entries carries no meaning.
+
+Types go-trust can derive (the exact value form is fixed per type):
+
+| Type | Value | Basis | Registries |
+|---|---|---|---|
+| `semantic` | `semantic_id:` + the ETSI semantic identifier from the **access certificate** leaf (ETSI TS 119 475 5.1.3 legal persons: `organizationIdentifier`; 5.1.5 natural persons: `serialNumber`). Must match `<3 letters><2 letters>-<value>`; the value is kept verbatim. | `x5c-chain` | x5c registries (`etsi`, `lote`) |
+| `dns` | the `client_id` of an `x509_san_dns` request, lower-case, no trailing dot | `client-id-binding` | x5c registries |
+| `uri` | the `client_id` of an `x509_san_uri` request, byte-for-byte (no case folding, no slash normalisation, not re-serialised through `net/url`) | `client-id-binding` | x5c registries |
+| `did` | the full DID of the resolved DID document, without fragment | `did-resolution` | `didweb`, `didwebvh`, `didjwks`, `did` |
+| `oidf_entity` | the Entity ID as in the validated trust chain, byte-for-byte | `oidf-trust-chain` | `oidfed` |
+
+Rules:
+
+- **Fail closed.** Nothing is emitted for a deny decision, when the matched profile's validation failed (normally only a warning), or when the identifier was not verified: `dns`/`uri` need `VerifyLeafBinding` to pass, `did` needs a successful resolution and a matching key, `oidf_entity` needs a validated trust chain and a matching key. An unverified `client_id` is never echoed. Resolution-only responses carry no `verifier_ids`.
+- **`semantic` comes from the access certificate only.** The registration certificate is not an input today, so wallets must not assume registration-certificate precedence. A `serialNumber` that is not a semantic identifier (for example a plain certificate serial) is never emitted as `semantic`. For a certificate classified by its WRPAC policy OIDs, the type must fit the subject: natural-person types (`PNO`, `IDC`, `PAS`, `TAX`, `TIN`) are read from `serialNumber` of natural-person certificates only, and refused for legal-person ones.
+- **Intermediary requests** (`allow_intermediaries`): the identifier is the end relying party's. `semantic` is taken from the RP leaf; `dns` and `uri` are omitted because the `client_id` of a brokered request cannot be shown to name the end relying party. The intermediary's own, unvalidated chain is never a source.
+- The member is carried through by the strategies that return the matching registry's own response (`first_match`, `sequential`); the aggregating `all` strategy and composite registries build a new response and do not carry it.
+- Not offered: `did_scid`, `service` and `spki_sha256` are not implemented yet and are rejected in `return_verifier_ids`.
+
 ## Deployment
 
 ### Docker

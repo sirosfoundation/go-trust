@@ -191,7 +191,18 @@ func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]inter
 	// Subject.Names, so it has to be read out by OID. Fall back to
 	// serialNumber (2.5.4.5), which earlier certificates and test fixtures
 	// used, so both continue to resolve.
+	//
+	// The serialNumber fallback does not apply to a natural-person certificate
+	// (NCP-n/QCP-n policy). ETSI TS 119 475 5.1.5 puts a natural person's
+	// semantic identifier (e.g. PNOSE-...) in serialNumber; that identifies the
+	// person, so relabelling it organization_identifier - and classifying the
+	// certificate legal_person when it also names an affiliated organisation -
+	// was wrong.
+	naturalPerson := SubjectKindFromPolicies(cert) == SubjectKindNaturalPerson
 	orgID := SubjectOrganizationIdentifier(cert)
+	if naturalPerson {
+		orgID = realOrganizationIdentifier(cert)
+	}
 	if orgID != "" {
 		identity["organization_identifier"] = orgID
 		delete(identity, "serial_number")
@@ -202,7 +213,7 @@ func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]inter
 	// directly classified a conformant legal-person certificate, which
 	// carries the value in 2.5.4.97, as a natural person. Reusing the one
 	// value keeps the two decisions from ever disagreeing.
-	if len(cert.Subject.Organization) > 0 && orgID != "" {
+	if !naturalPerson && len(cert.Subject.Organization) > 0 && orgID != "" {
 		identity["subject_type"] = "legal_person"
 	} else {
 		identity["subject_type"] = "natural_person"

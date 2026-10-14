@@ -180,7 +180,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		}, nil
 	}
 
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason: map[string]interface{}{
@@ -192,7 +192,9 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 			},
 			TrustMetadata: didDocToTrustMetadata(didDoc),
 		},
-	}, nil
+	}
+	registry.AddDIDVerifierID(resp, req, didDoc.ID)
+	return resp, nil
 }
 
 // SupportedResourceTypes returns the resource types this registry can handle.
