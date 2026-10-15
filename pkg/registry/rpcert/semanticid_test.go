@@ -30,7 +30,10 @@ func TestSemanticIdentifier(t *testing.T) {
 	}{
 		{"legal person, organizationIdentifier (5.1.3)", orgIDName("VATSE-556000000101", ""), legal, "VATSE-556000000101", true},
 		{"legal person, legacy serialNumber fallback", orgIDName("", "NTRSE-5560000001"), legal, "NTRSE-5560000001", true},
-		{"no policy OIDs, organizationIdentifier", orgIDName("LEIXG-529900T8BM49AURSDO55", ""), nil, "LEIXG-529900T8BM49AURSDO55", true},
+		// Unclassified: organizationIdentifier could be a natural person's affiliation.
+		{"no policy OIDs, organizationIdentifier", orgIDName("LEIXG-529900T8BM49AURSDO55", ""), nil, "", false},
+		{"no policy OIDs, serialNumber", orgIDName("", "PNOSE-196001010101"), nil, "", false},
+		{"no policy OIDs, natural person with affiliation", orgIDName("VATSE-556000000101", "PNOSE-196001010101"), nil, "", false},
 		{"value with an internal space", orgIDName("NTRDE-HRB 12345", ""), legal, "NTRDE-HRB 12345", true},
 		// ETSI TS 119 475 5.1.5: a natural person's identifier is in serialNumber.
 		{"natural person, serialNumber (5.1.5)", orgIDName("", "PNOSE-196001010101"), natural, "PNOSE-196001010101", true},
@@ -70,8 +73,8 @@ func TestSemanticIdentifier(t *testing.T) {
 	}
 }
 
-// Contradictory policies are not "unclassified": a policy-less certificate may
-// yield a semantic identifier, one claiming to be both natural and legal may not.
+// Neither a contradictory nor a missing classification yields a semantic
+// identifier; only a certificate that is clearly one kind does.
 func TestSemanticIdentifier_ContradictoryPoliciesFailClosed(t *testing.T) {
 	both := []asn1.ObjectIdentifier{parseOID(OIDNCPNaturalPerson), parseOID(OIDNCPLegalPerson)}
 	for _, subject := range []pkix.Name{
@@ -83,9 +86,8 @@ func TestSemanticIdentifier_ContradictoryPoliciesFailClosed(t *testing.T) {
 		if got, ok := SemanticIdentifier(cert); ok || got != "" {
 			t.Fatalf("contradictory policies must not yield a semantic id, got (%q, %v)", got, ok)
 		}
-		// Same subject without any policy OID is accepted: the refusal is the contradiction's.
-		if _, ok := SemanticIdentifier(makeCert(t, certOpts{subject: subject})); !ok {
-			t.Fatalf("policy-less certificate with %v should still yield one", subject)
+		if got, ok := SemanticIdentifier(makeCert(t, certOpts{subject: subject})); ok || got != "" {
+			t.Fatalf("policy-less certificate with %v must not yield one, got (%q, %v)", subject, got, ok)
 		}
 	}
 }

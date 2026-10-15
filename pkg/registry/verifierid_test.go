@@ -218,10 +218,17 @@ func TestEnrichVerifierIDs_Semantic_NonSemanticSerialNumberNotEmitted(t *testing
 }
 
 func TestEnrichVerifierIDs_Semantic_WithoutProfileRegistry(t *testing.T) {
-	cert := makeVIDCert(t, vidCertOpts{orgID: "VATSE-556000000101"})
+	cert := makeVIDCert(t, vidCertOpts{orgID: "VATSE-556000000101", policy: rpcert.OIDNCPLegalPerson})
 	res := EnrichX5CResponse(vidReq("https://rp.example.com", []string{"semantic"}, nil), cert)
 	require.Len(t, res.VerifierIDs, 1)
 	assert.Equal(t, "semantic_id:VATSE-556000000101", res.VerifierIDs[0].ID)
+}
+
+// Without a natural/legal-person policy OID the organizationIdentifier could be a
+// natural person's affiliation rather than the verifier, so nothing is emitted.
+func TestEnrichVerifierIDs_Semantic_UnclassifiedCertificateEmitsNothing(t *testing.T) {
+	cert := makeVIDCert(t, vidCertOpts{orgID: "VATSE-556000000101"})
+	assert.Empty(t, EnrichX5CResponse(vidReq("https://rp.example.com", []string{"semantic"}, nil), cert).VerifierIDs)
 }
 
 func TestEnrichVerifierIDs_DNS_CanonicalFormAndBasis(t *testing.T) {

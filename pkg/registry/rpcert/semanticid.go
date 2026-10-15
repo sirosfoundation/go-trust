@@ -105,8 +105,11 @@ func realOrganizationIdentifier(cert *x509.Certificate) string {
 //
 // The value must match the semantic identifier syntax, and its type must fit
 // the subject: a natural-person type (PNO, IDC, PAS, TAX, TIN) is refused for a
-// legal-person certificate and any other type for a natural-person one, when the
-// policy OIDs tell the two apart. A serialNumber that is merely a certificate
+// legal-person certificate and any other type for a natural-person one. The
+// subject kind comes from the WRPAC policy OIDs alone; a certificate with
+// neither kind has no semantic identifier, because an organizationIdentifier
+// there could be the affiliation of a natural person rather than the verifier.
+// A serialNumber that is merely a certificate
 // serial (or anything else non-semantic) is therefore never returned. An
 // organizationIdentifier that is present but not valid is not papered over by
 // falling back to serialNumber. A certificate carrying both natural- and
@@ -122,32 +125,31 @@ func SemanticIdentifier(cert *x509.Certificate) (string, bool) {
 		return "", false
 	}
 
+	// Which attribute names the subject depends on whether it is a natural or a
+	// legal person, and only the WRPAC policy OIDs say so. Without one the
+	// organizationIdentifier cannot be told from an affiliation of a natural
+	// person, so no identifier is returned (fail closed).
 	var candidate string
-	if kind == SubjectKindNaturalPerson {
+	switch kind {
+	case SubjectKindNaturalPerson:
 		candidate = cert.Subject.SerialNumber
-	} else {
+	case SubjectKindLegalPerson:
 		var present bool
 		candidate, present = organizationIdentifierAttr(cert)
 		if !present {
-			// Legacy certificates and fixtures: serialNumber, but only when
-			// 2.5.4.97 is absent. A malformed one is not papered over.
+			// Older certificates put it in serialNumber, but only when 2.5.4.97
+			// is absent. A malformed one is not papered over.
 			candidate = cert.Subject.SerialNumber
 		}
+	default:
+		return "", false
 	}
 
 	if !IsSemanticIdentifier(candidate) {
 		return "", false
 	}
-	isNaturalType := naturalPersonSemanticTypes[candidate[:3]]
-	switch kind {
-	case SubjectKindNaturalPerson:
-		if !isNaturalType {
-			return "", false
-		}
-	case SubjectKindLegalPerson:
-		if isNaturalType {
-			return "", false
-		}
+	if naturalPersonSemanticTypes[candidate[:3]] != (kind == SubjectKindNaturalPerson) {
+		return "", false
 	}
 	return candidate, true
 }
