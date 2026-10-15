@@ -47,13 +47,13 @@ func TestEvaluate_VerifierIDs(t *testing.T) {
 		}
 		return rq
 	}
-	enabled := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"did"}}
+	enabled := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"decentralized_identifier"}}
 
 	// Key-bound allow with the policy on: the DID, without the fragment.
 	resp, err := r.Evaluate(context.Background(), req(did+"#key-1", jwk, enabled))
 	require.NoError(t, err)
 	require.True(t, resp.Decision, "%v", resp.Context.Reason)
-	assert.Equal(t, []authzen.VerifierID{{Type: "did", ID: did, Basis: "did-resolution"}}, resp.Context.VerifierIDs)
+	assert.Equal(t, []authzen.VerifierID{{Type: "decentralized_identifier", ID: did, Basis: "did-resolution"}}, resp.Context.VerifierIDs)
 
 	// Policy off: unchanged.
 	resp, err = r.Evaluate(context.Background(), req(did, jwk, nil))
@@ -62,7 +62,7 @@ func TestEvaluate_VerifierIDs(t *testing.T) {
 	assert.Empty(t, resp.Context.VerifierIDs)
 
 	// Hint for another type narrows to nothing.
-	hint := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"did"}, authzen.VerifierIDHintContextKey: "dns"}
+	hint := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"decentralized_identifier"}, authzen.VerifierIDHintContextKey: "x509_san_dns"}
 	resp, err = r.Evaluate(context.Background(), req(did, jwk, hint))
 	require.NoError(t, err)
 	assert.Empty(t, resp.Context.VerifierIDs)

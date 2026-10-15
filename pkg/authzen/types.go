@@ -93,18 +93,18 @@ const (
 	// VerifierIDTypeSemantic is "semantic_id:" followed by the ETSI semantic
 	// identifier (EN 319 412-1 5.1.3) from the access certificate.
 	VerifierIDTypeSemantic = "semantic"
-	// VerifierIDTypeDNS is the dNSName SAN value bound by x509_san_dns,
+	// VerifierIDTypeDNS (x509_san_dns) is the dNSName SAN value,
 	// lower-cased and without a trailing dot.
-	VerifierIDTypeDNS = "dns"
-	// VerifierIDTypeURI is the uniformResourceIdentifier SAN value bound by
-	// x509_san_uri, byte-for-byte as bound.
-	VerifierIDTypeURI = "uri"
+	VerifierIDTypeDNS = "x509_san_dns"
+	// VerifierIDTypeURI (x509_san_uri) is the uniformResourceIdentifier SAN
+	// value, byte-for-byte as bound.
+	VerifierIDTypeURI = "x509_san_uri"
 	// VerifierIDTypeDID is the full DID (without fragment) of a resolved DID
 	// document whose verification method matched the presented key.
-	VerifierIDTypeDID = "did"
+	VerifierIDTypeDID = "decentralized_identifier"
 	// VerifierIDTypeOIDFEntity is the OpenID Federation Entity ID (https URL),
 	// byte-for-byte as in the validated trust chain.
-	VerifierIDTypeOIDFEntity = "oidf_entity"
+	VerifierIDTypeOIDFEntity = "openid_federation"
 )
 
 // Basis values describe how a verifier identifier was verified.
@@ -153,7 +153,7 @@ func IsSupportedVerifierIDType(t string) bool {
 // VerifierID is one verifier identifier in the evaluation response context.
 // @Description A verifier identifier derived by the PDP from authenticated material
 type VerifierID struct {
-	// Type is an opaque type string, for example "semantic" or "dns".
+	// Type is an opaque type string, for example "semantic" or "x509_san_dns".
 	Type string `json:"verifier_id_type" example:"semantic"`
 	// ID is the identifier in the canonical form defined for the type.
 	ID string `json:"verifier_id" example:"semantic_id:VATSE-556000000101"`

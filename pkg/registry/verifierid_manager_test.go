@@ -50,7 +50,7 @@ func vidManagerRequest(ctx map[string]interface{}) *authzen.EvaluationRequest {
 
 func TestManager_VerifierIDs_PolicyEnablesAndHintNarrows(t *testing.T) {
 	leaf := makeVIDCert(t, vidCertOpts{orgID: "VATSE-556000000101", policy: rpcert.OIDNCPLegalPerson, dns: []string{"rp.example.com"}})
-	mgr := newEnrichingManager(t, leaf, PolicyConstraints{ReturnVerifierIDs: []string{"semantic", "dns"}})
+	mgr := newEnrichingManager(t, leaf, PolicyConstraints{ReturnVerifierIDs: []string{"semantic", "x509_san_dns"}})
 
 	// Subject.ID is rewritten by Evaluate ("x509_san_dns:host" -> "https://host");
 	// the dns identifier is still derived, from the original claim.
@@ -60,7 +60,7 @@ func TestManager_VerifierIDs_PolicyEnablesAndHintNarrows(t *testing.T) {
 	require.NotNil(t, resp.Context)
 	got := idsOf(resp.Context.VerifierIDs)
 	assert.Equal(t, "semantic_id:VATSE-556000000101", got["semantic"].ID)
-	assert.Equal(t, "rp.example.com", got["dns"].ID)
+	assert.Equal(t, "rp.example.com", got["x509_san_dns"].ID)
 	assert.Len(t, resp.Context.VerifierIDs, 2)
 
 	// The client's optional hint narrows to one entry.
@@ -93,7 +93,7 @@ func TestManager_VerifierIDs_ClientCannotEnableOrWiden(t *testing.T) {
 
 	off := newEnrichingManager(t, leaf, PolicyConstraints{})
 	resp, err := off.Evaluate(context.Background(), vidManagerRequest(map[string]interface{}{
-		authzen.VerifierIDsPolicyContextKey: []string{"semantic", "dns"},
+		authzen.VerifierIDsPolicyContextKey: []string{"semantic", "x509_san_dns"},
 		authzen.VerifierIDHintContextKey:    "semantic",
 	}))
 	require.NoError(t, err)
@@ -101,8 +101,8 @@ func TestManager_VerifierIDs_ClientCannotEnableOrWiden(t *testing.T) {
 
 	narrow := newEnrichingManager(t, leaf, PolicyConstraints{ReturnVerifierIDs: []string{"semantic"}})
 	resp, err = narrow.Evaluate(context.Background(), vidManagerRequest(map[string]interface{}{
-		authzen.VerifierIDsPolicyContextKey: []string{"semantic", "dns"},
-		authzen.VerifierIDHintContextKey:    "dns",
+		authzen.VerifierIDsPolicyContextKey: []string{"semantic", "x509_san_dns"},
+		authzen.VerifierIDHintContextKey:    "x509_san_dns",
 	}))
 	require.NoError(t, err)
 	assert.Empty(t, resp.Context.VerifierIDs, "hint for a type the policy did not enable returns nothing")

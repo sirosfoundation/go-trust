@@ -19,7 +19,7 @@ func TestVerifierIDsJSONShape(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"decision":true,"context":{"verifier_ids":[
 		{"verifier_id_type":"semantic","verifier_id":"semantic_id:VATSE-556000000101","basis":"x5c-chain"},
-		{"verifier_id_type":"dns","verifier_id":"rp.example.com"}]}}`, string(b), "basis is optional")
+		{"verifier_id_type":"x509_san_dns","verifier_id":"rp.example.com"}]}}`, string(b), "basis is optional")
 
 	// Omitted entirely when empty, so existing responses are byte-identical.
 	b, err = json.Marshal(EvaluationResponse{Decision: true, Context: &EvaluationResponseContext{ID: "x"}})
@@ -27,8 +27,8 @@ func TestVerifierIDsJSONShape(t *testing.T) {
 	assert.NotContains(t, string(b), "verifier_ids")
 
 	var back EvaluationResponse
-	require.NoError(t, json.Unmarshal([]byte(`{"decision":true,"context":{"verifier_ids":[{"verifier_id_type":"did","verifier_id":"did:web:x"}]}}`), &back))
-	assert.Equal(t, []VerifierID{{Type: "did", ID: "did:web:x"}}, back.Context.VerifierIDs)
+	require.NoError(t, json.Unmarshal([]byte(`{"decision":true,"context":{"verifier_ids":[{"verifier_id_type":"decentralized_identifier","verifier_id":"did:web:x"}]}}`), &back))
+	assert.Equal(t, []VerifierID{{Type: "decentralized_identifier", ID: "did:web:x"}}, back.Context.VerifierIDs)
 }
 
 func TestSupportedVerifierIDTypes(t *testing.T) {

@@ -27,7 +27,7 @@ func TestEvaluateVerifierIDs(t *testing.T) {
 		}
 		return rq
 	}
-	enabled := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"did"}}
+	enabled := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"decentralized_identifier"}}
 
 	// The fragment names a verification method that is not in the document, so
 	// use the bare DID for the matching case.
@@ -40,7 +40,7 @@ func TestEvaluateVerifierIDs(t *testing.T) {
 	if !resp.Decision {
 		t.Fatalf("expected allow: %v", resp.Context.Reason)
 	}
-	want := []authzen.VerifierID{{Type: "did", ID: did, Basis: "did-resolution"}}
+	want := []authzen.VerifierID{{Type: "decentralized_identifier", ID: did, Basis: "did-resolution"}}
 	if len(resp.Context.VerifierIDs) != 1 || resp.Context.VerifierIDs[0] != want[0] {
 		t.Fatalf("verifier_ids = %v, want %v", resp.Context.VerifierIDs, want)
 	}

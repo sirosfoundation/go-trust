@@ -464,7 +464,7 @@ type PolicyConstraintsConfig struct {
 
 	// ReturnVerifierIDs lists the verifier identifier types to return in the
 	// evaluation response context member verifier_ids. Supported types:
-	// semantic, dns, uri, did, oidf_entity. Empty (default) returns none.
+	// semantic, x509_san_dns, x509_san_uri, decentralized_identifier, openid_federation. Empty (default) returns none.
 	// Unknown names are rejected at startup.
 	ReturnVerifierIDs []string `yaml:"return_verifier_ids,omitempty"`
 }

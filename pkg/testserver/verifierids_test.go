@@ -35,14 +35,14 @@ func TestDecisionFunc_VerifierIDsRoundTrip(t *testing.T) {
 	resp, err := client.Evaluate(context.Background(), &authzen.EvaluationRequest{
 		Subject:  authzen.Subject{Type: "key", ID: "https://rp.example.com"},
 		Resource: authzen.Resource{Type: "x5c", ID: "https://rp.example.com", Key: []interface{}{"MIIC"}},
-		Context:  map[string]interface{}{authzen.VerifierIDHintContextKey: "dns"},
+		Context:  map[string]interface{}{authzen.VerifierIDHintContextKey: "x509_san_dns"},
 	})
 	require.NoError(t, err)
 	require.True(t, resp.Decision)
 	require.NotNil(t, resp.Context)
 	assert.Equal(t, []authzen.VerifierID{
 		{Type: "semantic", ID: "semantic_id:VATSE-556000000101", Basis: "x5c-chain"},
-		{Type: "dns", ID: "rp.example.com", Basis: "client-id-binding"},
+		{Type: "x509_san_dns", ID: "rp.example.com", Basis: "client-id-binding"},
 	}, resp.Context.VerifierIDs)
-	assert.Equal(t, "dns", sawHint, "the request hint reaches the PDP")
+	assert.Equal(t, "x509_san_dns", sawHint, "the request hint reaches the PDP")
 }

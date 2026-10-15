@@ -15,7 +15,7 @@ func TestValidateReturnVerifierIDs(t *testing.T) {
 	}{
 		{"absent", nil, ""},
 		{"default off", &PolicyConstraintsConfig{}, ""},
-		{"all supported", &PolicyConstraintsConfig{ReturnVerifierIDs: []string{"semantic", "dns", "uri", "did", "oidf_entity"}}, ""},
+		{"all supported", &PolicyConstraintsConfig{ReturnVerifierIDs: []string{"semantic", "x509_san_dns", "x509_san_uri", "decentralized_identifier", "openid_federation"}}, ""},
 		{"unknown", &PolicyConstraintsConfig{ReturnVerifierIDs: []string{"semantic", "sematic"}}, `"sematic"`},
 		{"deferred type is not accepted yet", &PolicyConstraintsConfig{ReturnVerifierIDs: []string{"did_scid"}}, `"did_scid"`},
 		{"wrong case", &PolicyConstraintsConfig{ReturnVerifierIDs: []string{"DNS"}}, `"DNS"`},
@@ -45,7 +45,7 @@ policies:
   policies:
     rp:
       constraints:
-        return_verifier_ids: [semantic, dns]
+        return_verifier_ids: [semantic, x509_san_dns]
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -55,7 +55,7 @@ policies:
 		t.Fatal(err)
 	}
 	got := cfg.Policies.Policies["rp"].Constraints.ReturnVerifierIDs
-	if len(got) != 2 || got[0] != "semantic" || got[1] != "dns" {
+	if len(got) != 2 || got[0] != "semantic" || got[1] != "x509_san_dns" {
 		t.Fatalf("return_verifier_ids = %v", got)
 	}
 	if err := cfg.Validate(); err != nil {

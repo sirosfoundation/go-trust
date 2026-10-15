@@ -20,7 +20,7 @@ func TestPolicyManager_RegisterPolicyRejectsUnknownVerifierIDType(t *testing.T) 
 	assert.Contains(t, err.Error(), `"bad"`)
 	assert.Nil(t, pm.GetPolicy("bad"), "a rejected policy is not installed")
 
-	require.NoError(t, pm.RegisterPolicy(&Policy{Name: "ok", Constraints: PolicyConstraints{ReturnVerifierIDs: []string{"dns"}}}))
+	require.NoError(t, pm.RegisterPolicy(&Policy{Name: "ok", Constraints: PolicyConstraints{ReturnVerifierIDs: []string{"x509_san_dns"}}}))
 	assert.NotNil(t, pm.GetPolicy("ok"))
 
 	// SetDefaultPolicy goes through the same check and leaves the default alone on error.
@@ -34,7 +34,7 @@ func TestPolicyManager_RegisterPolicyRejectsUnknownVerifierIDType(t *testing.T) 
 func TestPolicyConstraintsValidate_VerifierIDs(t *testing.T) {
 	assert.NoError(t, PolicyConstraints{}.Validate())
 	assert.NoError(t, PolicyConstraints{ReturnVerifierIDs: authzen.SupportedVerifierIDTypes()}.Validate())
-	err := PolicyConstraints{ReturnVerifierIDs: []string{"dns", "bogus"}}.Validate()
+	err := PolicyConstraints{ReturnVerifierIDs: []string{"x509_san_dns", "bogus"}}.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `"bogus"`)
 }

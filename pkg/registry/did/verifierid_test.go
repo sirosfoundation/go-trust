@@ -32,12 +32,12 @@ func TestGenericDIDRegistry_VerifierIDs(t *testing.T) {
 		}
 		return rq
 	}
-	on := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"did"}}
+	on := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"decentralized_identifier"}}
 
 	resp, err := reg.Evaluate(ctx, req(true, on))
 	require.NoError(t, err)
 	require.True(t, resp.Decision, "%v", resp.Context.Reason)
-	assert.Equal(t, []authzen.VerifierID{{Type: "did", ID: did, Basis: "did-resolution"}}, resp.Context.VerifierIDs)
+	assert.Equal(t, []authzen.VerifierID{{Type: "decentralized_identifier", ID: did, Basis: "did-resolution"}}, resp.Context.VerifierIDs)
 
 	resp, err = reg.Evaluate(ctx, req(true, nil))
 	require.NoError(t, err)

@@ -61,14 +61,14 @@ func TestEvaluate_VerifierIDs_OIDFEntity(t *testing.T) {
 		}
 		return rq
 	}
-	enabled := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"oidf_entity"}}
+	enabled := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"openid_federation"}}
 
 	reg.cache.Set(entityID, nil, nil, []oidfed.TrustChain{chainFor(entityID)}, "https://ta.example.com")
 
 	resp, err := reg.Evaluate(context.Background(), request(enabled, true))
 	require.NoError(t, err)
 	require.True(t, resp.Decision, "%v", resp.Context.Reason)
-	assert.Equal(t, []authzen.VerifierID{{Type: "oidf_entity", ID: entityID, Basis: "oidf-trust-chain"}}, resp.Context.VerifierIDs)
+	assert.Equal(t, []authzen.VerifierID{{Type: "openid_federation", ID: entityID, Basis: "oidf-trust-chain"}}, resp.Context.VerifierIDs)
 
 	// Policy off: unchanged.
 	resp, err = reg.Evaluate(context.Background(), request(nil, true))
@@ -77,7 +77,7 @@ func TestEvaluate_VerifierIDs_OIDFEntity(t *testing.T) {
 	assert.Empty(t, resp.Context.VerifierIDs)
 
 	// Hint narrowing to another type: nothing.
-	hint := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"oidf_entity"}, authzen.VerifierIDHintContextKey: "did"}
+	hint := map[string]interface{}{authzen.VerifierIDsPolicyContextKey: []string{"openid_federation"}, authzen.VerifierIDHintContextKey: "decentralized_identifier"}
 	resp, err = reg.Evaluate(context.Background(), request(hint, true))
 	require.NoError(t, err)
 	assert.Empty(t, resp.Context.VerifierIDs)

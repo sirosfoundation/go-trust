@@ -444,7 +444,7 @@ const docTemplate = `{
                     "example": "semantic_id:VATSE-556000000101"
                 },
                 "verifier_id_type": {
-                    "description": "Type is an opaque type string, for example \"semantic\" or \"dns\".",
+                    "description": "Type is an opaque type string, for example \"semantic\" or \"x509_san_dns\".",
                     "type": "string",
                     "example": "semantic"
                 }
