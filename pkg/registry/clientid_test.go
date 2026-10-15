@@ -56,6 +56,13 @@ func TestDNSSANMatches(t *testing.T) {
 		{"wildcard does not match base domain", "example.com", []string{"*.example.com"}, false},
 		{"wildcard does not match nested subdomain", "deep.sub.example.com", []string{"*.example.com"}, false},
 		{"empty SAN list", "example.com", nil, false},
+		{"ASCII case-insensitive", "RP.Example.COM", []string{"rp.example.com"}, true},
+		{"ASCII case-insensitive, SAN upper case", "rp.example.com", []string{"RP.EXAMPLE.COM"}, true},
+		{"wildcard, ASCII case-insensitive", "Sub.EXAMPLE.com", []string{"*.example.com"}, true},
+		{"wildcard does not match an empty label", ".example.com", []string{"*.example.com"}, false},
+		{"U-label never matches the A-label SAN", "bücher.example", []string{"xn--bcher-kva.example"}, false},
+		{"non-ASCII is not case-folded (KELVIN SIGN is not k)", "\u212Aey.example", []string{"key.example"}, false},
+		{"trailing dot is not folded away", "rp.example.com.", []string{"rp.example.com"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -95,7 +95,7 @@ const (
 	VerifierIDTypeSemantic = "semantic"
 	// VerifierIDTypeDNS (x509_san_dns) is the dNSName SAN value,
 	// in its ASCII (A-label) form, ASCII lower case, without a trailing dot.
-	// Names that are not ASCII are not identifiers.
+	// An internationalised name is its A-label (xn--...); a U-label is not converted.
 	VerifierIDTypeDNS = "x509_san_dns"
 	// VerifierIDTypeURI (x509_san_uri) is the uniformResourceIdentifier SAN
 	// value, byte-for-byte as bound.

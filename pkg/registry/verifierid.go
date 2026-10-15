@@ -100,12 +100,13 @@ func CanonicalDNSName(name string) (string, bool) {
 	return string(b), true
 }
 
-// sanExactlyContains reports whether dnsNames holds clientID byte for byte. A
-// client_id bound only through a wildcard SAN (*.example.com) is one of many
-// hosts under one certificate, so it does not identify a single verifier.
+// sanExactlyContains reports whether dnsNames holds clientID, ASCII
+// case-insensitively like the binding. A client_id bound only through a
+// wildcard SAN (*.example.com) is one of many hosts under one certificate, so it
+// does not identify a single verifier.
 func sanExactlyContains(dnsNames []string, clientID string) bool {
 	for _, n := range dnsNames {
-		if n == clientID {
+		if equalASCIIFold(n, clientID) {
 			return true
 		}
 	}
