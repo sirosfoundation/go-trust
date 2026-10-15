@@ -4,6 +4,25 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.25.0:start -->
+## [v0.25.0] - 2026-10-15
+
+### Added
+- AuthZEN evaluation responses can now include verified relying party identifiers in `context.verifier_ids` (semantic, DNS, URI, DID, OIDF entity), controlled by the new per-policy `constraints.return_verifier_ids` setting. Wallets answering `circuit_zk` requests get a verified identifier string without parsing certificates or resolving DIDs themselves. Off by default; clients can hint a preferred type via `context.verifier_id_type`. (#204)
+
+### Fixed
+- **BREAKING**: LoTE registry JWS signature verification now works. Previously `registries.lote.verify_jws: true` was silently ignored; now it requires the new `registries.lote.trust_anchor_bundle` (PEM file of CA certificates) or the service refuses to start. Verification applies to the LoTL itself and all resolved sources. Configs that set `verify_jws` without anchors will fail validation. (#211)
+- DID policies now enforce `did.required_verification_methods`. This constraint was parsed but never checked; DIDs missing any listed verification method type are now denied. Deployments with this setting already configured may see denials after upgrading. (#209)
+- Docker image now listens on `0.0.0.0:6001` by default (was `127.0.0.1:6001`), exposes port 6001, and its healthcheck correctly follows `GT_PORT` and uses GET instead of HEAD. (#206)
+- WRPAC profile no longer warns when access certificates lack `keyUsage` `contentCommitment`/`nonRepudiation`; that bit is for non-repudiable content commitment, not entity authentication. Certificates with only `digitalSignature` now validate cleanly. (#210)
+- Natural-person WRPAC certificates (NCP-n, QCP-n) are now correctly classified as `natural_person` and their semantic identifier is read from `serialNumber` only, not `organizationIdentifier`. (#204)
+
+### Changed
+- Minimum Go version is now 1.27.2 (was 1.27.0/1.27.1), clearing stdlib vulnerabilities GO-2026-6611/6612/6613/6617 in `net/http`. (#214)
+- Dependency updates: golang.org/x/net v0.60.0 (clears GO-2026-6610/6611/6612/6617), github.com/SUNET/vc v0.7.23, github.com/fxamacker/cbor/v2 v2.9.6, github.com/go-oidfed/lib and github.com/prometheus/client_golang. (#212, #199, #215)
+- GitHub Actions: ossf/scorecard-action updated to v2.5.0. (#216)
+<!-- release-notes:v0.25.0:end -->
+
 <!-- release-notes:v0.24.1:start -->
 ## [v0.24.1] - 2026-10-06
 
