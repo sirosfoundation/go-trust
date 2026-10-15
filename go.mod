@@ -8,6 +8,7 @@ replace github.com/russellhaering/goxmldsig => github.com/sirosfoundation/goxmld
 
 require (
 	github.com/SUNET/vc v0.7.23
+	github.com/beevik/etree v1.8.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/fxamacker/cbor/v2 v2.9.6
 	github.com/gematik/zero-lab/go/brainpool v1.1.0
@@ -36,9 +37,9 @@ require (
 require (
 	filippo.io/mldsa v1.0.0 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
+	github.com/ThalesGroup/crypto11 v1.6.1 // indirect
 	github.com/TwiN/gocache/v2 v2.4.0 // indirect
 	github.com/adam-hanna/arrayOperations v1.0.1 // indirect
-	github.com/beevik/etree v1.8.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.4 // indirect
