@@ -191,10 +191,26 @@ func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]inter
 	// Subject.Names, so it has to be read out by OID. Fall back to
 	// serialNumber (2.5.4.5), which earlier certificates and test fixtures
 	// used, so both continue to resolve.
+	//
+	// The serialNumber fallback does not apply to a natural-person certificate
+	// (NCP-n/QCP-n policy). ETSI TS 119 475 5.1.5 puts a natural person's
+	// semantic identifier (e.g. PNOSE-...) in serialNumber; that identifies the
+	// person, so relabelling it organization_identifier - and classifying the
+	// certificate legal_person when it also names an affiliated organisation -
+	// was wrong.
+	naturalPerson := SubjectKindFromPolicies(cert) == SubjectKindNaturalPerson
 	orgID := SubjectOrganizationIdentifier(cert)
+	if naturalPerson {
+		orgID = realOrganizationIdentifier(cert)
+	}
 	if orgID != "" {
 		identity["organization_identifier"] = orgID
-		delete(identity, "serial_number")
+		// Only an organisation identifier that came from serialNumber replaces
+		// it. A natural person's serialNumber is their own identifier and stays,
+		// next to the affiliated organisation's real identifier.
+		if !naturalPerson {
+			delete(identity, "serial_number")
+		}
 	}
 
 	// Determine subject type (natural vs legal person). Keyed off the same
@@ -202,11 +218,7 @@ func (p *WRPACProfile) ExtractIdentity(credential interface{}) (map[string]inter
 	// directly classified a conformant legal-person certificate, which
 	// carries the value in 2.5.4.97, as a natural person. Reusing the one
 	// value keeps the two decisions from ever disagreeing.
-	if len(cert.Subject.Organization) > 0 && orgID != "" {
-		identity["subject_type"] = "legal_person"
-	} else {
-		identity["subject_type"] = "natural_person"
-	}
+	identity["subject_type"] = wrpacSubjectType(cert, orgID, naturalPerson)
 
 	// Certificate policy classification
 	policyOIDStrs := CertPolicyOIDStrings(cert)
@@ -335,4 +347,14 @@ func SubjectOrganizationIdentifier(cert *x509.Certificate) string {
 		}
 	}
 	return cert.Subject.SerialNumber
+}
+
+// wrpacSubjectType classifies the subject as "legal_person" or "natural_person".
+// A certificate whose policy OIDs say natural person is one; otherwise it is a
+// legal person when it names an organisation and has an organisation identifier.
+func wrpacSubjectType(cert *x509.Certificate, orgID string, naturalPerson bool) string {
+	if !naturalPerson && len(cert.Subject.Organization) > 0 && orgID != "" {
+		return "legal_person"
+	}
+	return "natural_person"
 }

@@ -274,7 +274,7 @@ const docTemplate = `{
                     ]
                 },
                 "context": {
-                    "description": "Optional context (MUST NOT be critical)",
+                    "description": "Optional context (MUST NOT be critical). Recognised member: verifier_id_type narrows context.verifier_ids in the response to that one type",
                     "type": "object",
                     "additionalProperties": {
                         "type": "string"
@@ -333,6 +333,13 @@ const docTemplate = `{
                 "trust_metadata": {
                     "description": "TrustMetadata contains the resolved trust metadata for the subject.\nFor DID resolution: contains the DID Document\nFor OpenID Federation: contains the Entity Configuration\nThis field is set when trust_metadata is requested or for resolution-only requests.",
                     "type": "object"
+                },
+                "verifier_ids": {
+                    "description": "VerifierIDs lists verifier identifiers the PDP derived from authenticated\nmaterial, for wallets that need a stable identifier string for the relying\nparty (for example as input to a pseudonym function). It is present only\nwhen the policy enables it (constraints.return_verifier_ids), the decision\nis true, and the identifier was verified. Informational, never critical.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/authzen.VerifierID"
+                    }
                 }
             }
         },
@@ -419,6 +426,27 @@ const docTemplate = `{
                     "description": "MUST be \"key\"",
                     "type": "string",
                     "example": "key"
+                }
+            }
+        },
+        "authzen.VerifierID": {
+            "description": "A verifier identifier derived by the PDP from authenticated material",
+            "type": "object",
+            "properties": {
+                "basis": {
+                    "description": "Basis states how the value was verified, for example \"x5c-chain\",\n\"client-id-binding\", \"did-resolution\" or \"oidf-trust-chain\".",
+                    "type": "string",
+                    "example": "x5c-chain"
+                },
+                "verifier_id": {
+                    "description": "ID is the identifier in the canonical form defined for the type.",
+                    "type": "string",
+                    "example": "semantic_id:VATSE-556000000101"
+                },
+                "verifier_id_type": {
+                    "description": "Type is an opaque type string, for example \"semantic\" or \"x509_san_dns\".",
+                    "type": "string",
+                    "example": "semantic"
                 }
             }
         }

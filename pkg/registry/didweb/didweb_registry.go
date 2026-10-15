@@ -198,7 +198,7 @@ func (r *DIDWebRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 	}
 
 	// Success - key binding is valid
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason: map[string]interface{}{
@@ -210,7 +210,9 @@ func (r *DIDWebRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 			},
 			TrustMetadata: r.didDocumentToTrustMetadata(didDoc),
 		},
-	}, nil
+	}
+	registry.AddDIDVerifierID(resp, req, didDoc.ID)
+	return resp, nil
 }
 
 // buildResolutionOnlyResponse creates an EvaluationResponse for resolution-only requests.

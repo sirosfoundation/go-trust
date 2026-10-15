@@ -859,13 +859,23 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 		}
 	}
 
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason:        reasonData,
 			TrustMetadata: trustMetadata,
 		},
-	}, nil
+	}
+	// The Entity ID is returned only when the validated chain's leaf statement
+	// is about the entity as the request named it, byte-for-byte. An entity ID
+	// is compared exactly, so a trailing slash or case change names another
+	// entity; entityID above has had trailing slashes stripped for resolution,
+	// so the raw requested identifier is compared instead. Not re-serialised
+	// through net/url.
+	if len(chain) > 0 && chain[0].Subject == rawRequestedEntityID(req) {
+		registry.AddVerifierID(resp, req, authzen.VerifierIDTypeOIDFEntity, chain[0].Subject, authzen.VerifierIDBasisOIDFTrustChain)
+	}
+	return resp, nil
 }
 
 // verifyKeyBinding checks if the key in the request matches a key in the entity's JWKS.
@@ -1413,19 +1423,37 @@ func (r *OIDFedRegistry) extractEntityID(req *authzen.EvaluationRequest) (string
 	// Try subject.entity_id or subject.id first
 	if req.Subject.Type == "key" && req.Subject.ID != "" {
 		// Check if ID looks like a URL (entity identifier)
-		if strings.HasPrefix(req.Subject.ID, "http://") || strings.HasPrefix(req.Subject.ID, "https://") {
+		if isHTTPURL(req.Subject.ID) {
 			return strings.TrimRight(req.Subject.ID, "/"), nil
 		}
 	}
 
 	// Try resource.entity_id or resource.id
 	if req.Resource.ID != "" {
-		if strings.HasPrefix(req.Resource.ID, "http://") || strings.HasPrefix(req.Resource.ID, "https://") {
+		if isHTTPURL(req.Resource.ID) {
 			return strings.TrimRight(req.Resource.ID, "/"), nil
 		}
 	}
 
 	return "", fmt.Errorf("no entity_id found in request subject or resource")
+}
+
+// isHTTPURL reports whether s looks like an entity identifier (an http or https URL).
+func isHTTPURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// rawRequestedEntityID returns the entity identifier exactly as the request
+// named it (the same field extractEntityID reads, without its trailing-slash
+// normalisation), or "" if the request names none.
+func rawRequestedEntityID(req *authzen.EvaluationRequest) string {
+	if req.Subject.Type == "key" && isHTTPURL(req.Subject.ID) {
+		return req.Subject.ID
+	}
+	if isHTTPURL(req.Resource.ID) {
+		return req.Resource.ID
+	}
+	return ""
 }
 
 // extractMetadata extracts useful metadata from the trust chain.

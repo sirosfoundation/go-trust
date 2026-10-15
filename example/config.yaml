@@ -539,6 +539,13 @@ policies:
       #   # Reject resolution-only requests, which return resolved metadata
       #   # without any key having been presented.
       #   require_key_binding: true
+      #   # Verifier identifiers returned in the response context
+      #   # (verifier_ids), for wallets that need a stable identifier for the
+      #   # relying party. Off by default. Types: semantic (access certificate
+      #   # only), x509_san_dns, x509_san_uri, decentralized_identifier,
+      #   # openid_federation. Unknown names are rejected at startup. A request can narrow the response to one type with
+      #   # context.verifier_id_type.
+      #   return_verifier_ids: [semantic, x509_san_dns]
 
       etsi:
         service_types:

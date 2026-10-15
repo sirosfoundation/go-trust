@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/sirosfoundation/g119612/pkg/validation"
+	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"gopkg.in/yaml.v3"
 )
 
@@ -460,6 +461,12 @@ type PolicyConstraintsConfig struct {
 
 	// AllowedKeyTypes restricts accepted key types (e.g., ["x5c", "jwk"])
 	AllowedKeyTypes []string `yaml:"allowed_key_types,omitempty"`
+
+	// ReturnVerifierIDs lists the verifier identifier types to return in the
+	// evaluation response context member verifier_ids. Supported types:
+	// semantic, x509_san_dns, x509_san_uri, decentralized_identifier, openid_federation. Empty (default) returns none.
+	// Unknown names are rejected at startup.
+	ReturnVerifierIDs []string `yaml:"return_verifier_ids,omitempty"`
 }
 
 // OIDFedPolicyConfig contains OpenID Federation-specific policy constraints.
@@ -802,6 +809,9 @@ func (c *Config) Validate() error {
 			if err := p.EMRTD.validate(); err != nil {
 				return fmt.Errorf("policy %q: %w", name, err)
 			}
+			if err := p.Constraints.validate(); err != nil {
+				return fmt.Errorf("policy %q: %w", name, err)
+			}
 		}
 	}
 
@@ -825,6 +835,21 @@ func (e *EMRTDPolicyConfig) validate() error {
 		}
 		if e.PathLenMode == "ignore" {
 			return fmt.Errorf("emrtd.path_len_override implies enforcement and conflicts with path_len_mode \"ignore\"")
+		}
+	}
+	return nil
+}
+
+// validate rejects unknown return_verifier_ids type names, so a typo fails at
+// startup rather than silently returning nothing.
+func (c *PolicyConstraintsConfig) validate() error {
+	if c == nil {
+		return nil
+	}
+	for _, t := range c.ReturnVerifierIDs {
+		if !authzen.IsSupportedVerifierIDType(t) {
+			return fmt.Errorf("constraints.return_verifier_ids: unknown verifier id type %q (supported: %s)",
+				t, strings.Join(authzen.SupportedVerifierIDTypes(), ", "))
 		}
 	}
 	return nil

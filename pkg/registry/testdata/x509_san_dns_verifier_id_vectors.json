@@ -1,0 +1,119 @@
+{
+  "description": "Canonical x509_san_dns verifier_id: dNSName SAN in A-label form (internationalised names are supported when the client_id carries the A-label), ASCII lower case; the client_id binds to the SAN ASCII case-insensitively, one trailing dot removed, no U-label conversion. verifier_id null means no entry is emitted. Clients hash the value byte for byte.",
+  "vectors": [
+    {
+      "name": "plain",
+      "san": "rp.example.com",
+      "client_id": "x509_san_dns:rp.example.com",
+      "verifier_id": "rp.example.com"
+    },
+    {
+      "name": "mixed case SAN and client_id",
+      "san": "RP.Example.COM",
+      "client_id": "x509_san_dns:RP.Example.COM",
+      "verifier_id": "rp.example.com"
+    },
+    {
+      "name": "A-label passes through, lower-cased",
+      "san": "XN--Bcher-Kva.example",
+      "client_id": "x509_san_dns:XN--Bcher-Kva.example",
+      "verifier_id": "xn--bcher-kva.example"
+    },
+    {
+      "name": "A-label lower case",
+      "san": "xn--bcher-kva.example",
+      "client_id": "x509_san_dns:xn--bcher-kva.example",
+      "verifier_id": "xn--bcher-kva.example"
+    },
+    {
+      "name": "trailing dot on SAN and client_id",
+      "san": "rp.example.com.",
+      "client_id": "x509_san_dns:rp.example.com.",
+      "verifier_id": "rp.example.com"
+    },
+    {
+      "name": "client_id differs from SAN in ASCII case: binds, canonical form is lower case",
+      "san": "rp.example.com",
+      "client_id": "x509_san_dns:RP.example.com",
+      "verifier_id": "rp.example.com"
+    },
+    {
+      "name": "client_id has trailing dot, SAN does not: no entry",
+      "san": "rp.example.com",
+      "client_id": "x509_san_dns:rp.example.com.",
+      "verifier_id": null
+    },
+    {
+      "name": "U-label client_id: not an identifier, no conversion",
+      "san": "rp.example.com",
+      "client_id": "x509_san_dns:bücher.example",
+      "verifier_id": null
+    },
+    {
+      "name": "empty label",
+      "san": "rp.example.com",
+      "client_id": "x509_san_dns:a..example.com",
+      "verifier_id": null
+    },
+    {
+      "name": "leading dot",
+      "san": "rp.example.com",
+      "client_id": "x509_san_dns:.example.com",
+      "verifier_id": null
+    },
+    {
+      "name": "two trailing dots",
+      "san": "rp.example.com",
+      "client_id": "x509_san_dns:rp.example.com..",
+      "verifier_id": null
+    },
+    {
+      "name": "whitespace",
+      "san": "rp.example.com",
+      "client_id": "x509_san_dns: rp.example.com",
+      "verifier_id": null
+    },
+    {
+      "name": "wildcard client_id",
+      "san": "*.example.com",
+      "client_id": "x509_san_dns:*.example.com",
+      "verifier_id": null
+    },
+    {
+      "name": "client_id bound only via wildcard SAN: no entry",
+      "san": "*.example.com",
+      "client_id": "x509_san_dns:a.example.com",
+      "verifier_id": null
+    },
+    {
+      "name": "label of 63 octets",
+      "san": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com",
+      "client_id": "x509_san_dns:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com",
+      "verifier_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com"
+    },
+    {
+      "name": "label of 64 octets",
+      "san": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com",
+      "client_id": "x509_san_dns:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com",
+      "verifier_id": null
+    },
+    {
+      "name": "name of 253 octets",
+      "san": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "client_id": "x509_san_dns:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "verifier_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "name of 254 octets",
+      "san": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "client_id": "x509_san_dns:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "verifier_id": null
+    },
+    {
+      "name": "U-label client_id against an A-label SAN: no entry, no conversion",
+      "san": "xn--bcher-kva.example",
+      "client_id": "x509_san_dns:bücher.example",
+      "verifier_id": null
+    }
+  ]
+}

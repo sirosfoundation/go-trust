@@ -187,7 +187,7 @@ func (r *GenericDIDRegistry) Evaluate(ctx context.Context, req *authzen.Evaluati
 		}, nil
 	}
 
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason: map[string]interface{}{
@@ -199,7 +199,9 @@ func (r *GenericDIDRegistry) Evaluate(ctx context.Context, req *authzen.Evaluati
 			},
 			TrustMetadata: didDocumentToTrustMetadata(didDoc),
 		},
-	}, nil
+	}
+	registry.AddDIDVerifierID(resp, req, didDoc.ID)
+	return resp, nil
 }
 
 // checkDIDPolicyConstraints validates DID policy constraints from request context.

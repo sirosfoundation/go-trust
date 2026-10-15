@@ -4,7 +4,10 @@ package registry
 
 import (
 	"fmt"
+	"strings"
 	"sync"
+
+	"github.com/sirosfoundation/go-trust/pkg/authzen"
 )
 
 // maxWarnedUnknownActions bounds the warning-deduplication set. action.name is
@@ -58,6 +61,24 @@ type PolicyConstraints struct {
 	// validated. When true, resolution-only requests (no resource.type or no
 	// resource.key) are rejected rather than answered with resolved metadata.
 	RequireKeyBinding bool `json:"require_key_binding,omitempty" yaml:"require_key_binding,omitempty"`
+
+	// ReturnVerifierIDs lists the verifier identifier types to return in
+	// response.Context.VerifierIDs (see authzen.SupportedVerifierIDTypes).
+	// Empty (the default) returns none, so existing responses are unchanged.
+	// Entries are emitted only for an allow decision whose identifier was
+	// verified; unknown type names are rejected at config load.
+	ReturnVerifierIDs []string `json:"return_verifier_ids,omitempty" yaml:"return_verifier_ids,omitempty"`
+}
+
+// Validate rejects unknown return_verifier_ids type names.
+func (c PolicyConstraints) Validate() error {
+	for _, t := range c.ReturnVerifierIDs {
+		if !authzen.IsSupportedVerifierIDType(t) {
+			return fmt.Errorf("return_verifier_ids: unknown verifier id type %q (supported: %s)",
+				t, strings.Join(authzen.SupportedVerifierIDTypes(), ", "))
+		}
+	}
+	return nil
 }
 
 // OIDFedPolicyConstraints contains OpenID Federation-specific constraints.
@@ -290,18 +311,30 @@ func NewPolicyManager() *PolicyManager {
 	}
 }
 
-// RegisterPolicy adds a policy to the manager.
-func (pm *PolicyManager) RegisterPolicy(policy *Policy) {
+// RegisterPolicy adds a policy to the manager. A policy whose constraints fail
+// validation (an unknown return_verifier_ids type) is not registered and the
+// error is returned, so that a mis-typed policy is rejected at installation
+// rather than silently returning nothing.
+func (pm *PolicyManager) RegisterPolicy(policy *Policy) error {
+	if err := policy.Constraints.Validate(); err != nil {
+		return fmt.Errorf("policy %q: %w", policy.Name, err)
+	}
 	pm.policies[policy.Name] = policy
 	if len(policy.Registries) > 0 {
 		pm.registryFilter[policy.Name] = policy.Registries
 	}
+	return nil
 }
 
-// SetDefaultPolicy sets the policy used when action.name is not specified.
-func (pm *PolicyManager) SetDefaultPolicy(policy *Policy) {
+// SetDefaultPolicy sets the policy used when action.name is not specified. It
+// returns the validation error of RegisterPolicy, in which case the default is
+// left unchanged.
+func (pm *PolicyManager) SetDefaultPolicy(policy *Policy) error {
+	if err := pm.RegisterPolicy(policy); err != nil {
+		return err
+	}
 	pm.defaultPolicy = policy
-	pm.RegisterPolicy(policy)
+	return nil
 }
 
 // GetPolicy returns the policy for the given action name.

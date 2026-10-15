@@ -610,7 +610,7 @@ policies:
 | `etsi` | Service types, statuses, countries, credential types (audit) | ETSI TSL |
 | `lote` | Entity types, statuses, territories, credential types (audit) | ETSI LoTE |
 | `oidfed` | Entity types, trust marks, credential type mapping | OpenID Federation |
-| `did` | Allowed domains, verifiable history | DID Web, DID Web VH |
+| `decentralized_identifier` | Allowed domains, verifiable history | DID Web, DID Web VH |
 | `mdociaca` | Issuer allowlist, IACA endpoint | mDOC IACA |
 | `fidomds3` | AAGUID allowlist/blocklist | FIDO MDS3 |
 | `constraints` (`require_key_binding`, `allowed_key_types`) | Generic; used by `emrtd-document-signer` | eMRTD |
@@ -820,6 +820,51 @@ When enabled, the response includes the relying party's identity extracted from 
 ```
 
 X5C enrichment is supported by both ETSI TSL and LoTE registries.
+
+### Verifier Identifiers (`verifier_ids`)
+
+A wallet that answers a request with a pseudonym function needs a stable *verifier identifier* string for the relying party. Go-Trust can return those in the evaluation response `context.verifier_ids`, derived only from material it has authenticated, so the wallet does not have to parse certificates, resolve DIDs or walk federation chains itself. The member is informational (never critical) and **off by default**: existing responses are unchanged unless a policy enables it.
+
+```yaml
+policies:
+  policies:
+    credential-verifier:
+      constraints:
+        return_verifier_ids: [semantic, x509_san_dns]   # unknown type names are rejected at startup
+```
+
+```json
+{
+  "decision": true,
+  "context": {
+    "verifier_ids": [
+      {"verifier_id_type": "semantic", "verifier_id": "semantic_id:VATSE-556000000101", "basis": "x5c-chain"},
+      {"verifier_id_type": "x509_san_dns", "verifier_id": "rp.example.com", "basis": "client-id-binding"}
+    ]
+  }
+}
+```
+
+The response lists everything the policy enables and go-trust can derive; a type it cannot establish is omitted. A request may narrow the response to one type with the optional request `context` member `verifier_id_type` (for example `"context": {"verifier_id_type": "x509_san_dns"}`). The hint only narrows: it cannot enable a type the policy did not. Clients treat `verifier_id_type` as opaque; the order of entries carries no meaning.
+
+Types go-trust can derive (the exact value form is fixed per type). Type names follow the OpenID4VP `client_id` scheme names (`x509_san_dns`, `x509_san_uri`, `decentralized_identifier`, `openid_federation`); `semantic` is the only exception:
+
+| Type | Value | Basis | Registries |
+|---|---|---|---|
+| `semantic` | `semantic_id:` + the ETSI semantic identifier from the **access certificate** leaf (ETSI TS 119 475 5.1.3 legal persons: `organizationIdentifier`; 5.1.5 natural persons: `serialNumber`). Must match `<3 letters><2 letters>-<value>`; the value is kept verbatim. | `x5c-chain` | x5c registries (`etsi`, `lote`) |
+| `x509_san_dns` | the `client_id` of an `x509_san_dns` request, which must equal a dNSName SAN of the leaf (ASCII case-insensitively): the A-label form, lower case, one trailing dot removed; see the rules below | `client-id-binding` | x5c registries |
+| `x509_san_uri` | the `client_id` of an `x509_san_uri` request, byte-for-byte (no case folding, no slash normalisation, not re-serialised through `net/url`) | `client-id-binding` | x5c registries |
+| `decentralized_identifier` | the full DID of the resolved DID document, without fragment | `did-resolution` | `didweb`, `didwebvh`, `didjwks`, `did` |
+| `openid_federation` | the Entity ID as in the validated trust chain, byte-for-byte | `oidf-trust-chain` | `oidfed` |
+
+Rules:
+
+- **Fail closed.** Nothing is emitted for a deny decision, when the matched profile's validation failed (normally only a warning), or when the identifier was not verified: `x509_san_dns`/`x509_san_uri` need `VerifyLeafBinding` to pass, `decentralized_identifier` needs a successful resolution and a matching key, `openid_federation` needs a validated trust chain and a matching key. An unverified `client_id` is never echoed. Resolution-only responses carry no `verifier_ids`.
+- **`x509_san_dns` is the A-label, lower case.** Internationalised names are supported: a certificate carries them as A-labels (`xn--...`, RFC 5280), and a `client_id` that carries the A-label binds to the SAN and yields the A-label as the value. The `client_id` is compared with the SAN ASCII case-insensitively (the value emitted is always lower case, one trailing dot removed). A U-label `client_id` (`bücher.example`) is not converted: the PDP does no IDNA processing, because IDNA2003, IDNA2008 and UTS #46 differ for some names and a difference would be a different pseudonym, so no entry is emitted and the verifier must send the A-label. Also omitted, never repaired: an empty label (`a..b`, a leading dot, more than one trailing dot), whitespace or control characters, a label over 63 or a name over 253 octets, a wildcard `client_id`, and a `client_id` that binds only through a wildcard SAN (`*.example.com`), which names one of many hosts under one certificate. Shared test vectors: `pkg/registry/testdata/x509_san_dns_verifier_id_vectors.json`.
+- **`semantic` comes from the access certificate only.** The registration certificate is not an input today, so wallets must not assume registration-certificate precedence. A `serialNumber` that is not a semantic identifier (for example a plain certificate serial) is never emitted as `semantic`. The subject kind comes from the WRPAC policy OIDs alone: a certificate with neither a natural- nor a legal-person policy (or with both) yields no `semantic`, because its `organizationIdentifier` could be a natural person's affiliation rather than the verifier. The type must fit the subject: natural-person types (`PNO`, `IDC`, `PAS`, `TAX`, `TIN`) are read from `serialNumber` of natural-person certificates only, and refused for legal-person ones.
+- **Intermediary requests** (`allow_intermediaries`): the identifier is the end relying party's. `semantic` is taken from the RP leaf; `x509_san_dns` and `x509_san_uri` are omitted because the `client_id` of a brokered request cannot be shown to name the end relying party. The intermediary's own, unvalidated chain is never a source.
+- The member is carried through by the strategies that return the matching registry's own response (`first_match`, `sequential`); the aggregating `all` and `best_match` strategies and composite registries build a new response and do not carry it.
+- Not offered: `did_scid`, `service` and `spki_sha256` are not implemented yet and are rejected in `return_verifier_ids`.
 
 ## Deployment
 
