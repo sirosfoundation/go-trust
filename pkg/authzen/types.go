@@ -94,7 +94,8 @@ const (
 	// identifier (EN 319 412-1 5.1.3) from the access certificate.
 	VerifierIDTypeSemantic = "semantic"
 	// VerifierIDTypeDNS (x509_san_dns) is the dNSName SAN value,
-	// lower-cased and without a trailing dot.
+	// in its ASCII (A-label) form, ASCII lower case, without a trailing dot.
+	// Names that are not ASCII are not identifiers.
 	VerifierIDTypeDNS = "x509_san_dns"
 	// VerifierIDTypeURI (x509_san_uri) is the uniformResourceIdentifier SAN
 	// value, byte-for-byte as bound.

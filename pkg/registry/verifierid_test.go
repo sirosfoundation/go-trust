@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"math/big"
 	"net/url"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,8 +160,12 @@ func TestAddDIDVerifierID_RequiresSameDID(t *testing.T) {
 }
 
 func TestCanonicalForms(t *testing.T) {
-	assert.Equal(t, "rp.example.com", CanonicalDNSName("RP.Example.COM."))
-	assert.Equal(t, "rp.example.com", CanonicalDNSName("rp.example.com"))
+	got, ok := CanonicalDNSName("RP.Example.COM.")
+	assert.True(t, ok)
+	assert.Equal(t, "rp.example.com", got)
+	got, ok = CanonicalDNSName("rp.example.com")
+	assert.True(t, ok)
+	assert.Equal(t, "rp.example.com", got)
 	assert.Equal(t, "did:web:Example.com:Path", CanonicalDID("did:web:Example.com:Path#key-1"), "no case folding in a DID")
 	assert.Equal(t, "did:web:example.com", CanonicalDID("did:web:example.com"))
 }
@@ -389,4 +395,47 @@ func TestApplyEnrichmentToResponse_VerifierIDsJSONShape(t *testing.T) {
 	assert.JSONEq(t, `{"decision":true,"context":{"reason":{"matched_profile":"wrpac"},"trust_metadata":{"rp_profile":"wrpac"},"verifier_ids":[
 		{"verifier_id_type":"semantic","verifier_id":"semantic_id:VATSE-556000000101","basis":"x5c-chain"},
 		{"verifier_id_type":"x509_san_dns","verifier_id":"rp.example.com","basis":"client-id-binding"}]}}`, string(b))
+}
+
+// The vectors are shared with the SDKs, which hash the value byte for byte and
+// must produce the same strings.
+func TestEnrichVerifierIDs_DNS_SharedVectors(t *testing.T) {
+	raw, err := os.ReadFile("testdata/x509_san_dns_verifier_id_vectors.json")
+	require.NoError(t, err)
+	var file struct {
+		Vectors []struct {
+			Name       string  `json:"name"`
+			SAN        string  `json:"san"`
+			ClientID   string  `json:"client_id"`
+			VerifierID *string `json:"verifier_id"`
+		} `json:"vectors"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &file))
+	require.NotEmpty(t, file.Vectors)
+
+	for _, v := range file.Vectors {
+		t.Run(v.Name, func(t *testing.T) {
+			// A SAN that Go's x509 builder refuses to encode can only be exercised
+			// through the canonicaliser, which is where non-ASCII is refused.
+			cert := makeVIDCert(t, vidCertOpts{dns: []string{v.SAN}})
+			res := EnrichX5CResponse(vidReq(v.ClientID, []string{"x509_san_dns"}, nil), cert)
+			if v.VerifierID == nil {
+				assert.Empty(t, res.VerifierIDs)
+				return
+			}
+			require.Len(t, res.VerifierIDs, 1)
+			assert.Equal(t, authzen.VerifierID{Type: "x509_san_dns", ID: *v.VerifierID, Basis: "client-id-binding"}, res.VerifierIDs[0])
+		})
+	}
+}
+
+// Non-ASCII is refused by the canonicaliser itself, not left to the SAN binding
+// (a non-ASCII dNSName does not survive certificate parsing, but the rule must
+// not depend on that).
+func TestCanonicalDNSName_RefusesWhatIsNotAnIdentifier(t *testing.T) {
+	for _, name := range []string{"", ".", "bücher.example", "a..b", ".a", "a.b..", " a.b", "a.b ", "*.example.com", "a\tb.example", strings.Repeat("a", 64) + ".example"} {
+		got, ok := CanonicalDNSName(name)
+		assert.False(t, ok, "%q", name)
+		assert.Empty(t, got, "%q", name)
+	}
 }

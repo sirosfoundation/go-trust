@@ -2,7 +2,6 @@ package registry
 
 import (
 	"crypto/x509"
-	"strings"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
@@ -521,11 +520,19 @@ func deriveSANVerifierID(req *authzen.EvaluationRequest, leaf *x509.Certificate,
 	var idType, id string
 	switch scheme {
 	case ClientIDSchemeX509SANDNS:
-		// A wildcard is not an identifier of one RP.
-		if strings.Contains(value, "*") {
+		// Not an identifier of one RP: a wildcard, or anything that has no
+		// canonical form (non-ASCII, empty labels, over-long, ...). Checked
+		// here explicitly rather than left to the SAN binding.
+		canonical, ok := CanonicalDNSName(value)
+		if !ok {
 			return authzen.VerifierID{}, false
 		}
-		idType, id = authzen.VerifierIDTypeDNS, CanonicalDNSName(value)
+		// Likewise a client_id that binds only through a wildcard SAN names
+		// one of many hosts, not the certificate holder.
+		if !sanExactlyContains(leaf.DNSNames, value) {
+			return authzen.VerifierID{}, false
+		}
+		idType, id = authzen.VerifierIDTypeDNS, canonical
 	case ClientIDSchemeX509SANURI:
 		// Byte-for-byte: URISANMatches is an exact comparison, so the bound
 		// value already is the SAN. Not re-serialised through net/url.
