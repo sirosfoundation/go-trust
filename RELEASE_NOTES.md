@@ -4,6 +4,14 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.26.0:start -->
+## [v0.26.0] - 2026-10-21
+
+### Added
+- `verifier_ids` now emitted by `whitelist`, `system_cert_pool`, and `mdoc_rical` registries, providing consistent verifier identity information across all trust anchors that validate certificate chains. The `whitelist` registry emits `x509_san_dns` and `x509_san_uri` identifiers (plus `semantic` when validated against the system CA pool); `system_cert_pool` and `mdoc_rical` emit `semantic`, `x509_san_dns`, and `x509_san_uri` identifiers following the same derivation rules as ETSI/LOTE registries (#218)
+- `all`, `best_match`, and composite registries (AND/OR/MAJORITY/QUORUM) now preserve and merge `verifier_ids` from their child registries, ensuring verifier identity information propagates through multi-registry evaluation strategies (#218)
+<!-- release-notes:v0.26.0:end -->
+
 <!-- release-notes:v0.25.0:start -->
 ## [v0.25.0] - 2026-10-15
 
