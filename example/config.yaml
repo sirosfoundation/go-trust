@@ -546,6 +546,14 @@ policies:
       #   # openid_federation. Unknown names are rejected at startup. A request can narrow the response to one type with
       #   # context.verifier_id_type.
       #   return_verifier_ids: [semantic, x509_san_dns]
+      #
+      #   # Interaction with the whitelist registry: a whitelisted verifier
+      #   # is trusted by key fingerprint (or system-CA chain); when its
+      #   # request is x509_san_dns:<host> and the presented x5c leaf also
+      #   # carries <host> as a dNSName SAN, x509_san_dns is returned. Actions
+      #   # WITHOUT a policy are unaffected as long as default_policy and
+      #   # fail_closed_on_unknown_action are unset. See
+      #   # docs/examples/gdc-verifier-ids-policies.yaml.
 
       etsi:
         service_types:

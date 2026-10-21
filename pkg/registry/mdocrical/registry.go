@@ -214,7 +214,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		}
 	}
 
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason: map[string]interface{}{
@@ -223,7 +223,11 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 				"matched_cert_idx": matchIdx,
 			},
 		},
-	}, nil
+	}
+	// The reader certificate chained to a RICAL trust anchor, so its content is
+	// authenticated; derive the relying party's identifiers from the leaf.
+	registry.AddVerifierIDs(resp, req, registry.DeriveCertVerifierIDs(req, chain[0], true))
+	return resp, nil
 }
 
 // SupportedResourceTypes returns the resource types this registry handles.

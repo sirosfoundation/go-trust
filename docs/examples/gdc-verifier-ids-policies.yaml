@@ -1,0 +1,32 @@
+# Policies section for a PDP that fronts a whitelist (key-fingerprint) registry,
+# mdociaca, mdocrical and didweb, and must return x509_san_dns verifier
+# identifiers for the verifier actions only.
+#
+# Merge this file's content into the root of the PDP's config file: it already
+# contains the top-level `policies:` key (the policy entries are under
+# `policies.policies`), so do not nest it under another `policies:` key.
+#
+# Why this leaves every other action unchanged:
+#   - A policy is selected by exact action.name. Policies exist ONLY for the two
+#     verifier actions, so credential-issuer, mdoc-issuer and mdoc-issuer-auth
+#     (and any action not named here) find no policy.
+#   - default_policy is deliberately NOT set: with it unset an action without a
+#     policy is evaluated by all registries exactly as before, with no constraints.
+#   - fail_closed_on_unknown_action is deliberately NOT set: setting it would
+#     deny every named action not listed below (a request with no action.name
+#     at all is not affected by it).
+#   - The policies below set no `registries`, `allowed_key_types` or
+#     `require_key_binding`, so which registries are asked, and which requests
+#     are accepted, is identical to running without a policies section. The
+#     only effect is that a positive decision from a registry that can verify
+#     the identifier also carries context.verifier_ids.
+policies:
+  policies:
+    credential-verifier:
+      description: "Verifier access: return the verified dNSName of the verifier"
+      constraints:
+        return_verifier_ids: [x509_san_dns]
+    verifier:
+      description: "Verifier access (legacy action name): return the verified dNSName"
+      constraints:
+        return_verifier_ids: [x509_san_dns]
