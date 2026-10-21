@@ -194,7 +194,7 @@ func (r *SystemCertPoolRegistry) Evaluate(ctx context.Context, req *authzen.Eval
 	}
 
 	// Success - certificate is trusted
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason: map[string]interface{}{
@@ -205,7 +205,12 @@ func (r *SystemCertPoolRegistry) Evaluate(ctx context.Context, req *authzen.Eval
 				"data_loaded":   r.loadedAt.Format(time.RFC3339),
 			},
 		},
-	}, nil
+	}
+	// The chain validated to the OS pool, so the leaf's content is
+	// authenticated. SAN identifiers still need the client_id binding, which
+	// DeriveCertVerifierIDs checks itself (this registry does not).
+	registry.AddVerifierIDs(resp, req, registry.DeriveCertVerifierIDs(req, certs[0], true))
+	return resp, nil
 }
 
 // SupportedResourceTypes returns the resource types this registry can handle.

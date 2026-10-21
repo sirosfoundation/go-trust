@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `verifier_ids` is now emitted by the `whitelist` (pinned-key path: `x509_san_dns`/
+  `x509_san_uri` after `VerifyLeafBinding`; system-CA path: also `semantic`),
+  `system_cert_pool` and `mdoc_rical` registries, using the same derivation as
+  `etsi`/`lote` (`registry.DeriveCertVerifierIDs`)
+- `verifier_ids` is carried through the `all`/`best_match` strategies and
+  `AND`/`OR`/`MAJORITY`/`QUORUM` composite registries (union of the agreeing
+  registries' identifiers; nothing from a registry that answered false)
+- `docs/examples/gdc-verifier-ids-policies.yaml`: policies snippet enabling
+  `x509_san_dns` verifier ids for the verifier actions without changing any other
+  action, with a test that pins the claim
+
 - eMRTD document-signer trust registry (`pkg/registry/emrtd/`, config
   `registries.emrtd`, action `emrtd-document-signer`; format reference in
   `docs/EMRTD.md`)
