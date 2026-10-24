@@ -391,7 +391,9 @@ type LoTERegistryConfig struct {
 	MaxDereferenceDepth int      `yaml:"max_dereference_depth,omitempty"`
 	VerifyJWS           bool     `yaml:"verify_jws,omitempty"`
 	// TrustAnchorBundle is the path to a PEM file of CA certificates that anchor
-	// the x5c chain of the JWS signer of every LoTE and LoTL. Required when
+	// the x5c chain of the JWS signer of every LoTE and LoTL, and the XMLDSig
+	// signer certificate chain of every classic TS 119 612 TSL reached through a
+	// LoTL pointer. Required when
 	// verify_jws is true (startup is refused without it). When set, signatures
 	// are verified even if verify_jws is false: configured anchors are never
 	// silently ignored.
