@@ -236,10 +236,7 @@ func (r *Registry) Freshness() registry.Freshness {
 	if r.cache == nil || r.cache.vical == nil {
 		return registry.Freshness{}
 	}
-	return registry.Freshness{
-		AsOf:       r.cache.fetchedAt,
-		NextUpdate: registry.ParseSourceTime(r.cache.vical.NextUpdate),
-	}
+	return registry.NewFreshness(r.cache.fetchedAt, r.cache.vical.NextUpdate)
 }
 
 // Healthy returns true if the registry is operational.

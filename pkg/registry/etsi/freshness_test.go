@@ -43,3 +43,17 @@ func TestFreshness(t *testing.T) {
 
 	assert.True(t, (&TSLRegistry{loadedAt: loaded}).Freshness().NextUpdate.IsZero(), "no TSLs: no bound")
 }
+
+func TestFreshness_UnknownWithPEMBundle(t *testing.T) {
+	loaded := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	tsls := []*etsi119612.TSL{tslWithNextUpdate("2026-10-26T00:00:00Z")}
+
+	r := &TSLRegistry{loadedAt: loaded, tsls: tsls}
+	assert.False(t, r.Freshness().NextUpdate.IsZero())
+
+	// A bundle certificate can authorise a decision without any TSL.
+	r = &TSLRegistry{loadedAt: loaded, tsls: tsls, config: TSLConfig{CertBundle: "/etc/ca.pem"}}
+	f := r.Freshness()
+	assert.True(t, f.NextUpdate.IsZero())
+	assert.True(t, f.AsOf.Equal(loaded))
+}

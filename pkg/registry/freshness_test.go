@@ -22,7 +22,10 @@ func TestParseSourceTime(t *testing.T) {
 	want := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
 	assert.True(t, ParseSourceTime("2026-10-26T00:00:00Z").Equal(want))
 	assert.True(t, ParseSourceTime("2026-10-26T02:00:00+02:00").Equal(want))
-	assert.True(t, ParseSourceTime("2026-10-26").Equal(want))
+	assert.True(t, ParseSourceTime("2026-10-26T00:00:00.5Z").Equal(want.Add(500*time.Millisecond)))
+	// No explicit offset: the zone would have to be guessed, so it is unknown.
+	assert.True(t, ParseSourceTime("2026-10-26T00:00:00").IsZero())
+	assert.True(t, ParseSourceTime("2026-10-26").IsZero())
 	assert.True(t, ParseSourceTime("").IsZero())
 	// Unparseable is unknown, never a guess.
 	assert.True(t, ParseSourceTime("next tuesday").IsZero())

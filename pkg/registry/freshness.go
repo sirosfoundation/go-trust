@@ -23,18 +23,22 @@ type FreshnessReporter interface {
 }
 
 // ParseSourceTime parses a timestamp from a trust-data source (ETSI
-// dateTime, VICAL/RICAL tdate). An empty or unparseable value yields the zero
-// time, i.e. "unknown": freshness must never be invented.
+// dateTime, VICAL/RICAL tdate). The value must carry an explicit UTC offset
+// (RFC 3339). An empty, unparseable or offset-free value yields the zero time,
+// i.e. "unknown": freshness must never be invented, and assuming a zone for an
+// offset-free value could report a deadline later than the source meant.
 func ParseSourceTime(s string) time.Time {
-	if s == "" {
+	t, err := time.Parse(time.RFC3339Nano, s) // also accepts RFC 3339 without fractional seconds
+	if err != nil {
 		return time.Time{}
 	}
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t.UTC()
-		}
-	}
-	return time.Time{}
+	return t.UTC()
+}
+
+// NewFreshness builds a Freshness from a load time and a source nextUpdate
+// string, which is unknown unless it parses (see ParseSourceTime).
+func NewFreshness(asOf time.Time, nextUpdate string) Freshness {
+	return Freshness{AsOf: asOf, NextUpdate: ParseSourceTime(nextUpdate)}
 }
 
 // EarliestKnown returns the earliest of the times, or the zero time (unknown)
