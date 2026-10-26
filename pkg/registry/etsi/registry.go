@@ -1061,6 +1061,32 @@ func (r *TSLRegistry) Info() registry.RegistryInfo {
 	return info
 }
 
+// Freshness reports when the TSLs were loaded and the earliest NextUpdate among
+// them. A decision may rest on any loaded TSL, so if one of them has no usable
+// NextUpdate the registry's NextUpdate is unknown rather than another list's date.
+// It is also unknown when a PEM bundle is configured.
+func (r *TSLRegistry) Freshness() registry.Freshness {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	next := make([]time.Time, 0, len(r.tsls))
+	for _, tsl := range r.tsls {
+		if tsl == nil {
+			continue
+		}
+		var t time.Time
+		if si := tsl.StatusList.TslSchemeInformation; si != nil && si.TslNextUpdate != nil {
+			t = registry.ParseSourceTime(si.TslNextUpdate.DateTime)
+		}
+		next = append(next, t)
+	}
+	// Certificates from a configured PEM bundle are trust anchors too, and can
+	// be what authorises a decision. They have no update bound.
+	if r.config.CertBundle != "" {
+		return registry.Freshness{AsOf: r.loadedAt}
+	}
+	return registry.Freshness{AsOf: r.loadedAt, NextUpdate: registry.EarliestKnown(next...)}
+}
+
 // Healthy returns true if the registry has loaded trust data successfully.
 func (r *TSLRegistry) Healthy() bool {
 	r.mu.RLock()
