@@ -228,6 +228,20 @@ func (r *Registry) Info() registry.RegistryInfo {
 	}
 }
 
+// Freshness reports when the VICAL was fetched and its nextUpdate. Both are
+// unknown until the first successful fetch.
+func (r *Registry) Freshness() registry.Freshness {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.cache == nil || r.cache.vical == nil {
+		return registry.Freshness{}
+	}
+	return registry.Freshness{
+		AsOf:       r.cache.fetchedAt,
+		NextUpdate: registry.ParseSourceTime(r.cache.vical.NextUpdate),
+	}
+}
+
 // Healthy returns true if the registry is operational.
 func (r *Registry) Healthy() bool {
 	return true

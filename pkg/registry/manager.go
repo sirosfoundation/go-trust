@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirosfoundation/g119612/pkg/logging"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 )
@@ -89,6 +90,25 @@ func (m *RegistryManager) Register(registry TrustRegistry) {
 // according to the configured strategy. If a PolicyManager is set, it resolves the policy
 // from action.name and applies constraints.
 func (m *RegistryManager) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	resp, err := m.evaluate(ctx, req)
+	if err == nil && resp != nil {
+		// A unique id per decision, for audit correlation. Copy before writing:
+		// the response may be shared with a registry.
+		out := *resp
+		var rc authzen.EvaluationResponseContext
+		if resp.Context != nil {
+			rc = *resp.Context
+		}
+		if rc.ID == "" {
+			rc.ID = uuid.NewString()
+		}
+		out.Context = &rc
+		resp = &out
+	}
+	return resp, err
+}
+
+func (m *RegistryManager) evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	startTime := time.Now()
 	logger := m.getLogger()
 
@@ -242,6 +262,13 @@ func (m *RegistryManager) Evaluate(ctx context.Context, req *authzen.EvaluationR
 		resp, err = m.evaluateSequentialWithPolicy(ctx, req, policyCtx)
 	default:
 		resp, err = m.evaluateFirstMatchWithPolicy(ctx, req, policyCtx)
+	}
+
+	if err == nil {
+		m.mu.RLock()
+		applicable := m.getApplicableRegistriesWithPolicy(req, policyCtx)
+		m.mu.RUnlock()
+		resp = attachTrustData(resp, applicable)
 	}
 
 	duration := time.Since(startTime)

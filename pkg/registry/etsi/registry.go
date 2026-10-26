@@ -1061,6 +1061,24 @@ func (r *TSLRegistry) Info() registry.RegistryInfo {
 	return info
 }
 
+// Freshness reports when the TSLs were loaded and the earliest NextUpdate among
+// them. A TSL without a NextUpdate does not contribute, so the bound is only as
+// good as the lists that state one.
+func (r *TSLRegistry) Freshness() registry.Freshness {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var next []time.Time
+	for _, tsl := range r.tsls {
+		if tsl == nil {
+			continue
+		}
+		if nu := tsl.StatusList.TslSchemeInformation; nu != nil && nu.TslNextUpdate != nil {
+			next = append(next, registry.ParseSourceTime(nu.TslNextUpdate.DateTime))
+		}
+	}
+	return registry.Freshness{AsOf: r.loadedAt, NextUpdate: registry.EarliestNonZero(next...)}
+}
+
 // Healthy returns true if the registry has loaded trust data successfully.
 func (r *TSLRegistry) Healthy() bool {
 	r.mu.RLock()

@@ -1,0 +1,35 @@
+package etsi
+
+import (
+	"testing"
+	"time"
+
+	"github.com/sirosfoundation/g119612/pkg/etsi119612"
+	"github.com/stretchr/testify/assert"
+)
+
+func tslWithNextUpdate(dt string) *etsi119612.TSL {
+	tsl := &etsi119612.TSL{}
+	tsl.StatusList.TslSchemeInformation = &etsi119612.TSLSchemeInformationType{}
+	if dt != "" {
+		tsl.StatusList.TslSchemeInformation.TslNextUpdate = &etsi119612.NextUpdateType{DateTime: dt}
+	}
+	return tsl
+}
+
+func TestFreshness(t *testing.T) {
+	loaded := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+
+	r := &TSLRegistry{loadedAt: loaded, tsls: []*etsi119612.TSL{
+		tslWithNextUpdate("2026-11-01T00:00:00Z"),
+		tslWithNextUpdate("2026-10-26T00:00:00Z"),
+		tslWithNextUpdate(""),
+		nil,
+	}}
+	f := r.Freshness()
+	assert.True(t, f.AsOf.Equal(loaded))
+	assert.True(t, f.NextUpdate.Equal(time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)),
+		"the registry is only as fresh as its soonest-expiring TSL")
+
+	assert.True(t, (&TSLRegistry{loadedAt: loaded}).Freshness().NextUpdate.IsZero(), "no TSLs: no bound")
+}

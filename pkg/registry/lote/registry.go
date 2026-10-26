@@ -392,6 +392,21 @@ func (r *Registry) Info() registry.RegistryInfo {
 	return info
 }
 
+// Freshness reports when the LoTEs were loaded and the earliest NextUpdate among
+// them.
+func (r *Registry) Freshness() registry.Freshness {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var next []time.Time
+	for _, l := range r.lotes {
+		if l == nil {
+			continue
+		}
+		next = append(next, registry.ParseSourceTime(l.ListAndSchemeInformation.NextUpdate))
+	}
+	return registry.Freshness{AsOf: r.lastUpdated, NextUpdate: registry.EarliestNonZero(next...)}
+}
+
 func (r *Registry) Healthy() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
