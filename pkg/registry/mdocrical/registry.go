@@ -252,14 +252,17 @@ func (r *Registry) Info() registry.RegistryInfo {
 }
 
 // Freshness reports when the RICAL was fetched and its nextUpdate. Both are
-// unknown until the first successful fetch.
+// unknown until the first successful fetch, and again once the cache has expired.
 func (r *Registry) Freshness() registry.Freshness {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if r.cache == nil || r.cache.rical == nil {
-		return registry.Freshness{}
+	cached := r.cache
+	ttl := r.config.CacheTTL
+	r.mu.RUnlock()
+
+	if cached != nil && cached.rical != nil {
+		return registry.CachedFreshness(cached.fetchedAt, ttl, cached.rical.NextUpdate)
 	}
-	return registry.NewFreshness(r.cache.fetchedAt, r.cache.rical.NextUpdate)
+	return registry.Freshness{}
 }
 
 // Healthy returns true if the registry is operational.

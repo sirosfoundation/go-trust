@@ -35,10 +35,17 @@ func ParseSourceTime(s string) time.Time {
 	return t.UTC()
 }
 
-// NewFreshness builds a Freshness from a load time and a source nextUpdate
-// string, which is unknown unless it parses (see ParseSourceTime).
-func NewFreshness(asOf time.Time, nextUpdate string) Freshness {
-	return Freshness{AsOf: asOf, NextUpdate: ParseSourceTime(nextUpdate)}
+// CachedFreshness builds the Freshness of a list fetched at fetchedAt and held
+// for ttl. The nextUpdate string is unknown unless it parses (see
+// ParseSourceTime). Once the cache has outlived ttl the next evaluation must
+// refetch; if that fails the registry keeps the old list and denies, and the
+// denial can flip as soon as fetching recovers, so an expired cache reports
+// nothing.
+func CachedFreshness(fetchedAt time.Time, ttl time.Duration, nextUpdate string) Freshness {
+	if ttl > 0 && time.Since(fetchedAt) >= ttl {
+		return Freshness{}
+	}
+	return Freshness{AsOf: fetchedAt, NextUpdate: ParseSourceTime(nextUpdate)}
 }
 
 // EarliestKnown returns the earliest of the times, or the zero time (unknown)
@@ -58,31 +65,38 @@ func EarliestKnown(times ...time.Time) time.Time {
 	return earliest
 }
 
-// collectTrustData appends one TrustData entry per leaf registry under reg.
-// A composite contributes its children, not itself.
-func collectTrustData(reg TrustRegistry, out []authzen.TrustData) []authzen.TrustData {
+// trustDatum is one registry's freshness at a point in time. The times keep
+// full precision so two snapshots are compared exactly, not as the rounded
+// strings sent on the wire.
+type trustDatum struct {
+	name       string
+	asOf, next time.Time
+}
+
+func (d trustDatum) same(o trustDatum) bool {
+	return d.name == o.name && d.asOf.Equal(o.asOf) && d.next.Equal(o.next)
+}
+
+// collectTrustData appends one entry per leaf registry under reg. A composite
+// contributes its children, not itself.
+func collectTrustData(reg TrustRegistry, out []trustDatum) []trustDatum {
 	if c, ok := reg.(*CompositeRegistry); ok {
 		for _, child := range c.registries {
 			out = collectTrustData(child, out)
 		}
 		return out
 	}
-	td := authzen.TrustData{Registry: reg.Info().Name}
+	d := trustDatum{name: reg.Info().Name}
 	if fr, ok := reg.(FreshnessReporter); ok {
 		f := fr.Freshness()
-		if !f.AsOf.IsZero() {
-			td.AsOf = f.AsOf.UTC().Format(time.RFC3339)
-		}
-		if !f.NextUpdate.IsZero() {
-			td.NextUpdate = f.NextUpdate.UTC().Format(time.RFC3339)
-		}
+		d.asOf, d.next = f.AsOf, f.NextUpdate
 	}
-	return append(out, td)
+	return append(out, d)
 }
 
 // trustDataSnapshot returns the current freshness of every registry in regs.
-func trustDataSnapshot(regs []TrustRegistry) []authzen.TrustData {
-	var data []authzen.TrustData
+func trustDataSnapshot(regs []TrustRegistry) []trustDatum {
+	var data []trustDatum
 	for _, r := range regs {
 		data = collectTrustData(r, data)
 	}
@@ -102,15 +116,21 @@ func trustDataSnapshot(regs []TrustRegistry) []authzen.TrustData {
 // The set is the policy-filtered applicable registries, not only those that
 // answered first. For a first-match allow that can name a registry that was not
 // reached, which only makes the reported bound earlier, never later.
-func attachTrustData(resp *authzen.EvaluationResponse, before, after []authzen.TrustData) *authzen.EvaluationResponse {
+func attachTrustData(resp *authzen.EvaluationResponse, before, after []trustDatum) *authzen.EvaluationResponse {
 	if resp == nil || len(after) == 0 {
 		return resp
 	}
 	data := make([]authzen.TrustData, len(after))
 	for i, a := range after {
-		data[i] = a
-		if len(before) != len(after) || before[i] != a {
-			data[i] = authzen.TrustData{Registry: a.Registry}
+		data[i] = authzen.TrustData{Registry: a.name}
+		if len(before) != len(after) || !before[i].same(a) {
+			continue
+		}
+		if !a.asOf.IsZero() {
+			data[i].AsOf = a.asOf.UTC().Format(time.RFC3339)
+		}
+		if !a.next.IsZero() {
+			data[i].NextUpdate = a.next.UTC().Format(time.RFC3339)
 		}
 	}
 	out := *resp

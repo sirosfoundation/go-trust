@@ -207,3 +207,32 @@ func TestEvaluate_TrustDataUnknownWhenDataChangesDuringEvaluation(t *testing.T) 
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Context.TrustData[0].NextUpdate)
 }
+
+// Reloads within one second must still be seen: the comparison is on exact
+// times, not on the rounded strings sent on the wire.
+func TestEvaluate_TrustDataUnknownOnSubSecondReload(t *testing.T) {
+	f := &Freshness{
+		AsOf:       time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
+		NextUpdate: time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC),
+	}
+	r := &subSecondReloadRegistry{MockRegistry: &MockRegistry{name: "etsi", decision: true, types: []string{"x5c"}}, f: f}
+	resp, err := newTrustDataManager(FirstMatch, r).Evaluate(context.Background(), createTestRequest())
+	require.NoError(t, err)
+	require.Len(t, resp.Context.TrustData, 1)
+	assert.Empty(t, resp.Context.TrustData[0].AsOf)
+	assert.Empty(t, resp.Context.TrustData[0].NextUpdate)
+}
+
+// subSecondReloadRegistry reloads to a new version 1ms later with the same NextUpdate.
+type subSecondReloadRegistry struct {
+	*MockRegistry
+	f *Freshness
+}
+
+func (r *subSecondReloadRegistry) Freshness() Freshness { return *r.f }
+
+func (r *subSecondReloadRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	resp, err := r.MockRegistry.Evaluate(ctx, req)
+	r.f.AsOf = r.f.AsOf.Add(time.Millisecond)
+	return resp, err
+}

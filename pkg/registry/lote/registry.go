@@ -1012,7 +1012,8 @@ type resolveState struct {
 	// visited is the set of LoTL locations already followed (cycle cut).
 	visited map[string]bool
 	// lotlNextUpdates holds the NextUpdate of every LoTL followed, nested ones
-	// included; a zero time is a LoTL without a usable date.
+	// included; a zero time is a LoTL without a usable date, or a pointer
+	// target that failed to load.
 	lotlNextUpdates []time.Time
 }
 
@@ -1113,6 +1114,9 @@ func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119
 		}
 	}
 	if err != nil {
+		// The skipped target's entities are missing from this registry, and a
+		// denial for one of them can flip once fetching recovers: unknown.
+		st.lotlNextUpdates = append(st.lotlNextUpdates, time.Time{})
 		if r.config.Logger != nil {
 			r.config.Logger.Error("failed to load "+kind+" from LoTL pointer; source skipped",
 				slog.String("location", ptr.LoTELocation),

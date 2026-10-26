@@ -1,6 +1,7 @@
 package lote
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -100,4 +101,25 @@ func TestFreshness_UnknownWithNationalRegisterFallback(t *testing.T) {
 	f := r.Freshness()
 	assert.True(t, f.NextUpdate.IsZero(), "register data has no freshness contract")
 	assert.False(t, f.AsOf.IsZero())
+}
+
+// A pointer target that fails to load leaves its entities out of the registry;
+// a denial for one of them can flip when fetching recovers.
+func TestFreshness_UnknownWhenPointerTargetFailsToLoad(t *testing.T) {
+	dir := t.TempDir()
+	child := minimalLoTE("SE", simpleEntity("https://se-pid.example.com"))
+	child.ListAndSchemeInformation.NextUpdate = "2099-06-01T00:00:00Z"
+	childPath := writeLoTE(t, dir, "child.json", child)
+
+	good := lotlWithPointers("2099-01-01T00:00:00Z", lotlPointer(childPath, etsi119602.LoTETypePIDProviders, "SE"))
+	r, err := New(Config{LoTLSources: []string{writeLoTL(t, dir, "good.json", good)}})
+	require.NoError(t, err)
+	assert.False(t, r.Freshness().NextUpdate.IsZero())
+
+	bad := lotlWithPointers("2099-01-01T00:00:00Z",
+		lotlPointer(childPath, etsi119602.LoTETypePIDProviders, "SE"),
+		lotlPointer(filepath.Join(dir, "missing.json"), etsi119602.LoTETypePIDProviders, "DE"))
+	r, err = New(Config{LoTLSources: []string{writeLoTL(t, dir, "bad.json", bad)}})
+	require.NoError(t, err)
+	assert.True(t, r.Freshness().NextUpdate.IsZero())
 }
