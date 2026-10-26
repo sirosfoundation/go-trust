@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"sync"
 	"time"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
@@ -35,14 +36,23 @@ func ParseSourceTime(s string) time.Time {
 	return t.UTC()
 }
 
-// CachedFreshness builds the Freshness of a list fetched at fetchedAt and held
-// for ttl. The nextUpdate string is unknown unless it parses (see
-// ParseSourceTime). Once the cache has outlived ttl the next evaluation must
-// refetch; if that fails the registry keeps the old list and denies, and the
-// denial can flip as soon as fetching recovers, so an expired cache reports
-// nothing.
-func CachedFreshness(fetchedAt time.Time, ttl time.Duration, nextUpdate string) Freshness {
-	if ttl > 0 && time.Since(fetchedAt) >= ttl {
+// CacheFreshness reports the freshness of a fetched-and-cached list. view
+// returns when the cached list was fetched and the nextUpdate it declares
+// (unknown unless it parses, see ParseSourceTime). Nothing is reported before
+// the first fetch, nor once the cache has outlived ttl: the next evaluation must
+// refetch, and if that fails the registry keeps the old list and denies, a
+// denial that can flip as soon as fetching recovers. The expiry test is the
+// registries' own (fresh only while time since fetch < ttl), so a zero or
+// negative ttl is always expired.
+func CacheFreshness[C any](mu *sync.RWMutex, cache **C, ttl time.Duration, view func(*C) (fetchedAt time.Time, nextUpdate string)) Freshness {
+	mu.RLock()
+	c := *cache
+	mu.RUnlock()
+	if c == nil {
+		return Freshness{}
+	}
+	fetchedAt, nextUpdate := view(c)
+	if time.Since(fetchedAt) >= ttl {
 		return Freshness{}
 	}
 	return Freshness{AsOf: fetchedAt, NextUpdate: ParseSourceTime(nextUpdate)}
@@ -69,7 +79,10 @@ func EarliestKnown(times ...time.Time) time.Time {
 // full precision so two snapshots are compared exactly, not as the rounded
 // strings sent on the wire.
 type trustDatum struct {
-	name       string
+	name string
+	// group is the name of the top-level registry this one was reached through:
+	// itself, or the composite containing it.
+	group      string
 	asOf, next time.Time
 }
 
@@ -79,14 +92,14 @@ func (d trustDatum) same(o trustDatum) bool {
 
 // collectTrustData appends one entry per leaf registry under reg. A composite
 // contributes its children, not itself.
-func collectTrustData(reg TrustRegistry, out []trustDatum) []trustDatum {
+func collectTrustData(reg TrustRegistry, group string, out []trustDatum) []trustDatum {
 	if c, ok := reg.(*CompositeRegistry); ok {
 		for _, child := range c.registries {
-			out = collectTrustData(child, out)
+			out = collectTrustData(child, group, out)
 		}
 		return out
 	}
-	d := trustDatum{name: reg.Info().Name}
+	d := trustDatum{name: reg.Info().Name, group: group}
 	if fr, ok := reg.(FreshnessReporter); ok {
 		f := fr.Freshness()
 		d.asOf, d.next = f.AsOf, f.NextUpdate
@@ -98,9 +111,32 @@ func collectTrustData(reg TrustRegistry, out []trustDatum) []trustDatum {
 func trustDataSnapshot(regs []TrustRegistry) []trustDatum {
 	var data []trustDatum
 	for _, r := range regs {
-		data = collectTrustData(r, data)
+		data = collectTrustData(r, r.Info().Name, data)
 	}
 	return data
+}
+
+// failedRegistries names the registries a denial did not really come from: the
+// strategy recorded an error for them (including an open circuit breaker or a
+// panic) or they gave no decision. Such a denial can become an allow without
+// any list changing, so its freshness is unknown. Only a denial is examined: an
+// allow stands on the registry that allowed it.
+func failedRegistries(resp *authzen.EvaluationResponse) map[string]bool {
+	if resp == nil || resp.Decision || resp.Context == nil {
+		return nil
+	}
+	failed := map[string]bool{}
+	for _, key := range []string{"registry_results", "all_results"} {
+		entries, _ := resp.Context.Reason[key].([]map[string]interface{})
+		for _, e := range entries {
+			name, _ := e["registry"].(string)
+			_, isErr := e["error"]
+			if decided, ok := e["decision"].(bool); name != "" && (isErr || !ok || decided) {
+				failed[name] = true
+			}
+		}
+	}
+	return failed
 }
 
 // attachTrustData returns a copy of resp whose context carries the freshness of
@@ -120,10 +156,11 @@ func attachTrustData(resp *authzen.EvaluationResponse, before, after []trustDatu
 	if resp == nil || len(after) == 0 {
 		return resp
 	}
+	failed := failedRegistries(resp)
 	data := make([]authzen.TrustData, len(after))
 	for i, a := range after {
 		data[i] = authzen.TrustData{Registry: a.name}
-		if len(before) != len(after) || !before[i].same(a) {
+		if len(before) != len(after) || !before[i].same(a) || failed[a.group] {
 			continue
 		}
 		if !a.asOf.IsZero() {

@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -235,4 +236,55 @@ func (r *subSecondReloadRegistry) Evaluate(ctx context.Context, req *authzen.Eva
 	resp, err := r.MockRegistry.Evaluate(ctx, req)
 	r.f.AsOf = r.f.AsOf.Add(time.Millisecond)
 	return resp, err
+}
+
+func TestEvaluate_TrustDataUnknownForFailedRegistryOnDenial(t *testing.T) {
+	next := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	failing := &freshMock{MockRegistry: &MockRegistry{name: "down", err: errors.New("boom"), types: []string{"x5c"}}, f: Freshness{NextUpdate: next}}
+	denying := &freshMock{MockRegistry: &MockRegistry{name: "up", decision: false, types: []string{"x5c"}}, f: Freshness{NextUpdate: next}}
+
+	for _, strategy := range []ResolutionStrategy{FirstMatch, AllRegistries, Sequential} {
+		t.Run(string(strategy), func(t *testing.T) {
+			resp, err := newTrustDataManager(strategy, failing, denying).Evaluate(context.Background(), createTestRequest())
+			require.NoError(t, err)
+			require.False(t, resp.Decision)
+			byName := map[string]authzen.TrustData{}
+			for _, td := range resp.Context.TrustData {
+				byName[td.Registry] = td
+			}
+			assert.Empty(t, byName["down"].NextUpdate, "the denial can become an allow when this registry recovers")
+			assert.Equal(t, "2026-10-26T00:00:00Z", byName["up"].NextUpdate, "a real denial keeps its bound")
+		})
+	}
+}
+
+func TestEvaluate_TrustDataUnknownForCircuitSkippedRegistryOnDenial(t *testing.T) {
+	next := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	skipped := &freshMock{MockRegistry: &MockRegistry{name: "tripped", decision: true, types: []string{"x5c"}}, f: Freshness{NextUpdate: next}}
+	m := newTrustDataManager(FirstMatch, skipped)
+	for i := 0; i < 10; i++ {
+		m.circuitBreakers["tripped"].RecordFailure()
+	}
+	require.Equal(t, CircuitOpen, m.circuitBreakers["tripped"].GetState())
+
+	resp, err := m.Evaluate(context.Background(), createTestRequest())
+	require.NoError(t, err)
+	require.False(t, resp.Decision, "an open circuit is skipped, so no allow")
+	require.Len(t, resp.Context.TrustData, 1)
+	assert.Empty(t, resp.Context.TrustData[0].NextUpdate)
+}
+
+func TestEvaluate_TrustDataFailedCompositeBlanksChildren(t *testing.T) {
+	next := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	child := &freshMock{MockRegistry: &MockRegistry{name: "child", decision: false, types: []string{"x5c"}}, f: Freshness{NextUpdate: next}}
+	comp := NewCompositeRegistry("comp", LogicOR, child)
+	m := newTrustDataManager(FirstMatch, comp)
+	for i := 0; i < 10; i++ {
+		m.circuitBreakers["comp"].RecordFailure()
+	}
+	resp, err := m.Evaluate(context.Background(), createTestRequest())
+	require.NoError(t, err)
+	require.Len(t, resp.Context.TrustData, 1)
+	assert.Equal(t, "child", resp.Context.TrustData[0].Registry)
+	assert.Empty(t, resp.Context.TrustData[0].NextUpdate)
 }

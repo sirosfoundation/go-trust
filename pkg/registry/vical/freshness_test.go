@@ -30,3 +30,12 @@ func TestFreshness_ExpiredCacheIsUnknown(t *testing.T) {
 	assert.True(t, f.AsOf.IsZero())
 	assert.True(t, f.NextUpdate.IsZero())
 }
+
+// The registry treats a cache as fresh only while time since fetch < CacheTTL,
+// so a negative TTL means every evaluation refetches: never fresh.
+func TestFreshness_NonPositiveTTLIsUnknown(t *testing.T) {
+	for _, ttl := range []time.Duration{0, -time.Hour} {
+		r := &Registry{config: &Config{CacheTTL: ttl}, cache: &cachedVical{vical: &VICAL{NextUpdate: "2099-01-01T00:00:00Z"}, fetchedAt: time.Now()}}
+		assert.True(t, r.Freshness().NextUpdate.IsZero(), "ttl %v", ttl)
+	}
+}
