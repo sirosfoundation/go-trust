@@ -303,6 +303,12 @@ func (m *RegistryManager) evaluateAll(ctx context.Context, req *authzen.Evaluati
 			if !m.circuitBreakers[info.Name].CanAttempt() {
 				m.getLogger().Debug("Strategy[All]: circuit breaker open, skipping",
 					logging.F("registry", info.Name))
+				// Record the skip: the registry did not answer, and a denial
+				// without it can become an allow when the circuit recovers.
+				results <- result{
+					registry: info.Name,
+					err:      fmt.Errorf("circuit breaker open"),
+				}
 				return
 			}
 
@@ -723,6 +729,12 @@ func (m *RegistryManager) evaluateAllFiltered(ctx context.Context, req *authzen.
 			if !m.circuitBreakers[info.Name].CanAttempt() {
 				m.getLogger().Debug("Strategy[AllFiltered]: circuit breaker open, skipping",
 					logging.F("registry", info.Name))
+				// Record the skip: the registry did not answer, and a denial
+				// without it can become an allow when the circuit recovers.
+				results <- result{
+					registry: info.Name,
+					err:      fmt.Errorf("circuit breaker open"),
+				}
 				return
 			}
 

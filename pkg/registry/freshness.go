@@ -116,6 +116,16 @@ func trustDataSnapshot(regs []TrustRegistry) []trustDatum {
 	return data
 }
 
+// responseIncomplete reports whether resp says some registry behind it failed
+// to answer (see CompositeRegistry).
+func responseIncomplete(resp *authzen.EvaluationResponse) bool {
+	if resp == nil || resp.Context == nil {
+		return false
+	}
+	inc, _ := resp.Context.Reason["incomplete"].(bool)
+	return inc
+}
+
 // failedRegistries names the registries a denial did not really come from: the
 // strategy recorded an error for them (including an open circuit breaker or a
 // panic) or they gave no decision. Such a denial can become an allow without
@@ -131,7 +141,9 @@ func failedRegistries(resp *authzen.EvaluationResponse) map[string]bool {
 		for _, e := range entries {
 			name, _ := e["registry"].(string)
 			_, isErr := e["error"]
-			if decided, ok := e["decision"].(bool); name != "" && (isErr || !ok || decided) {
+			inner, _ := e["reason"].(map[string]interface{})
+			nested, _ := inner["incomplete"].(bool) // a composite with a failed child
+			if decided, ok := e["decision"].(bool); name != "" && (isErr || nested || !ok || decided) {
 				failed[name] = true
 			}
 		}

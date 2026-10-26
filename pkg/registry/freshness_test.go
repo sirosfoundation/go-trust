@@ -288,3 +288,68 @@ func TestEvaluate_TrustDataFailedCompositeBlanksChildren(t *testing.T) {
 	assert.Equal(t, "child", resp.Context.TrustData[0].Registry)
 	assert.Empty(t, resp.Context.TrustData[0].NextUpdate)
 }
+
+func TestEvaluate_TrustDataCircuitSkipUnderAllAndBestMatch(t *testing.T) {
+	next := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	for _, strategy := range []ResolutionStrategy{AllRegistries, BestMatch} {
+		t.Run(string(strategy), func(t *testing.T) {
+			tripped := &freshMock{MockRegistry: &MockRegistry{name: "tripped", decision: true, types: []string{"x5c"}}, f: Freshness{NextUpdate: next}}
+			denying := &freshMock{MockRegistry: &MockRegistry{name: "up", decision: false, types: []string{"x5c"}}, f: Freshness{NextUpdate: next}}
+			m := newTrustDataManager(strategy, tripped, denying)
+			for i := 0; i < 10; i++ {
+				m.circuitBreakers["tripped"].RecordFailure()
+			}
+			resp, err := m.Evaluate(context.Background(), createTestRequest())
+			require.NoError(t, err)
+			require.False(t, resp.Decision)
+			byName := map[string]authzen.TrustData{}
+			for _, td := range resp.Context.TrustData {
+				byName[td.Registry] = td
+			}
+			assert.Empty(t, byName["tripped"].NextUpdate, "skipped by an open circuit: the denial can flip on recovery")
+			assert.Equal(t, "2026-10-26T00:00:00Z", byName["up"].NextUpdate)
+		})
+	}
+}
+
+// A composite whose child failed returns a denial with no error of its own; the
+// failure must still reach the freshness of everything under it.
+func TestEvaluate_TrustDataCompositeChildFailure(t *testing.T) {
+	next := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	mk := func() (*freshMock, *freshMock) {
+		return &freshMock{MockRegistry: &MockRegistry{name: "down", err: errors.New("boom"), types: []string{"x5c"}}, f: Freshness{NextUpdate: next}},
+			&freshMock{MockRegistry: &MockRegistry{name: "denies", decision: false, types: []string{"x5c"}}, f: Freshness{NextUpdate: next}}
+	}
+	assertAllUnknown := func(t *testing.T, resp *authzen.EvaluationResponse) {
+		t.Helper()
+		require.False(t, resp.Decision)
+		require.Len(t, resp.Context.TrustData, 2)
+		for _, td := range resp.Context.TrustData {
+			assert.Empty(t, td.NextUpdate, td.Registry)
+		}
+	}
+
+	t.Run("direct", func(t *testing.T) {
+		down, denies := mk()
+		resp, err := newTrustDataManager(FirstMatch, NewCompositeRegistry("comp", LogicOR, down, denies)).Evaluate(context.Background(), createTestRequest())
+		require.NoError(t, err)
+		assertAllUnknown(t, resp)
+	})
+	t.Run("nested", func(t *testing.T) {
+		down, denies := mk()
+		inner := NewCompositeRegistry("inner", LogicOR, down)
+		resp, err := newTrustDataManager(FirstMatch, NewCompositeRegistry("outer", LogicOR, inner, denies)).Evaluate(context.Background(), createTestRequest())
+		require.NoError(t, err)
+		assertAllUnknown(t, resp)
+	})
+	t.Run("healthy composite keeps its bound", func(t *testing.T) {
+		_, denies := mk()
+		other := &freshMock{MockRegistry: &MockRegistry{name: "other", decision: false, types: []string{"x5c"}}, f: Freshness{NextUpdate: next}}
+		resp, err := newTrustDataManager(FirstMatch, NewCompositeRegistry("comp", LogicOR, other, denies)).Evaluate(context.Background(), createTestRequest())
+		require.NoError(t, err)
+		require.False(t, resp.Decision)
+		for _, td := range resp.Context.TrustData {
+			assert.Equal(t, "2026-10-26T00:00:00Z", td.NextUpdate, td.Registry)
+		}
+	})
+}

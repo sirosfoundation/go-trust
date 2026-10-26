@@ -176,6 +176,10 @@ func (c *CompositeRegistry) applyLogic(results []compositeResult) *authzen.Evalu
 	var agreedRegistries, disagreedRegistries []string
 	var positive []*authzen.EvaluationResponse
 	var details []map[string]interface{}
+	// incomplete is set when a child failed or itself reports an incomplete
+	// result (nested composites), so callers can tell a denial that can change
+	// when a registry recovers from one that is final until a list changes.
+	incomplete := false
 
 	for _, r := range results {
 		info := r.registry.Info()
@@ -185,6 +189,9 @@ func (c *CompositeRegistry) applyLogic(results []compositeResult) *authzen.Evalu
 			"duration_ms": r.duration.Milliseconds(),
 		}
 
+		if r.err != nil || responseIncomplete(r.response) {
+			incomplete = true
+		}
 		if r.err != nil {
 			errorCount++
 			detail["error"] = r.err.Error()
@@ -218,6 +225,10 @@ func (c *CompositeRegistry) applyLogic(results []compositeResult) *authzen.Evalu
 		"agreed_registries":    agreedRegistries,
 		"disagreed_registries": disagreedRegistries,
 		"details":              details,
+	}
+
+	if incomplete {
+		reason["incomplete"] = true
 	}
 
 	switch c.operator {
