@@ -28,8 +28,18 @@ func TestFreshness(t *testing.T) {
 	}}
 	f := r.Freshness()
 	assert.True(t, f.AsOf.Equal(loaded))
-	assert.True(t, f.NextUpdate.Equal(time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)),
+	assert.True(t, f.NextUpdate.IsZero(), "one undated TSL makes the registry's NextUpdate unknown")
+
+	r = &TSLRegistry{loadedAt: loaded, tsls: []*etsi119612.TSL{
+		tslWithNextUpdate("2026-11-01T00:00:00Z"),
+		tslWithNextUpdate("2026-10-26T00:00:00Z"),
+		nil,
+	}}
+	assert.True(t, r.Freshness().NextUpdate.Equal(time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)),
 		"the registry is only as fresh as its soonest-expiring TSL")
+
+	r = &TSLRegistry{loadedAt: loaded, tsls: []*etsi119612.TSL{tslWithNextUpdate("not a date"), tslWithNextUpdate("2026-10-26T00:00:00Z")}}
+	assert.True(t, r.Freshness().NextUpdate.IsZero(), "an unparseable date is unknown")
 
 	assert.True(t, (&TSLRegistry{loadedAt: loaded}).Freshness().NextUpdate.IsZero(), "no TSLs: no bound")
 }

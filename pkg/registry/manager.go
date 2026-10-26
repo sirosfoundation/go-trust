@@ -92,16 +92,15 @@ func (m *RegistryManager) Register(registry TrustRegistry) {
 func (m *RegistryManager) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	resp, err := m.evaluate(ctx, req)
 	if err == nil && resp != nil {
-		// A unique id per decision, for audit correlation. Copy before writing:
-		// the response may be shared with a registry.
+		// A unique id per decision, for audit correlation. Always generated
+		// here: an id a registry put on a response it also keeps would repeat
+		// across decisions. Copy before writing for the same reason.
 		out := *resp
 		var rc authzen.EvaluationResponseContext
 		if resp.Context != nil {
 			rc = *resp.Context
 		}
-		if rc.ID == "" {
-			rc.ID = uuid.NewString()
-		}
+		rc.ID = uuid.NewString()
 		out.Context = &rc
 		resp = &out
 	}
@@ -248,6 +247,12 @@ func (m *RegistryManager) evaluate(ctx context.Context, req *authzen.EvaluationR
 	logger.Debug("Evaluate: dispatching to strategy",
 		logging.F("strategy", string(m.strategy)))
 
+	// Snapshot freshness before the registries are consulted; see attachTrustData.
+	m.mu.RLock()
+	applicable := m.getApplicableRegistriesWithPolicy(req, policyCtx)
+	m.mu.RUnlock()
+	freshnessBefore := trustDataSnapshot(applicable)
+
 	// Route to appropriate strategy
 	var resp *authzen.EvaluationResponse
 	var err error
@@ -265,10 +270,7 @@ func (m *RegistryManager) evaluate(ctx context.Context, req *authzen.EvaluationR
 	}
 
 	if err == nil {
-		m.mu.RLock()
-		applicable := m.getApplicableRegistriesWithPolicy(req, policyCtx)
-		m.mu.RUnlock()
-		resp = attachTrustData(resp, applicable)
+		resp = attachTrustData(resp, freshnessBefore, trustDataSnapshot(applicable))
 	}
 
 	duration := time.Since(startTime)

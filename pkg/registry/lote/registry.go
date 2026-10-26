@@ -393,18 +393,19 @@ func (r *Registry) Info() registry.RegistryInfo {
 }
 
 // Freshness reports when the LoTEs were loaded and the earliest NextUpdate among
-// them.
+// them. A decision may rest on any loaded LoTE, so if one of them has no usable
+// NextUpdate the registry's NextUpdate is unknown rather than another list's date.
 func (r *Registry) Freshness() registry.Freshness {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var next []time.Time
+	next := make([]time.Time, 0, len(r.lotes))
 	for _, l := range r.lotes {
 		if l == nil {
 			continue
 		}
 		next = append(next, registry.ParseSourceTime(l.ListAndSchemeInformation.NextUpdate))
 	}
-	return registry.Freshness{AsOf: r.lastUpdated, NextUpdate: registry.EarliestNonZero(next...)}
+	return registry.Freshness{AsOf: r.lastUpdated, NextUpdate: registry.EarliestKnown(next...)}
 }
 
 func (r *Registry) Healthy() bool {

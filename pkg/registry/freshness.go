@@ -37,14 +37,15 @@ func ParseSourceTime(s string) time.Time {
 	return time.Time{}
 }
 
-// EarliestNonZero returns the earliest of the non-zero times, or the zero time
-// when there are none. A registry that holds several lists is only as fresh as
-// its soonest-expiring one.
-func EarliestNonZero(times ...time.Time) time.Time {
+// EarliestKnown returns the earliest of the times, or the zero time (unknown)
+// when there are none or any of them is unknown. A registry that holds several
+// lists can decide from any of them, so it is only as fresh as its
+// soonest-expiring list, and unknown if any list is.
+func EarliestKnown(times ...time.Time) time.Time {
 	var earliest time.Time
 	for _, t := range times {
 		if t.IsZero() {
-			continue
+			return time.Time{}
 		}
 		if earliest.IsZero() || t.Before(earliest) {
 			earliest = t
@@ -75,20 +76,38 @@ func collectTrustData(reg TrustRegistry, out []authzen.TrustData) []authzen.Trus
 	return append(out, td)
 }
 
+// trustDataSnapshot returns the current freshness of every registry in regs.
+func trustDataSnapshot(regs []TrustRegistry) []authzen.TrustData {
+	var data []authzen.TrustData
+	for _, r := range regs {
+		data = collectTrustData(r, data)
+	}
+	return data
+}
+
 // attachTrustData returns a copy of resp whose context carries the freshness of
 // every registry that could have contributed to the decision. The copy matters:
 // registries may hand back a response they also keep.
 //
+// before and after are snapshots taken around the evaluation. A registry may
+// reload while it is being evaluated, and its freshness is read outside its own
+// lock, so an entry is only reported when both snapshots agree; otherwise the
+// data the decision used cannot be told apart from the data now loaded, and the
+// entry carries no as_of or next_update (unknown).
+//
 // The set is the policy-filtered applicable registries, not only those that
 // answered first. For a first-match allow that can name a registry that was not
 // reached, which only makes the reported bound earlier, never later.
-func attachTrustData(resp *authzen.EvaluationResponse, regs []TrustRegistry) *authzen.EvaluationResponse {
-	if resp == nil || len(regs) == 0 {
+func attachTrustData(resp *authzen.EvaluationResponse, before, after []authzen.TrustData) *authzen.EvaluationResponse {
+	if resp == nil || len(after) == 0 {
 		return resp
 	}
-	var data []authzen.TrustData
-	for _, r := range regs {
-		data = collectTrustData(r, data)
+	data := make([]authzen.TrustData, len(after))
+	for i, a := range after {
+		data[i] = a
+		if len(before) != len(after) || before[i] != a {
+			data[i] = authzen.TrustData{Registry: a.Registry}
+		}
 	}
 	out := *resp
 	var ctx authzen.EvaluationResponseContext

@@ -138,12 +138,17 @@ func gdcReq(action, clientID, b64 string) *authzen.EvaluationRequest {
 }
 
 // normalise strips what legitimately differs between two evaluations: timings and
-// the policy name that the policy path adds to a positive reason.
+// the policy name that the policy path adds to a positive reason, and the
+// per-decision id.
 func normalise(t *testing.T, resp *authzen.EvaluationResponse) string {
 	t.Helper()
 	b, _ := json.Marshal(resp)
 	var m map[string]interface{}
 	_ = json.Unmarshal(b, &m)
+	// The decision id is unique per evaluation.
+	if c, ok := m["context"].(map[string]interface{}); ok {
+		delete(c, "id")
+	}
 	var scrub func(v interface{})
 	scrub = func(v interface{}) {
 		switch x := v.(type) {

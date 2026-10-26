@@ -28,12 +28,14 @@ func TestParseSourceTime(t *testing.T) {
 	assert.True(t, ParseSourceTime("next tuesday").IsZero())
 }
 
-func TestEarliestNonZero(t *testing.T) {
+func TestEarliestKnown(t *testing.T) {
 	a := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	b := a.Add(time.Hour)
-	assert.True(t, EarliestNonZero().IsZero())
-	assert.True(t, EarliestNonZero(time.Time{}, time.Time{}).IsZero())
-	assert.True(t, EarliestNonZero(b, time.Time{}, a).Equal(a))
+	assert.True(t, EarliestKnown().IsZero())
+	assert.True(t, EarliestKnown(b, a).Equal(a))
+	// Any unknown makes the whole unknown: a decision may rest on that list.
+	assert.True(t, EarliestKnown(b, time.Time{}, a).IsZero())
+	assert.True(t, EarliestKnown(time.Time{}, time.Time{}).IsZero())
 }
 
 func newTrustDataManager(strategy ResolutionStrategy, regs ...TrustRegistry) *RegistryManager {
@@ -146,4 +148,59 @@ func TestEvaluate_DoesNotMutateRegistryResponse(t *testing.T) {
 	assert.NotEmpty(t, resp.Context.TrustData)
 	assert.Empty(t, shared.Context.ID, "registry's own response must be left untouched")
 	assert.Empty(t, shared.Context.TrustData)
+}
+
+func TestEvaluate_DecisionIDIgnoresRegistryID(t *testing.T) {
+	shared := &authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{ID: "from-registry"}}
+	r := &sharedResponseRegistry{MockRegistry: &MockRegistry{name: "r", types: []string{"x5c"}}, resp: shared}
+	m := newTrustDataManager(FirstMatch, r)
+
+	r1, err := m.Evaluate(context.Background(), createTestRequest())
+	require.NoError(t, err)
+	r2, err := m.Evaluate(context.Background(), createTestRequest())
+	require.NoError(t, err)
+	assert.NotEqual(t, "from-registry", r1.Context.ID)
+	assert.NotEqual(t, r1.Context.ID, r2.Context.ID, "each decision has its own id")
+	assert.Equal(t, "from-registry", shared.Context.ID, "registry's own response is left untouched")
+}
+
+// reloadingRegistry replaces its data while it is being evaluated.
+type reloadingRegistry struct {
+	*MockRegistry
+	f *Freshness
+}
+
+func (r *reloadingRegistry) Freshness() Freshness { return *r.f }
+
+func (r *reloadingRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	resp, err := r.MockRegistry.Evaluate(ctx, req)
+	// A refresh lands after the decision was made from the old list.
+	*r.f = Freshness{
+		AsOf:       r.f.AsOf.Add(time.Hour),
+		NextUpdate: r.f.NextUpdate.Add(24 * time.Hour),
+	}
+	return resp, err
+}
+
+func TestEvaluate_TrustDataUnknownWhenDataChangesDuringEvaluation(t *testing.T) {
+	f := &Freshness{
+		AsOf:       time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
+		NextUpdate: time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC),
+	}
+	r := &reloadingRegistry{MockRegistry: &MockRegistry{name: "etsi", decision: true, types: []string{"x5c"}}, f: f}
+
+	resp, err := newTrustDataManager(FirstMatch, r).Evaluate(context.Background(), createTestRequest())
+	require.NoError(t, err)
+	require.Len(t, resp.Context.TrustData, 1)
+	td := resp.Context.TrustData[0]
+	assert.Equal(t, "etsi", td.Registry)
+	// The newer list's next_update must not be attached to a decision made from
+	// the older one.
+	assert.Empty(t, td.AsOf)
+	assert.Empty(t, td.NextUpdate)
+
+	// Stable data afterwards is reported again.
+	resp, err = newTrustDataManager(FirstMatch, &freshMock{MockRegistry: &MockRegistry{name: "etsi", decision: true, types: []string{"x5c"}}, f: *f}).Evaluate(context.Background(), createTestRequest())
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Context.TrustData[0].NextUpdate)
 }
