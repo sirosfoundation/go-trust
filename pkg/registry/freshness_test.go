@@ -353,3 +353,24 @@ func TestEvaluate_TrustDataCompositeChildFailure(t *testing.T) {
 		}
 	})
 }
+
+// silentFreshRegistry answers (nil, nil), reporting freshness.
+type silentFreshRegistry struct{ *freshMock }
+
+func (silentFreshRegistry) Evaluate(context.Context, *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	return nil, nil
+}
+
+func TestEvaluate_TrustDataCompositeNilChildResponse(t *testing.T) {
+	next := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	silent := silentFreshRegistry{&freshMock{MockRegistry: &MockRegistry{name: "silent", types: []string{"x5c"}}, f: Freshness{NextUpdate: next}}}
+	denies := &freshMock{MockRegistry: &MockRegistry{name: "denies", decision: false, types: []string{"x5c"}}, f: Freshness{NextUpdate: next}}
+
+	resp, err := newTrustDataManager(FirstMatch, NewCompositeRegistry("comp", LogicOR, silent, denies)).Evaluate(context.Background(), createTestRequest())
+	require.NoError(t, err)
+	require.False(t, resp.Decision)
+	require.Len(t, resp.Context.TrustData, 2)
+	for _, td := range resp.Context.TrustData {
+		assert.Empty(t, td.NextUpdate, "a child that gave no decision leaves the denial open: %s", td.Registry)
+	}
+}

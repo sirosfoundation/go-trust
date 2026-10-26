@@ -189,7 +189,7 @@ func (c *CompositeRegistry) applyLogic(results []compositeResult) *authzen.Evalu
 			"duration_ms": r.duration.Milliseconds(),
 		}
 
-		if r.err != nil || responseIncomplete(r.response) {
+		if r.err != nil || r.response == nil || responseIncomplete(r.response) {
 			incomplete = true
 		}
 		if r.err != nil {
