@@ -247,31 +247,7 @@ func (m *RegistryManager) evaluate(ctx context.Context, req *authzen.EvaluationR
 	logger.Debug("Evaluate: dispatching to strategy",
 		logging.F("strategy", string(m.strategy)))
 
-	// Snapshot freshness before the registries are consulted; see attachTrustData.
-	m.mu.RLock()
-	applicable := m.getApplicableRegistriesWithPolicy(req, policyCtx)
-	m.mu.RUnlock()
-	freshnessBefore := trustDataSnapshot(applicable)
-
-	// Route to appropriate strategy
-	var resp *authzen.EvaluationResponse
-	var err error
-	switch m.strategy {
-	case FirstMatch:
-		resp, err = m.evaluateFirstMatchWithPolicy(ctx, req, policyCtx)
-	case AllRegistries:
-		resp, err = m.evaluateAllWithPolicy(ctx, req, policyCtx)
-	case BestMatch:
-		resp, err = m.evaluateBestMatchWithPolicy(ctx, req, policyCtx)
-	case Sequential:
-		resp, err = m.evaluateSequentialWithPolicy(ctx, req, policyCtx)
-	default:
-		resp, err = m.evaluateFirstMatchWithPolicy(ctx, req, policyCtx)
-	}
-
-	if err == nil {
-		resp = attachTrustData(resp, freshnessBefore, trustDataSnapshot(applicable))
-	}
+	resp, err := m.dispatch(ctx, req, policyCtx)
 
 	duration := time.Since(startTime)
 	if err != nil {
@@ -301,6 +277,35 @@ func (m *RegistryManager) evaluate(ctx context.Context, req *authzen.EvaluationR
 	}
 
 	return resp, err
+}
+
+// dispatch routes the request to the configured strategy and attaches the
+// freshness of the registries consulted to the response.
+func (m *RegistryManager) dispatch(ctx context.Context, req *authzen.EvaluationRequest, policyCtx *PolicyContext) (*authzen.EvaluationResponse, error) {
+	// Snapshot freshness before the registries are consulted; see attachTrustData.
+	m.mu.RLock()
+	applicable := m.getApplicableRegistriesWithPolicy(req, policyCtx)
+	m.mu.RUnlock()
+	freshnessBefore := trustDataSnapshot(applicable)
+
+	var resp *authzen.EvaluationResponse
+	var err error
+	switch m.strategy {
+	case FirstMatch:
+		resp, err = m.evaluateFirstMatchWithPolicy(ctx, req, policyCtx)
+	case AllRegistries:
+		resp, err = m.evaluateAllWithPolicy(ctx, req, policyCtx)
+	case BestMatch:
+		resp, err = m.evaluateBestMatchWithPolicy(ctx, req, policyCtx)
+	case Sequential:
+		resp, err = m.evaluateSequentialWithPolicy(ctx, req, policyCtx)
+	default:
+		resp, err = m.evaluateFirstMatchWithPolicy(ctx, req, policyCtx)
+	}
+	if err != nil {
+		return resp, err
+	}
+	return attachTrustData(resp, freshnessBefore, trustDataSnapshot(applicable)), nil
 }
 
 // resolvePolicyContext resolves the policy for the request based on action.name.
