@@ -66,6 +66,9 @@ type VerificationMethod struct {
 	Controller   string                 `json:"controller"`
 	PublicKeyJwk map[string]interface{} `json:"publicKeyJwk,omitempty"`
 	PublicKeyHex string                 `json:"publicKeyHex,omitempty"`
+	// PublicKeyMultibase carries the key of an Ed25519VerificationKey2020 or Multikey method
+	// (multibase of multicodec || key), which is how most issuers' did:web documents publish theirs.
+	PublicKeyMultibase string `json:"publicKeyMultibase,omitempty"`
 }
 
 // NewDIDWebRegistry creates a new did:web trust registry.
@@ -257,6 +260,9 @@ func (r *DIDWebRegistry) didDocumentToTrustMetadata(didDoc *DIDDocument) map[str
 			}
 			if vm.PublicKeyHex != "" {
 				method["publicKeyHex"] = vm.PublicKeyHex
+			}
+			if vm.PublicKeyMultibase != "" {
+				method["publicKeyMultibase"] = vm.PublicKeyMultibase
 			}
 			verificationMethods[i] = method
 		}
