@@ -667,3 +667,29 @@ func TestEvaluate_ResolutionOnlyMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, resp.Decision)
 }
+
+// A did:web document whose methods publish their keys as publicKeyMultibase (Ed25519VerificationKey2020,
+// Multikey) must hand those keys on in trust_metadata; a relying party resolves the issuer's key from there.
+func TestDIDDocumentToTrustMetadataKeepsPublicKeyMultibase(t *testing.T) {
+	const doc = `{
+	  "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/multikey/v1"],
+	  "id": "did:web:issuer.example",
+	  "verificationMethod": [
+	    {"id": "did:web:issuer.example#k1", "type": "Ed25519VerificationKey2020", "controller": "did:web:issuer.example",
+	     "publicKeyMultibase": "z6MkqFENPafCx8qmm3KEE99cct7Qrr6eNbJR8inKLSE6vZiC"},
+	    {"id": "did:web:issuer.example#k2", "type": "Multikey", "controller": "did:web:issuer.example",
+	     "publicKeyMultibase": "zDnaeuGVUZ13VTEkfg6jB79b2gMLSiXBrAF7kGSP3Dnffm4it"}
+	  ]
+	}`
+	var didDoc DIDDocument
+	require.NoError(t, json.Unmarshal([]byte(doc), &didDoc))
+
+	registry, err := NewDIDWebRegistry(Config{})
+	require.NoError(t, err)
+
+	vms, ok := registry.didDocumentToTrustMetadata(&didDoc)["verificationMethod"].([]map[string]interface{})
+	require.True(t, ok)
+	require.Len(t, vms, 2)
+	assert.Equal(t, "z6MkqFENPafCx8qmm3KEE99cct7Qrr6eNbJR8inKLSE6vZiC", vms[0]["publicKeyMultibase"])
+	assert.Equal(t, "zDnaeuGVUZ13VTEkfg6jB79b2gMLSiXBrAF7kGSP3Dnffm4it", vms[1]["publicKeyMultibase"])
+}
