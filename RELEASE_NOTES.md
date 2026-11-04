@@ -4,6 +4,19 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.26.1:start -->
+## [v0.26.1] - 2026-11-04
+
+### Fixed
+- did:web registry now preserves `publicKeyMultibase` when returning DID documents as `trust_metadata`. Previously, verification methods published as `Ed25519VerificationKey2020` or `Multikey` would return with only an `id` and `type` but no key material, causing verification failures when resolvers attempted to extract keys from the metadata. (#227)
+
+### Security
+- Build with Go 1.27.3 to address GO-2026-6809, a vulnerability in `crypto/x509` present in Go 1.27.2. (#228)
+
+### Changed
+- Updated dependencies: `github.com/gematik/zero-lab/go/brainpool` to 1.2.0, `github.com/go-oidfed/lib`, and `github.com/lestrrat-go/jwx/v4`. (#225)
+<!-- release-notes:v0.26.1:end -->
+
 <!-- release-notes:v0.26.0:start -->
 ## [v0.26.0] - 2026-10-21
 
