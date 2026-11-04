@@ -235,6 +235,26 @@ func (r *DIDWebRegistry) buildResolutionOnlyResponse(didDoc *DIDDocument, startT
 	}
 }
 
+// verificationMethodToMetadata converts one verification method to its trust_metadata form,
+// carrying whichever public key encoding the method was published with.
+func verificationMethodToMetadata(vm VerificationMethod) map[string]interface{} {
+	method := map[string]interface{}{
+		"id":         vm.ID,
+		"type":       vm.Type,
+		"controller": vm.Controller,
+	}
+	if vm.PublicKeyJwk != nil {
+		method["publicKeyJwk"] = vm.PublicKeyJwk
+	}
+	if vm.PublicKeyHex != "" {
+		method["publicKeyHex"] = vm.PublicKeyHex
+	}
+	if vm.PublicKeyMultibase != "" {
+		method["publicKeyMultibase"] = vm.PublicKeyMultibase
+	}
+	return method
+}
+
 // didDocumentToTrustMetadata converts a DIDDocument to the trust_metadata format.
 // Returns the full DID document structure as specified in W3C DID Core.
 func (r *DIDWebRegistry) didDocumentToTrustMetadata(didDoc *DIDDocument) map[string]interface{} {
@@ -250,21 +270,7 @@ func (r *DIDWebRegistry) didDocumentToTrustMetadata(didDoc *DIDDocument) map[str
 	if len(didDoc.VerificationMethod) > 0 {
 		verificationMethods := make([]map[string]interface{}, len(didDoc.VerificationMethod))
 		for i, vm := range didDoc.VerificationMethod {
-			method := map[string]interface{}{
-				"id":         vm.ID,
-				"type":       vm.Type,
-				"controller": vm.Controller,
-			}
-			if vm.PublicKeyJwk != nil {
-				method["publicKeyJwk"] = vm.PublicKeyJwk
-			}
-			if vm.PublicKeyHex != "" {
-				method["publicKeyHex"] = vm.PublicKeyHex
-			}
-			if vm.PublicKeyMultibase != "" {
-				method["publicKeyMultibase"] = vm.PublicKeyMultibase
-			}
-			verificationMethods[i] = method
+			verificationMethods[i] = verificationMethodToMetadata(vm)
 		}
 		trustMeta["verificationMethod"] = verificationMethods
 	}
