@@ -724,3 +724,32 @@ func TestVerifyKeyBindingMultikeyMethod(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, matched)
 }
+
+// publicKeyMultibase keys must come out of the decoder exactly as a JWK carries them: fixed-width coordinates (a
+// leading zero byte survives) and, for secp256k1, the real y coordinate. All vectors were generated independently with
+// Python's cryptography package; the first P-256 and the P-384 key each have a coordinate starting with a zero byte.
+func TestVerifyKeyBindingMultikeyVectors(t *testing.T) {
+	cases := []struct{ name, multibase, crv, x, y string }{
+		{"P-256 leading zero", "zDnaepFNRa7kAu4yapvfERhNixivZRzr8Lp4pcwUq5heHhrRX", "P-256",
+			"YeGH_qHQuTqTxiBJOUh5Gd0U2J64ZNqGgINKB_txAtI", "AN_ZLdCeUY4CB239owPntcSgUHqXTpi5FoJg5iyrerc"},
+		{"P-384 leading zero", "z82LkowxtV5M47Q4LTvxwSR89dgnpLwz97r5UjAB6ELNom7k3CmHLxhgcTbTKRjvu5STAb2", "P-384",
+			"XXVCVhXx6-8uKEpBpXstnFUyA0sOkh84cYTr0pFe3vvTVHLmwx3Iq5RDYup0jMaZ", "AIfOpWVPhDUNm_wMCZCoUMAw15kH_r1IV8wHyiiBfN7De25qgmNxYmj-DeUDXf1U"},
+		{"secp256k1 odd y", "zQ3shhc3xyyjtjtAUfEUSynBEZ7Gqjmsg2gRc5oSqeUKZ2pSq", "secp256k1",
+			"LAxTHydqU13NjFrgTfXB7h9TlSuoB-cxCtOlEJpJIB4", "RwT44IEftOfZ9s1af4lOiah4QrAIeiPW30cGVhKRDQE"},
+		{"secp256k1 even y", "zQ3shavaa8YfALyri4n4CYYTd5rPojrEqXQHZ1FwG1afsi23W", "secp256k1",
+			"yMmTu6V5UrICVyBFnq3SgPKuvwfLOodOo-0zjUWpsj0", "RQueaCTANVe-biye2RoCrc19_uMdYBQPsdQDNzQi4go"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &DIDDocument{ID: "did:web:issuer.example", VerificationMethod: []VerificationMethod{
+				{ID: "did:web:issuer.example#k", Type: "Multikey", PublicKeyMultibase: tc.multibase},
+			}}
+			req := &authzen.EvaluationRequest{Resource: authzen.Resource{Type: "jwk", Key: []interface{}{
+				map[string]interface{}{"kty": "EC", "crv": tc.crv, "x": tc.x, "y": tc.y},
+			}}}
+			matched, _, err := (&DIDWebRegistry{}).verifyKeyBinding(req, doc)
+			require.NoError(t, err)
+			assert.True(t, matched)
+		})
+	}
+}
