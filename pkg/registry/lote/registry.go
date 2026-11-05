@@ -606,6 +606,27 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 	return nil
 }
 
+// leafBindingFailure returns a denial when the request used a certificate-binding
+// client_id_scheme and the leaf does not satisfy it, nil otherwise.
+func leafBindingFailure(req *authzen.EvaluationRequest, leaf *x509.Certificate, credentialTypes []string) *authzen.EvaluationResponse {
+	scheme, value, ok := registry.ParseClientIDScheme(registry.OriginalSubjectID(req))
+	if !ok {
+		return nil
+	}
+	bindErr := registry.VerifyLeafBinding(scheme, value, leaf)
+	if bindErr == nil {
+		return nil
+	}
+	reason := map[string]interface{}{
+		"admin": fmt.Sprintf("x5c chain validates against a listed CA but certificate binding check failed: %s", bindErr),
+	}
+	addCredentialTypesToReason(reason, credentialTypes)
+	return &authzen.EvaluationResponse{
+		Decision: false,
+		Context:  &authzen.EvaluationResponseContext{Reason: reason},
+	}
+}
+
 // scopedRoots returns the CA pool an x5c chain may anchor to: the certificates
 // of the role's LoTE types, or every listed certificate when the request names
 // no role. It reports false when the request names no role and RequireRole is set.
@@ -669,17 +690,8 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 	// these schemes (e.g. a plain RP identifier under an Access Certificate
 	// list, issue #90) are unaffected - there is no additional claim to bind
 	// in that model, so behavior is unchanged for them.
-	if scheme, value, ok := registry.ParseClientIDScheme(registry.OriginalSubjectID(req)); ok {
-		if bindErr := registry.VerifyLeafBinding(scheme, value, certs[0]); bindErr != nil {
-			reason := map[string]interface{}{
-				"admin": fmt.Sprintf("x5c chain validates against a listed CA but certificate binding check failed: %s", bindErr),
-			}
-			addCredentialTypesToReason(reason, credentialTypes)
-			return &authzen.EvaluationResponse{
-				Decision: false,
-				Context:  &authzen.EvaluationResponseContext{Reason: reason},
-			}
-		}
+	if resp := leafBindingFailure(req, certs[0], credentialTypes); resp != nil {
+		return resp
 	}
 
 	// Find which listed entity's CA pool the chain validates against (for metadata
