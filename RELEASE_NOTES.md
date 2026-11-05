@@ -4,6 +4,22 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.27.0:start -->
+## [v0.27.0] - 2026-11-05
+
+### Added
+- Classic TS 119 612 TSL pointers in LoTLs are now resolved and indexed alongside native LoTE sources. When a LoTL pointer's scheme type is a classic TSL type (e.g., `.../TrstSvc/TrustedList/TSLType/EUgeneric`), the XML is fetched, converted to LoTE format, and its services made available for trust decisions. This enables interoperability with legacy European trust lists without requiring manual conversion. (#213)
+
+### Changed
+- Classic TSL services are now filtered to only trust those in specific statuses (`granted`, `recognisedatnationallevel`, `accredited`, `undersupervision`, `setbynationallaw`), preventing untrusted statuses like `supervisionincessation` or `accreditationrevoked` from being accepted. Service identifiers from converted TSLs are qualified with their list location to prevent collisions. (#213)
+- LoTL pointer resolution failures are now tracked in the refresh log line via a new `lotl_pointers_skipped` metric, improving observability when classic TSL pointers cannot be loaded. (#213)
+
+### Security
+- Classic TSL pointers are cryptographically verified when `verify_jws` or `trust_anchor_bundle` is configured. The enveloped XMLDSig signature is validated against the trust anchor bundle (with full chain validation to a trusted root), and only verified content is parsed. Unsigned or tampered TSLs are rejected. SHA-1 signature and digest methods are explicitly refused. (#213)
+- Updated `github.com/go-jose/go-jose/v4` from 4.1.5 to 4.1.6, fixing GHSA-mgcc-cww5-fp2q (a vulnerability related to RSA modulus size handling in JWK parsing). (#226, #233)
+- Updated dependencies: `g119612` to v0.8.1 (rejects non-LoTE/LoTL XML roots, aligns with go-jose 4.1.6), `golang.org/x/net` to v0.62.0. (#233, #234)
+<!-- release-notes:v0.27.0:end -->
+
 <!-- release-notes:v0.26.2:start -->
 ## [v0.26.2] - 2026-11-05
 
