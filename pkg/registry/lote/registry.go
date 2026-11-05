@@ -267,7 +267,7 @@ func (r *Registry) Stop() {
 // loteTypePrefix starts every TS 119 602 LoTE type URI. An action naming one is
 // scoped to that type even when no list of the type is loaded, so an absent
 // type matches nothing rather than falling back to unscoped trust.
-const loteTypePrefix = "http://uri.etsi.org/19602/LoTEType/"
+var loteTypePrefix = strings.TrimSuffix(etsi119602.LoTETypePIDProviders, "EUPIDProvidersList")
 
 // roleTypes returns the LoTE types a request's role is limited to, or nil when
 // the request carries no role this registry can scope by.
@@ -606,6 +606,22 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 	return nil
 }
 
+// scopedRoots returns the CA pool an x5c chain may anchor to: the certificates
+// of the role's LoTE types, or every listed certificate when the request names
+// no role. It reports false when the request names no role and RequireRole is set.
+func (r *Registry) scopedRoots(roleTypes []string) (*x509.CertPool, bool) {
+	if roleTypes == nil {
+		return r.index.globalCertPool, !r.config.RequireRole
+	}
+	roots := x509.NewCertPool()
+	for _, t := range roleTypes {
+		for _, c := range r.index.certsByType[t] {
+			roots.AddCert(c)
+		}
+	}
+	return roots, true
+}
+
 // validateX5CChainCA handles the CA-anchored trust model (issue #90): when the
 // subject.id is not itself a listed entity — as is the case for Access Certificate
 // trust lists that enumerate CAs rather than individual relying parties — the x5c
@@ -617,15 +633,8 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 		return nil
 	}
 
-	roots := r.index.globalCertPool
-	if roleTypes != nil {
-		roots = x509.NewCertPool()
-		for _, t := range roleTypes {
-			for _, c := range r.index.certsByType[t] {
-				roots.AddCert(c)
-			}
-		}
-	} else if r.config.RequireRole {
+	roots, ok := r.scopedRoots(roleTypes)
+	if !ok {
 		reason := map[string]interface{}{
 			"admin": "x5c chain would be validated against a listed CA, but the request names no role this registry can scope by (RequireRole)",
 		}
