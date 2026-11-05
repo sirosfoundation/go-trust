@@ -141,7 +141,9 @@ type TSLRegistry struct {
 	certCount   int
 	tsls        []*etsi119612.TSL
 	bundlePool  *x509.CertPool // certificates from CertBundle, kept for rebuilds
-	nextExpiry  time.Time      // earliest NextUpdate among tsls (zero: none)
+	bundleCount int
+	roots       []*etsi119612.TSL // configured TSL sources; tsls are reachable from these
+	nextExpiry  time.Time         // earliest NextUpdate among tsls (zero: none)
 	loadedAt    time.Time
 	sourceFiles []string
 	lotlSigners []*x509.Certificate // LOTL signer certificates for signature verification
@@ -192,7 +194,9 @@ func NewTSLRegistry(cfg TSLConfig) (*TSLRegistry, error) {
 func (r *TSLRegistry) load() error {
 	var pool *x509.CertPool
 	var certCount int
+	var bundleCount int
 	var bundlePool *x509.CertPool
+	var roots []*etsi119612.TSL
 	var tsls []*etsi119612.TSL
 	var sourceFiles []string
 	var lotlSigners []*x509.Certificate
@@ -217,6 +221,7 @@ func (r *TSLRegistry) load() error {
 		}
 		pool = p
 		bundlePool = p.Clone()
+		bundleCount = count
 		certCount = count
 		absPath, _ := filepath.Abs(r.config.CertBundle)
 		sourceFiles = append(sourceFiles, absPath)
@@ -246,6 +251,7 @@ func (r *TSLRegistry) load() error {
 		lotlSigners = updatedSigners
 
 		tsls = append(tsls, tsl)
+		roots = append(roots, tsl)
 		absPath, _ := filepath.Abs(tslPath)
 		sourceFiles = append(sourceFiles, absPath)
 
@@ -286,6 +292,7 @@ func (r *TSLRegistry) load() error {
 		}
 
 		tsls = append(tsls, loadedTSLs...)
+		roots = append(roots, loadedTSLs[0])
 		sourceFiles = append(sourceFiles, tslURL)
 
 		if pool == nil {
@@ -310,6 +317,8 @@ func (r *TSLRegistry) load() error {
 	r.certCount = certCount
 	r.tsls = tsls
 	r.bundlePool = bundlePool
+	r.bundleCount = bundleCount
+	r.roots = roots
 	r.nextExpiry = earliestDeadline(tsls)
 	r.sourceFiles = sourceFiles
 	r.lotlSigners = lotlSigners
@@ -562,20 +571,49 @@ func (r *TSLRegistry) checkFresh(tsl *etsi119612.TSL) error {
 // itself has (or its NextUpdate cannot be read). The result is a copy: the
 // loaded TSLs are shared and are never modified in place.
 func (r *TSLRegistry) prune(tsl *etsi119612.TSL) *etsi119612.TSL {
-	if tsl == nil {
+	return r.pruneVisiting(tsl, map[*etsi119612.TSL]bool{})
+}
+
+func (r *TSLRegistry) pruneVisiting(tsl *etsi119612.TSL, visiting map[*etsi119612.TSL]bool) *etsi119612.TSL {
+	if tsl == nil || visiting[tsl] || r.checkFresh(tsl) != nil {
 		return nil
 	}
-	if r.checkFresh(tsl) != nil {
-		return nil
-	}
+	visiting[tsl] = true
+	defer delete(visiting, tsl)
 	cp := *tsl
 	cp.Referenced = nil
 	for _, ref := range tsl.Referenced {
-		if p := r.prune(ref); p != nil {
+		if p := r.pruneVisiting(ref, visiting); p != nil {
 			cp.Referenced = append(cp.Referenced, p)
 		}
 	}
 	return &cp
+}
+
+// reachable returns root and every TSL reachable from it through current
+// ancestors only (root first), or nil when root has lapsed. A fresh TSL whose
+// only route from a configured source runs through a lapsed list is not
+// reachable, so its certificates stop being trusted with that list.
+func (r *TSLRegistry) reachable(root *etsi119612.TSL) []*etsi119612.TSL {
+	p := r.prune(root)
+	if p == nil {
+		return nil
+	}
+	var out []*etsi119612.TSL
+	seen := map[string]bool{}
+	var walk func(t *etsi119612.TSL)
+	walk = func(t *etsi119612.TSL) {
+		if seen[t.Source] {
+			return
+		}
+		seen[t.Source] = true
+		out = append(out, t)
+		for _, ref := range t.Referenced {
+			walk(ref)
+		}
+	}
+	walk(p)
+	return out
 }
 
 // earliestDeadline is the earliest NextUpdate among tsls and their references.
@@ -617,20 +655,23 @@ func (r *TSLRegistry) expireStale() {
 		return
 	}
 	pool := x509.NewCertPool()
-	count := 0
+	count := r.bundleCount
 	if r.bundlePool != nil {
 		pool = r.bundlePool.Clone()
 	}
-	var live []*etsi119612.TSL
-	for _, tsl := range r.tsls {
-		p := r.prune(tsl)
-		if p == nil {
+	var live, liveRoots []*etsi119612.TSL
+	for _, root := range r.roots {
+		tsls := r.reachable(root)
+		if len(tsls) == 0 {
 			continue
 		}
-		live = append(live, p)
-		for _, c := range extractCertsFromTSL(p, r.config.CryptoExt) {
-			pool.AddCert(c)
-			count++
+		liveRoots = append(liveRoots, tsls[0])
+		live = append(live, tsls...)
+		for _, tsl := range tsls {
+			for _, c := range extractCertsFromTSL(tsl, r.config.CryptoExt) {
+				pool.AddCert(c)
+				count++
+			}
 		}
 	}
 	if r.config.Logger != nil {
@@ -640,6 +681,7 @@ func (r *TSLRegistry) expireStale() {
 	r.certPool = pool
 	r.certCount = count
 	r.tsls = live
+	r.roots = liveRoots
 	r.nextExpiry = earliestDeadline(live)
 }
 
@@ -679,25 +721,16 @@ func (r *TSLRegistry) loadTSLFromURL(url string) ([]*etsi119612.TSL, []*x509.Cer
 		return nil, nil, fmt.Errorf("failed to load TSL from %s: %w", url, err)
 	}
 
-	// The requested TSL must be current; a stale referenced TSL is dropped,
-	// and so is its entry in the Referenced list of the TSLs that point to it.
-	var current []*etsi119612.TSL
-	for i, tsl := range tsls {
-		if i == 0 {
-			if err := r.checkFresh(tsl); err != nil {
-				return nil, nil, err
-			}
-		}
-		p := r.prune(tsl)
-		if p == nil {
-			if r.config.Logger != nil {
-				r.config.Logger.Warn("dropping stale referenced TSL", slog.String("source", tsl.Source))
-			}
-			continue
-		}
-		current = append(current, p)
+	// The requested TSL must be current. Referenced TSLs are kept only while
+	// reachable through current ancestors, and the Referenced lists of the
+	// retained TSLs no longer name lapsed ones.
+	if len(tsls) == 0 {
+		return nil, nil, fmt.Errorf("no TSL loaded from %s", url)
 	}
-	tsls = current
+	if err := r.checkFresh(tsls[0]); err != nil {
+		return nil, nil, err
+	}
+	tsls = r.reachable(tsls[0])
 
 	// Extract certificates from all loaded TSLs
 	var allCerts []*x509.Certificate

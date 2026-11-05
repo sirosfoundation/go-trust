@@ -198,3 +198,50 @@ func TestFreshness_LoTLLapseInvalidatesResolvedLists(t *testing.T) {
 	resp, _ = reg.Evaluate(context.Background(), req)
 	assert.False(t, resp.Decision)
 }
+
+// A lapsed LoTL takes only the lists it alone vouches for: a directly
+// configured source, and lists reached through another current LoTL, stay.
+func TestFreshness_LoTLLapseSparesIndependentTrust(t *testing.T) {
+	now := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	mk := func(name, id, next string) string {
+		l := minimalLoTE("SE", simpleEntity(id))
+		l.ListAndSchemeInformation.LoTEType = etsi119602.LoTETypePIDProviders
+		l.ListAndSchemeInformation.NextUpdate = next
+		return writeLoTE(t, dir, name, l)
+	}
+	mkLoTL := func(name, next string, pointers ...string) string {
+		var ptrs []etsi119602.OtherLoTEPointer
+		for _, p := range pointers {
+			ptrs = append(ptrs, etsi119602.OtherLoTEPointer{LoTELocation: p})
+		}
+		return writeLoTL(t, dir, name, &etsi119602.ListOfTrustedLists{
+			ListAndSchemeInformation: etsi119602.ListAndSchemeInformation{
+				LoTEVersionIdentifier: 1, LoTEType: etsi119602.LoTLTypeEU,
+				SchemeOperatorName: etsi119602.NameSet{{Lang: "en", Value: "Op"}},
+				ListIssueDateTime:  "2026-01-01T00:00:00Z", NextUpdate: next, PointersToOtherLoTE: ptrs,
+			},
+		})
+	}
+	direct := mk("direct.json", "urn:direct", "2099-01-01T00:00:00Z")
+	viaShort := mk("short.json", "urn:short-only", "2099-01-01T00:00:00Z")
+	viaBoth := mk("both.json", "urn:both", "2099-01-01T00:00:00Z")
+	shortLoTL := mkLoTL("short-lotl.json", "2026-12-02T00:00:00Z", viaShort, viaBoth)
+	longLoTL := mkLoTL("long-lotl.json", "2099-01-01T00:00:00Z", viaBoth)
+
+	reg, err := New(Config{Sources: []string{direct}, LoTLSources: []string{shortLoTL, longLoTL}, Now: func() time.Time { return now }})
+	require.NoError(t, err)
+	granted := func(id string) bool {
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject: authzen.Subject{Type: "key", ID: id}, Resource: authzen.Resource{ID: id},
+		})
+		require.NoError(t, err)
+		return resp.Decision
+	}
+	require.True(t, granted("urn:short-only"))
+
+	now = now.Add(48 * time.Hour)
+	assert.True(t, granted("urn:direct"), "a directly configured source does not depend on the LoTL")
+	assert.False(t, granted("urn:short-only"), "only the lapsed LoTL vouched for it")
+	assert.True(t, granted("urn:both"), "still reachable through the current LoTL")
+}

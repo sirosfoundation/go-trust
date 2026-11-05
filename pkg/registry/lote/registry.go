@@ -107,15 +107,14 @@ type Config struct {
 type Registry struct {
 	config Config
 
-	mu           sync.RWMutex
-	deadlines    []time.Time
-	lotlDeadline time.Time
-	nextExpiry   time.Time
-	lotes        []*etsi119602.ListOfTrustedEntities
-	index        *entityIndex
-	profiles     *rpcert.ProfileRegistry
-	healthy      bool
-	lastUpdated  time.Time
+	mu          sync.RWMutex
+	deadlines   []time.Time
+	nextExpiry  time.Time
+	lotes       []*etsi119602.ListOfTrustedEntities
+	index       *entityIndex
+	profiles    *rpcert.ProfileRegistry
+	healthy     bool
+	lastUpdated time.Time
 
 	stopCh chan struct{}
 }
@@ -839,9 +838,9 @@ func (r *Registry) refresh() error {
 	}
 
 	// Load LoTL sources and follow pointers to discover LoTEs.
-	st := &resolveState{visited: make(map[string]bool)}
+	st := &resolveState{visited: make(map[string]bool), inherited: make(map[*etsi119602.ListOfTrustedEntities]time.Time)}
 	for _, src := range r.config.LoTLSources {
-		discovered, err := r.resolveLoTL(src, opts, 0, st, taPool)
+		discovered, err := r.resolveLoTL(src, opts, 0, st, taPool, time.Time{})
 		if err != nil {
 			return fmt.Errorf("failed to resolve LoTL from %s: %w", src, err)
 		}
@@ -853,19 +852,14 @@ func (r *Registry) refresh() error {
 	deadlines := make([]time.Time, len(lotes))
 	var next time.Time
 	for i, l := range lotes {
-		deadlines[i], _ = listDeadline(l.ListAndSchemeInformation)
+		own, _ := listDeadline(l.ListAndSchemeInformation)
+		deadlines[i] = earliest(own, st.inherited[l])
 		next = earliest(next, deadlines[i])
 	}
-	var lotlDeadline time.Time
-	for _, d := range st.lotlDeadlines {
-		lotlDeadline = earliest(lotlDeadline, d)
-	}
-	next = earliest(next, lotlDeadline)
 
 	r.mu.Lock()
 	r.lotes = lotes
 	r.deadlines = deadlines
-	r.lotlDeadline = lotlDeadline
 	r.nextExpiry = next
 	r.index = idx
 	r.healthy = true
@@ -1187,7 +1181,7 @@ func (r *Registry) fetchVerifiedLoTE(src string, roots *x509.CertPool) (*etsi119
 // verification is an error (never parsed); a pointer target that fails
 // verification is logged at error level and skipped, exactly like a pointer
 // target that cannot be fetched, so it never contributes entities.
-func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int, st *resolveState, roots *x509.CertPool) ([]*etsi119602.ListOfTrustedEntities, error) {
+func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int, st *resolveState, roots *x509.CertPool, via time.Time) ([]*etsi119602.ListOfTrustedEntities, error) {
 	if r.config.MaxDereferenceDepth > 0 && depth >= r.config.MaxDereferenceDepth {
 		if r.config.Logger != nil {
 			r.config.Logger.Warn("LoTL dereference depth limit reached",
@@ -1219,16 +1213,15 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 	// top-level sources, and marking it earlier would let a later top-level
 	// reference to the same location skip verification and "succeed".
 	st.visited[location] = true
-	if d, _ := listDeadline(lotl.ListAndSchemeInformation); !d.IsZero() {
-		st.lotlDeadlines = append(st.lotlDeadlines, d)
-	}
+	ownDeadline, _ := listDeadline(lotl.ListAndSchemeInformation)
+	via = earliest(via, ownDeadline)
 
 	var lotes []*etsi119602.ListOfTrustedEntities
 	for _, ptr := range lotl.ListAndSchemeInformation.PointersToOtherLoTE {
 		if ptr.LoTELocation == "" {
 			continue
 		}
-		lotes = append(lotes, r.resolvePointer(ptr, opts, depth, st, roots)...)
+		lotes = append(lotes, r.resolvePointer(ptr, opts, depth, st, roots, via)...)
 	}
 
 	if r.config.Logger != nil {
@@ -1306,14 +1299,10 @@ func (r *Registry) expireStale() {
 	}
 	var live []*etsi119602.ListOfTrustedEntities
 	var next time.Time
-	lotlLapsed := !r.lotlDeadline.IsZero() && now.After(r.lotlDeadline)
-	if !lotlLapsed {
-		next = r.lotlDeadline
-		for i, l := range r.lotes {
-			if d := r.deadlines[i]; d.IsZero() || !now.After(d) {
-				live = append(live, l)
-				next = earliest(next, d)
-			}
+	for i, l := range r.lotes {
+		if d := r.deadlines[i]; d.IsZero() || !now.After(d) {
+			live = append(live, l)
+			next = earliest(next, d)
 		}
 	}
 	if r.config.Logger != nil {
@@ -1326,8 +1315,11 @@ func (r *Registry) expireStale() {
 
 // resolveState is the per-refresh state of LoTL resolution.
 type resolveState struct {
-	visited       map[string]bool
-	lotlDeadlines []time.Time // NextUpdate of every LoTL loaded
+	visited map[string]bool
+	// inherited is, per discovered list, the earliest NextUpdate among the
+	// LoTLs it was reached through: the list stops being trusted when any of
+	// them lapses. Directly configured sources have none.
+	inherited map[*etsi119602.ListOfTrustedEntities]time.Time
 }
 
 // loadLoTL fetches a LoTL, verifying its JWS first when roots is non-nil.
@@ -1362,13 +1354,13 @@ func (r *Registry) loadLoTL(location string, opts *etsi119602.FetchOptions, root
 // resolved recursively, anything else is loaded as a LoTE. Failures (including
 // signature verification failures) are logged at error level and the target is
 // skipped, so an unverified document never contributes entities.
-func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119602.FetchOptions, depth int, st *resolveState, roots *x509.CertPool) []*etsi119602.ListOfTrustedEntities {
+func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119602.FetchOptions, depth int, st *resolveState, roots *x509.CertPool, via time.Time) []*etsi119602.ListOfTrustedEntities {
 	var out []*etsi119602.ListOfTrustedEntities
 	var err error
 	kind := "LoTE"
 	if etsi119602.IsLoTLSchemeType(pointerSchemeType(ptr)) {
 		kind = "nested LoTL"
-		out, err = r.resolveLoTL(ptr.LoTELocation, opts, depth+1, st, roots)
+		out, err = r.resolveLoTL(ptr.LoTELocation, opts, depth+1, st, roots, via)
 	} else {
 		var lote *etsi119602.ListOfTrustedEntities
 		if roots != nil {
@@ -1381,6 +1373,7 @@ func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119
 		}
 		if err == nil {
 			out = []*etsi119602.ListOfTrustedEntities{lote}
+			st.inherited[lote] = via
 		}
 	}
 	if err != nil {

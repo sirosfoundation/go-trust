@@ -1,6 +1,7 @@
 package etsi
 
 import (
+	"crypto/x509"
 	"testing"
 	"time"
 
@@ -38,4 +39,56 @@ func TestPrune_RemovesStaleReferences(t *testing.T) {
 
 	parent.Referenced = nil
 	assert.Equal(t, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), earliestDeadline([]*etsi119612.TSL{parent, fresh}))
+}
+
+// A fresh TSL that is only reachable through a lapsed list is not trusted.
+func TestReachable_NeedsCurrentAncestors(t *testing.T) {
+	now := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	r := &TSLRegistry{config: TSLConfig{Now: func() time.Time { return now }}}
+
+	leaf := tslWithNextUpdate("leaf", "2027-01-01T00:00:00Z")
+	mid := tslWithNextUpdate("mid", "2026-11-01T00:00:00Z") // lapsed
+	mid.Referenced = []*etsi119612.TSL{leaf}
+	root := tslWithNextUpdate("root", "2027-01-01T00:00:00Z")
+	root.Referenced = []*etsi119612.TSL{mid}
+
+	got := r.reachable(root)
+	if assert.Len(t, got, 1) {
+		assert.Equal(t, "root", got[0].Source)
+	}
+
+	mid.Referenced = []*etsi119612.TSL{leaf}
+	mid.StatusList.TslSchemeInformation.TslNextUpdate.DateTime = "2027-01-01T00:00:00Z"
+	assert.Len(t, r.reachable(root), 3)
+
+	root.StatusList.TslSchemeInformation.TslNextUpdate.DateTime = "2026-11-01T00:00:00Z"
+	assert.Empty(t, r.reachable(root), "a lapsed root takes its descendants with it")
+
+	// A reference cycle terminates.
+	root.StatusList.TslSchemeInformation.TslNextUpdate.DateTime = "2027-01-01T00:00:00Z"
+	leaf.Referenced = []*etsi119612.TSL{root}
+	assert.Len(t, r.reachable(root), 3)
+}
+
+// PEM bundle anchors keep counting, and keep the registry healthy, after every
+// TSL has lapsed.
+func TestExpireStale_KeepsBundleCount(t *testing.T) {
+	now := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	root := tslWithNextUpdate("root", "2026-12-02T00:00:00Z")
+	r := &TSLRegistry{
+		config:      TSLConfig{Now: func() time.Time { return now }},
+		certPool:    x509.NewCertPool(),
+		bundlePool:  x509.NewCertPool(),
+		bundleCount: 2,
+		certCount:   2,
+		tsls:        []*etsi119612.TSL{root},
+		roots:       []*etsi119612.TSL{root},
+		nextExpiry:  time.Date(2026, 12, 2, 0, 0, 0, 0, time.UTC),
+		healthy:     true,
+	}
+	now = now.Add(48 * time.Hour)
+	r.expireStale()
+	assert.Equal(t, 2, r.CertificateCount())
+	assert.Zero(t, r.TSLCount())
+	assert.True(t, r.Healthy())
 }
