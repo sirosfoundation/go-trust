@@ -4,6 +4,17 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.28.0:start -->
+## [v0.28.0] - 2026-11-05
+
+### Added
+- AuthZEN evaluation responses now include `context.trust_data[]` reporting the freshness of trust registries consulted for each decision, with `as_of` and `next_update` timestamps from registries that support them (vical, mdocrical, etsi, lote). This allows callers to understand how current the trust data was when a decision was made. (#224)
+- AuthZEN evaluation responses now include `context.id`, a unique identifier per decision for audit correlation, including on early denials. (#224)
+
+### Changed
+- Dependency updates: `github.com/fxamacker/cbor/v2` to 2.10.0 and `github.com/go-oidfed/lib` to latest. (#235)
+<!-- release-notes:v0.28.0:end -->
+
 <!-- release-notes:v0.27.0:start -->
 ## [v0.27.0] - 2026-11-05
 
