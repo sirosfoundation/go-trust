@@ -1,6 +1,7 @@
 package did
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"testing"
@@ -583,4 +584,42 @@ func TestDecompressSecp256k1RealPoints(t *testing.T) {
 		assert.Equal(t, wantX, x)
 		assert.Equal(t, wantY, y)
 	}
+}
+
+// DecodeMultibaseKeyJWK hands a publicKeyMultibase key back as the JWK a relying party presents. Vectors come from
+// Python's cryptography package; the P-256 and P-384 keys each have a coordinate starting with a zero byte, which a
+// JWK keeps as a full-width value.
+func TestDecodeMultibaseKeyJWK(t *testing.T) {
+	for _, tc := range []struct{ name, multibase, kty, crv, x, y string }{
+		{"P-256", "zDnaepFNRa7kAu4yapvfERhNixivZRzr8Lp4pcwUq5heHhrRX", "EC", "P-256",
+			"YeGH_qHQuTqTxiBJOUh5Gd0U2J64ZNqGgINKB_txAtI", "AN_ZLdCeUY4CB239owPntcSgUHqXTpi5FoJg5iyrerc"},
+		{"P-384", "z82LkowxtV5M47Q4LTvxwSR89dgnpLwz97r5UjAB6ELNom7k3CmHLxhgcTbTKRjvu5STAb2", "EC", "P-384",
+			"XXVCVhXx6-8uKEpBpXstnFUyA0sOkh84cYTr0pFe3vvTVHLmwx3Iq5RDYup0jMaZ", "AIfOpWVPhDUNm_wMCZCoUMAw15kH_r1IV8wHyiiBfN7De25qgmNxYmj-DeUDXf1U"},
+		{"secp256k1", "zQ3shhc3xyyjtjtAUfEUSynBEZ7Gqjmsg2gRc5oSqeUKZ2pSq", "EC", "secp256k1",
+			"LAxTHydqU13NjFrgTfXB7h9TlSuoB-cxCtOlEJpJIB4", "RwT44IEftOfZ9s1af4lOiah4QrAIeiPW30cGVhKRDQE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			jwk, err := DecodeMultibaseKeyJWK(tc.multibase)
+			require.NoError(t, err)
+			assert.Equal(t, map[string]interface{}{"kty": tc.kty, "crv": tc.crv, "x": tc.x, "y": tc.y}, jwk)
+		})
+	}
+
+	_, err := DecodeMultibaseKeyJWK("zQ3")
+	assert.Error(t, err)
+}
+
+func TestDecompressSecp256k1RefusesXOutsideTheField(t *testing.T) {
+	compressed := append([]byte{0x02}, bytes.Repeat([]byte{0xff}, 32)...)
+	_, _, err := decompressSecp256k1(compressed)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a field element")
+}
+
+func TestDecompressP256AndP384RefuseOffCurveX(t *testing.T) {
+	// x = 1 has no y on either curve (checked with Python's cryptography package).
+	_, _, err := decompressP256(append([]byte{0x02}, append(make([]byte, 31), 1)...))
+	assert.Error(t, err)
+	_, _, err = decompressP384(append([]byte{0x02}, append(make([]byte, 47), 1)...))
+	assert.Error(t, err)
 }

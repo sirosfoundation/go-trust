@@ -753,3 +753,14 @@ func TestVerifyKeyBindingMultikeyVectors(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifyKeyBindingRefusesMalformedKeys(t *testing.T) {
+	doc := &DIDDocument{ID: "did:web:issuer.example"}
+	r := &DIDWebRegistry{}
+
+	_, _, err := r.verifyKeyBinding(&authzen.EvaluationRequest{Resource: authzen.Resource{Type: "jwk"}}, doc)
+	assert.ErrorContains(t, err, "empty key array")
+
+	_, _, err = r.verifyKeyBinding(&authzen.EvaluationRequest{Resource: authzen.Resource{Type: "jwk", Key: []interface{}{"not-a-jwk"}}}, doc)
+	assert.ErrorContains(t, err, "invalid JWK format")
+}
