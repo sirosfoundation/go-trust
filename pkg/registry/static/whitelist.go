@@ -845,7 +845,7 @@ func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, originalSubjectID, ro
 		reason["requested_credential_types"] = credTypes
 	}
 
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason: reason,
@@ -856,7 +856,12 @@ func (r *WhitelistRegistry) evaluateViaSystemCA(subjectID, originalSubjectID, ro
 				"trust_path":      "system_ca",
 			},
 		},
-	}, nil
+	}
+	// The chain validated to the OS pool and the leaf is bound to the claimed
+	// client_id (VerifyLeafBinding above), so the certificate's content is
+	// authenticated: every enabled verifier identifier may be derived.
+	registry.AddVerifierIDs(resp, req, registry.DeriveCertVerifierIDs(req, certs[0], true))
+	return resp, nil
 }
 
 // verifyChainWithCryptoExt validates a certificate chain from leaf to one of
@@ -1041,7 +1046,7 @@ func (r *WhitelistRegistry) allowWithKey(subject, role, matchedList, keyFingerpr
 		reason["requested_credential_types"] = credTypes
 	}
 
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason: reason,
@@ -1051,7 +1056,17 @@ func (r *WhitelistRegistry) allowWithKey(subject, role, matchedList, keyFingerpr
 				"matched_list":    matchedList,
 			},
 		},
-	}, nil
+	}
+	// Trust here rests on the pinned key, not on the certificate: the
+	// certificate's own claims are unauthenticated, so only the SAN identifiers
+	// bound to the whitelisted client_id are offered (see DeriveCertVerifierIDs).
+	// A key-only presentation (no certificate) carries no verifier identifier.
+	if isCertificateArrayResourceType(req.Resource.Type) {
+		if certs, err := x509util.ParseX5CFromArray(req.Resource.Key); err == nil && len(certs) > 0 {
+			registry.AddVerifierIDs(resp, req, registry.DeriveCertVerifierIDs(req, certs[0], false))
+		}
+	}
+	return resp, nil
 }
 
 func (r *WhitelistRegistry) allowResolutionOnly(subject, role, matchedList string, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {

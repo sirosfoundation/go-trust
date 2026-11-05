@@ -73,7 +73,7 @@ func (f *jwsFixture) lotl(name string, ptrs ...etsi119602.OtherLoTEPointer) stri
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "EU"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE:   ptrs,
 		},
 	}

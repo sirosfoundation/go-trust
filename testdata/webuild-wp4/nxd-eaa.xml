@@ -1,0 +1,1366 @@
+<?xml version='1.0' encoding='utf-8'?>
+<TrustServiceStatusList xmlns="http://uri.etsi.org/02231/v2#" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" TSLTag="http://uri.etsi.org/19612/TSLTag" Id="nxd-tl-eaa-1">
+  <SchemeInformation>
+    <TSLVersionIdentifier>5</TSLVersionIdentifier>
+    <TSLSequenceNumber>216</TSLSequenceNumber>
+    <TSLType>http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUgeneric</TSLType>
+    <SchemeOperatorName>
+      <Name xml:lang="en">NXD Foundation</Name>
+    </SchemeOperatorName>
+    <SchemeOperatorAddress>
+      <PostalAddresses>
+        <PostalAddress xml:lang="en">
+          <StreetAddress>Bössvägen 28</StreetAddress>
+          <Locality>Sollentuna, Stockholm</Locality>
+          <PostalCode>19255</PostalCode>
+          <CountryName>SE</CountryName>
+        </PostalAddress>
+      </PostalAddresses>
+      <ElectronicAddress>
+        <URI xml:lang="en">mailto:info@nxd.foundation</URI>
+      </ElectronicAddress>
+    </SchemeOperatorAddress>
+    <SchemeName>
+      <Name xml:lang="en">SE:EN_NXD Foundation - EAA Providers</Name>
+    </SchemeName>
+    <SchemeInformationURI>
+      <URI xml:lang="en">https://trustlist.nxd.foundation/</URI>
+    </SchemeInformationURI>
+    <StatusDeterminationApproach>http://uri.etsi.org/TrstSvc/TrustedList/StatusDetn/EUappropriate</StatusDeterminationApproach>
+    <SchemeTypeCommunityRules>
+      <URI xml:lang="en">http://uri.etsi.org/TrstSvc/TrustedList/schemerules/EU</URI>
+    </SchemeTypeCommunityRules>
+    <SchemeTerritory>SE</SchemeTerritory>
+    <HistoricalInformationPeriod>65535</HistoricalInformationPeriod>
+    <ListIssueDateTime>2026-11-04T12:45:18Z</ListIssueDateTime>
+    <NextUpdate>
+      <dateTime>2027-05-04T12:45:18Z</dateTime>
+    </NextUpdate>
+  </SchemeInformation>
+  <TrustServiceProviderList>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Bancomat S.p.A</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">BANCOMAT</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Piazzale Luigi Sturzo 15</StreetAddress>
+              <Locality>Roma</Locality>
+              <PostalCode>00144</PostalCode>
+              <CountryName>IT</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:ludovica.baccilieri@bancomat.it</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.bancomat.it</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">BANCOMAT EAA Issuer</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIByjCCAXCgAwIBAgIIRao28fc6PYUwCgYIKoZIzj0EAwIwWjERMA8GA1UEAxMIQkFOQ09NQVQxFzAVBgNVBAoTDkJhbmNvbWF0IFMucC5BMRAwDgYDVQRhEwcxMjEwNTk3MQ0wCwYDVQQHEwRSb21lMQswCQYDVQQGEwJJVDAeFw0yNjA3MjAwOTQ2NDhaFw0yODA3MjAwOTQ2NDhaMFoxETAPBgNVBAMTCEJBTkNPTUFUMRcwFQYDVQQKEw5CYW5jb21hdCBTLnAuQTEQMA4GA1UEYRMHMTIxMDU5NzENMAsGA1UEBxMEUm9tZTELMAkGA1UEBhMCSVQwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASc0HE/0nzFQWyS3yASRbjly8d/j1gql8Lv1QVfx6DJX73I6/MSq9fpe+QrlKNzaEybxn82JE7O1D67nkOc5npyoyAwHjAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDAKBggqhkjOPQQDAgNIADBFAiBUxvNzPDu+PpDwS/hrHtcPPq6F+xvsU9biBnSwIUZTVwIhAOrGXz/G0xqkc3O5xpQMAJu/pb0HO5E6gzOKYb3LWppi</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Docaposte</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Docaposte</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>2229 Rte des Cretes</StreetAddress>
+              <Locality>Valbonne</Locality>
+              <PostalCode>06560</PostalCode>
+              <CountryName>FR</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:ld-support-wallet@docaposte.fr</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.docaposte.com</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Docaposte EAA Issuer</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIID1jCCA3ygAwIBAgIUCKdy0oq3xpwn74UefM4FayDoPK8wCgYIKoZIzj0EAwIwgc0xYTBfBgNVBAMTWGh0dHBzOi8vcHYzNmRrcDItMzAwMi51a3MxLmRldnR1bm5lbHMubXMvaXNzdWVyLzEuMC81OWIwZjYzNC0xMDA0LTQ0OWEtOTYxZS02MDBmMGQyNDkxMzcxEjAQBgNVBAoTCURvY2Fwb3N0ZTENMAsGA1UECxMESW5ubzEPMA0GA1UEBxMGRlJBTkNFMQ0wCwYDVQQIEwROaWNlMQswCQYDVQQGEwJGUjEYMBYGA1UEYRMPTlRSRlItNDkzMzc2MDA4MB4XDTI2MDYxMjE0MzYyMloXDTI4MDYxMjE0MzYyMlowgc0xYTBfBgNVBAMTWGh0dHBzOi8vcHYzNmRrcDItMzAwMi51a3MxLmRldnR1bm5lbHMubXMvaXNzdWVyLzEuMC81OWIwZjYzNC0xMDA0LTQ0OWEtOTYxZS02MDBmMGQyNDkxMzcxEjAQBgNVBAoTCURvY2Fwb3N0ZTENMAsGA1UECxMESW5ubzEPMA0GA1UEBxMGRlJBTkNFMQ0wCwYDVQQIEwROaWNlMQswCQYDVQQGEwJGUjEYMBYGA1UEYRMPTlRSRlItNDkzMzc2MDA4MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/dsHLmgqdw8gKp99TNN422AcXAXb4zQy0gwG778rAe70x+Cv2Tsz9svE+cRLMcmQvfM9XVXdIAQH358S81Wz5KOCATYwggEyMBIGA1UdEwEB/wQIMAYBAf8CAQIwDgYDVR0PAQH/BAQDAgeAMB0GA1UdDgQWBBSHeBcsjmF/tPzRVIveRM30jdLlbDAfBgNVHSMEGDAWgBSHeBcsjmF/tPzRVIveRM30jdLlbDASBgNVHSUECzAJBgcogYxdBQEGMIGIBgNVHREBAf8EfjB8giBwdjM2ZGtwMi0zMDAyLnVrczEuZGV2dHVubmVscy5tc4ZYaHR0cHM6Ly9wdjM2ZGtwMi0zMDAyLnVrczEuZGV2dHVubmVscy5tcy9pc3N1ZXIvMS4wLzU5YjBmNjM0LTEwMDQtNDQ5YS05NjFlLTYwMGYwZDI0OTEzNzAtBggrBgEFBQcBAwQhMB8wCAYGBACORgEBMBMGBgQAjkYBBjAJBgcEAI5GAQYBMAoGCCqGSM49BAMCA0gAMEUCIDBFAiEAuLsDMWXXMaoGdeomMGZt5RU236KsAwDBz9Y4AiEA3fkgpTkCIGPGZ1Raf+sDDxHq5A2/BWpqI0LW9H2LSjg=</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Digidentity B.V.</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Digidentity (Spade)</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Schenkkade 50</StreetAddress>
+              <Locality>Den Haag</Locality>
+              <PostalCode>2595 AR</PostalCode>
+              <CountryName>NL</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:DDeBlock@digidentity.com</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.digidentity.com</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Digidentity EAA Issuer (Spade)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>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</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">University of the Aegean</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">UAegean WE BUILD Issuer</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>University Hill</StreetAddress>
+              <Locality>Mytilene</Locality>
+              <PostalCode>81100</PostalCode>
+              <CountryName>EL</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:triantafyllou.ni@aegean.gr</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.aegean.gr/</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">UAegean WE BUILD Pilot Credential Issuance</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICODCCAd6gAwIBAgIUQQ6ztvGqElaTS911qhFVZmy6qkAwCgYIKoZIzj0EAwIwUzELMAkGA1UEBhMCR1IxCzAJBgNVBAgMAkdSMRAwDgYDVQQKDAdVQWVnZWFuMRAwDgYDVQQLDAdVQWVnZWFuMRMwEQYDVQQDDAp1YWVnZWFuLmdyMB4XDTI2MDQwMTEyNTMzNFoXDTI4MDcwNDEyNTMzNFowUzELMAkGA1UEBhMCR1IxCzAJBgNVBAgMAkdSMRAwDgYDVQQKDAdVQWVnZWFuMRAwDgYDVQQLDAdVQWVnZWFuMRMwEQYDVQQDDAp1YWVnZWFuLmdyMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdMLtMHM+bYdiJRHJmfA7ypihS8JDAmci4q3FOeLy6mDxleHd06wugkVPVjoX74eBHq4GOw6J+dMiKJWdB+Cha6OBjzCBjDBbBgNVHREEVDBSghRkZXYtaTRtbGFiLmFlZ2Vhbi5ncoIYd3d3LmRldi1pNG1sYWIuYWVnZWFuLmdygg1kc3MuYWVnZWFuLmdyghF3d3cuZHNzLmFlZ2Vhbi5ncjAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0OBBYEFFSKW9UeWwZQqehF+I2VS8J9pSfLMAoGCCqGSM49BAMCA0gAMEUCIEBqB6x0noFHCsnML22JtU0d4tTc8U+TPxGqE+cFKg+YAiEAg974781vxiiLz+JC9MPgRTy961k8xLfHeaNOk8is770=</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-07-28T00:00:00Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Sofia Municipality</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Sofia Municipality</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>33 Moskovska Street</StreetAddress>
+              <Locality>Sofia</Locality>
+              <PostalCode>1000</PostalCode>
+              <CountryName>BG</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:vladimir.marinov@bulgariaspect.net</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.sofia.bg/</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Sofia Municipality EAA Issuer</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIB9jCCAZugAwIBAgIUNpE83RTXxeY3N90eauwEijvsCbgwCgYIKoZIzj0EAwIwVzErMCkGA1UEAwwiU29maWEgTXVuaWNpcGFsaXR5IEVBQSBQcm92aWRlciBDQTEbMBkGA1UECgwSU29maWEgTXVuaWNpcGFsaXR5MQswCQYDVQQGEwJCRzAeFw0yNjA3MzAxMjM4NTVaFw0zNjA3MjcxMjM4NTVaMFcxKzApBgNVBAMMIlNvZmlhIE11bmljaXBhbGl0eSBFQUEgUHJvdmlkZXIgQ0ExGzAZBgNVBAoMElNvZmlhIE11bmljaXBhbGl0eTELMAkGA1UEBhMCQkcwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATJEqNOPQt0uk8bIEpMekiYksNI8CIWT66TSuOEOh5m7zASjWCKEcH9QoPRHjz0JaSP9gPOZrb3ef5QoL6VqLLbo0UwQzASBgNVHRMBAf8ECDAGAQH/AgEAMA4GA1UdDwEB/wQEAwIBBjAdBgNVHQ4EFgQUmZBdnQE2RxDCb3wRZhkWIjzPCOkwCgYIKoZIzj0EAwIDSQAwRgIhALArivn1afp+jYwQ7QbF4MARVZczZUaA2A8Tu6VZ8HsvAiEAwbuzdH3z4SYj8kfGqeB9RfDf1YgoacEUEYeP4LhjobM=</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">iGrant.io Playground</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">iGrant.io Playground</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Vasagatan 10</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <PostalCode>111 20</PostalCode>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">iGrant.io Playground Issuer</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIB7TCCAZSgAwIBAgIUOa3hv0+qRtxPHl9wuppbgbkiDMUwCgYIKoZIzj0EAwIwQjELMAkGA1UEBhMCU0UxCzAJBgNVBAgMAlNFMRIwEAYDVQQKDAlpR3JhbnQuaW8xEjAQBgNVBAMMCW1kb2MgSUFDQTAeFw0yNjA2MTAwNzU1MzZaFw0yNzA2MTAwNzU1MzZaME0xCzAJBgNVBAYTAlNFMQswCQYDVQQIDAJTRTESMBAGA1UECgwJaUdyYW50LmlvMR0wGwYDVQQDDBRtZG9jIERvY3VtZW50IFNpZ25lcjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABHeAzn3fzgoI9CyGyzFq+HgGfANHMPpjHSF8eZ1iAarMZmMc/Z2oGHce9tBF2kE5IwwXRfYXj1ENI1gMC4l9RAejXTBbMAkGA1UdEwQCMAAwDgYDVR0PAQH/BAQDAgeAMB0GA1UdDgQWBBQK0RNHBQqX3MXYaqIHgjhuQafg4TAfBgNVHSMEGDAWgBQoYA0PwkGiciWkhYiSENPS5g8eNTAKBggqhkjOPQQDAgNHADBEAiAVuFoTGVH8NUoIhY3RbB1/MBySthjmqpcoaLE+zhNDAQIgI7ADfHbp2/CSeBt4A7x4Nss50Fe2sAG3bydtTCYxvfw=</X509Certificate>
+              </DigitalId>
+              <DigitalId>
+                <X509Certificate>MIICTjCCAfWgAwIBAgIUTFzJ42inwuTjMAOU/R/d4ciRycEwCgYIKoZIzj0EAwIwQjELMAkGA1UEBhMCU0UxCzAJBgNVBAgMAlNFMRIwEAYDVQQKDAlpR3JhbnQuaW8xEjAQBgNVBAMMCVNELUpXVCBDQTAeFw0yNjA2MTAwNzU1MzZaFw0yNzA2MTAwNzU1MzZaME8xCzAJBgNVBAYTAlNFMQswCQYDVQQIDAJTRTESMBAGA1UECgwJaUdyYW50LmlvMR8wHQYDVQQDDBZTRC1KV1QgRG9jdW1lbnQgU2lnbmVyMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElBt0TBGhPVWjMJrguSv0yB0ndSIUSpQjjQRFA5iEmv6OGrtnxH/XwZW3L2ZEl7aoKB4BNwcZ9tJUN+6NcIwzuKOBuzCBuDAJBgNVHRMEAjAAMA4GA1UdDwEB/wQEAwIHgDBbBgNVHREEVDBShitodHRwczovL2lzc3Vlci1wbGF5Z3JvdW5kLXNlcnZpY2UuaWdyYW50LmlvgiNpc3N1ZXItcGxheWdyb3VuZC1zZXJ2aWNlLmlncmFudC5pbzAdBgNVHQ4EFgQUVU54CdwXpFD7doNSJREN8/Ojt+AwHwYDVR0jBBgwFoAU2Vb/Sr82e9XOQ00qag2rygqOYzswCgYIKoZIzj0EAwIDRwAwRAIgWsDyi0w9HXSW/RflCOlATlXZD8EyUp/fjSNFKuGIGRICIEgvrh2aGoXq2/yMS72uDZFmSA5l9a8JrPAk2EHSjPzf</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+            <ServiceSupplyPoints>
+              <ServiceSupplyPoint>https://issuer-playground-service.igrant.io</ServiceSupplyPoint>
+            </ServiceSupplyPoints>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Piggy Bank</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Piggy Bank</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Vasagatan 10</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <PostalCode>111 20</PostalCode>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Piggy Bank Issuance</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIB9zCCAZ6gAwIBAgIUPO2jUEdmGIHRaf4J8jyxUjljJs4wCgYIKoZIzj0EAwIwTDELMAkGA1UEBhMCU0UxCzAJBgNVBAgMAlNFMRIwEAYDVQQKDAlpR3JhbnQuaW8xHDAaBgNVBAMME2lHcmFudC5pbyBFQUEgRFMgQ0EwHhcNMjYwODA3MTI0MzA2WhcNMjcwODA3MTI0MzA2WjA3MRMwEQYDVQQDDApQaWdneSBCYW5rMRMwEQYDVQQKDApQaWdneSBCYW5rMQswCQYDVQQGEwJTRTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABG0keEedsAPRjkuYxr1F8NlbPskql5BswjqjghKxxWGhNLCDgEFYpRolXCzZxWYyi+P9qx1KShBRERaaTsZxwoOjczBxMG8GA1UdEQRoMGaCEG9pZDR2Yy5pZ3JhbnQuaW+GUmh0dHBzOi8vb2lkNHZjLmlncmFudC5pby9vcmdhbmlzYXRpb24vMmZjNGVjOGEtYzQxZC00MTY1LTkzMTQtN2I5OTY5MjdmNmYxL3NlcnZpY2UwCgYIKoZIzj0EAwIDRwAwRAIgO/gnHnDyp+TrDRaVPrBSX4TqZocKmNrQS0yfqeBO41wCIC71w1cn20DHOrmYqpCXK9z98alQ7R2OSxwvEU2Vhum5</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">WE BUILD Shop</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">WE BUILD Shop</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Vasagatan 10</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <PostalCode>111 20</PostalCode>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">WE BUILD Shop Issuance</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIB/TCCAaSgAwIBAgIUcGMo5kOGBSbvdBD+UJ92pr4/Q0EwCgYIKoZIzj0EAwIwTDELMAkGA1UEBhMCU0UxCzAJBgNVBAgMAlNFMRIwEAYDVQQKDAlpR3JhbnQuaW8xHDAaBgNVBAMME2lHcmFudC5pbyBFQUEgRFMgQ0EwHhcNMjYwODA3MTI1MTI4WhcNMjcwODA3MTI1MTI4WjA9MRYwFAYDVQQDDA1XRSBCVUlMRCBTaG9wMRYwFAYDVQQKDA1XRSBCVUlMRCBTaG9wMQswCQYDVQQGEwJTRTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABMxBGKVGL9zNF1gBycm9TLKp60IQxyNilmQQoozjRnhLcmtjh+wKAcNAC0pYlUwyOUe5e780JjALrfwXiTkAUP6jczBxMG8GA1UdEQRoMGaCEG9pZDR2Yy5pZ3JhbnQuaW+GUmh0dHBzOi8vb2lkNHZjLmlncmFudC5pby9vcmdhbmlzYXRpb24vMmZjNGVjOGEtYzQxZC00MTY1LTkzMTQtN2I5OTY5MjdmNmYxL3NlcnZpY2UwCgYIKoZIzj0EAwIDRwAwRAIgPaUEphZfBz0EX6ch3+hXZP9U+Evd8kiSJtlqrwt2UdwCIFcNOJZCF9J3ixWnf/QtOVY6V8qmmIhlb0w1qK9WTYMf</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">OneSpan NV</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">OneSpan NV</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Romeinsesteenweg 564 C 1853 Grimbergen</StreetAddress>
+              <Locality>Strombeek-Bever</Locality>
+              <CountryName>BE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:venka.somayaji@onespan.com</URI>
+            <URI xml:lang="en">mailto:support@onespan.com</URI>
+            <URI xml:lang="en">https://onespan.com</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://onespan.com</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">OneSpan NV EAA Issuance</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICGTCCAcCgAwIBAgIUT1oOeSKdyy0S7aN29y647XIPwKwwCgYIKoZIzj0EAwIwazETMBEGA1UEAxMKT25lU3BhbiBOVjETMBEGA1UEChMKT25lU3BhbiBOVjEYMBYGA1UEYRMPVkFUQkUwNDQ2ODIyODc3MRgwFgYDVQQHEw9TdHJvbWJlZWstQmV2ZXIxCzAJBgNVBAYTAkJFMB4XDTI2MDcyNDE2MDcxM1oXDTI4MDcyMzE2MDcxM1owazETMBEGA1UEAxMKT25lU3BhbiBOVjETMBEGA1UEChMKT25lU3BhbiBOVjEYMBYGA1UEYRMPVkFUQkUwNDQ2ODIyODc3MRgwFgYDVQQHEw9TdHJvbWJlZWstQmV2ZXIxCzAJBgNVBAYTAkJFMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEkmRYl/U7yYLdUiBsZUh96jOlp8otzcaTHGlW7sR0Y/HGhSyQH7d0hTxgqJXtv6udLeW2W9Ai/RxIZCCZRY7CPqNCMEAwHQYDVR0OBBYEFMAjLa14aCZ5Tih+c9T2OLno3LRjMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMAoGCCqGSM49BAMCA0cAMEQCIFOHOXCZIlCHFKUdU0ymUlvj2+XTanfs1ROBaVfOlb99AiBI4c/su5i/Ru1cSx9AWQj2AZqQTKod37iboA75zZyTSA==</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-07-24T17:34:29Z</StatusStartingTime>
+            <ServiceSupplyPoints>
+              <ServiceSupplyPoint>https://onespan.com</ServiceSupplyPoint>
+            </ServiceSupplyPoints>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">WeCare Insurance</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">WeCare Insurance</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Demo Street 1</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.igrant.io/demo</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">WeCare Insurance (Issuer, iGrant.io demo)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>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</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">OneSpan LV</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">OneSpan LV</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Romeinsesteenweg 564 C 1853 Grimbergen</StreetAddress>
+              <Locality>Strombeek-Bever</Locality>
+              <CountryName>BE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:venka.somayaji@onespan.com</URI>
+            <URI xml:lang="en">https://www.onespan.com</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.onespan.com</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">OneSpan LV EAA Issuance</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICDjCCAbWgAwIBAgIJAKTzkQgPOTsbMAoGCCqGSM49BAMCMGsxEzARBgNVBAMTCk9uZVNwYW4gTFYxEzARBgNVBAoTCk9uZVNwYW4gTFYxGDAWBgNVBGETD1ZBVEJFMDQ0NjgyMjg3NzEYMBYGA1UEBxMPU3Ryb21iZWVrLUJldmVyMQswCQYDVQQGEwJCRTAeFw0yNjA3MjMyMTE2MTNaFw0zNjA3MjMyMTE2MTNaMGsxEzARBgNVBAMTCk9uZVNwYW4gTFYxEzARBgNVBAoTCk9uZVNwYW4gTFYxGDAWBgNVBGETD1ZBVEJFMDQ0NjgyMjg3NzEYMBYGA1UEBxMPU3Ryb21iZWVrLUJldmVyMQswCQYDVQQGEwJCRTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABDXVrGBtrthfcmNxq7DDwVsChFcJoJSENl0S1WdAPd77AR5iyB9PkOAHl4/lkhcFYltSzK+hrf7/jhrRs4aI3SqjQjBAMB0GA1UdDgQWBBSVO3U/6kJQuIMHXvBtdUHg9zTFNTAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBBjAKBggqhkjOPQQDAgNHADBEAiBZYvdmnwfYnIB/zPnnvxIZXgzQkw65eCfShAPoPO8FfAIgMXVW59dOTYDVwZ1OdE3n+vuOOCHTLLNj5+i/v7HUvkI=</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-07-23T21:16:13Z</StatusStartingTime>
+            <ServiceSupplyPoints>
+              <ServiceSupplyPoint>https://www.onespan.com</ServiceSupplyPoint>
+            </ServiceSupplyPoints>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Sweden</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Sweden</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Demo Street 1</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.igrant.io/demo</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Sweden (Issuer, iGrant.io demo)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICTzCCAfSgAwIBAgIUaPGnFAuptsAx2cog+b9pttfinv4wCgYIKoZIzj0EAwIwSjELMAkGA1UEBhMCU0UxEjAQBgNVBAoMCWlHcmFudC5pbzEnMCUGA1UEAwweaUdyYW50LmlvIExhbmRpbmcgUGFnZSBEZW1vIENBMB4XDTI2MTAwNjA4MDQ1MVoXDTI4MTAwNTA4MDk1MVowLzEPMA0GA1UEAwwGU3dlZGVuMQ8wDQYDVQQKDAZTd2VkZW4xCzAJBgNVBAYTAlNFMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+uoMOkKP5cZIXkn801N0buEa86P3d8JucQ8V+kpm+xog5tCfPMfCrHIucOQOJVxkCR2J+hYzqpX4kcnYjeerXKOB0jCBzzAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDBvBgNVHREEaDBmghBvaWQ0dmMuaWdyYW50LmlvhlJodHRwczovL29pZDR2Yy5pZ3JhbnQuaW8vb3JnYW5pc2F0aW9uLzA0NzgzZTNlLWY5ODQtNDM5My04NmE3LWUzNzcxYzkzMjdmZi9zZXJ2aWNlMB0GA1UdDgQWBBS1fDzd5a5OYKlaT/yECvfnlf/YRzAfBgNVHSMEGDAWgBToxDzzGl/9BZvdT7P4Ky75N0ID2DAKBggqhkjOPQQDAgNJADBGAiEAtFaiiyiYkxG3qGpIYa6kTSAf1y5oLzfeAKr8lVTcu+gCIQCFGXnJTn+te743blqFgIJkMK994mz+u+yADVexVZ2AwA==</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Piggy Bank</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Piggy Bank</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Demo Street 1</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.igrant.io/demo</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Piggy Bank (Issuer, iGrant.io demo)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>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</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">University B</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">University B</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Demo Street 1</StreetAddress>
+              <Locality>Berlin</Locality>
+              <CountryName>DE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.igrant.io/demo</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">University B (Issuer, iGrant.io demo)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICWzCCAgCgAwIBAgIUSvdev6YVcbgdwSqQDjdqIMdYuegwCgYIKoZIzj0EAwIwSjELMAkGA1UEBhMCU0UxEjAQBgNVBAoMCWlHcmFudC5pbzEnMCUGA1UEAwweaUdyYW50LmlvIExhbmRpbmcgUGFnZSBEZW1vIENBMB4XDTI2MTAwNjA4MDQ1N1oXDTI4MTAwNTA4MDk1N1owOzEVMBMGA1UEAwwMVW5pdmVyc2l0eSBCMRUwEwYDVQQKDAxVbml2ZXJzaXR5IEIxCzAJBgNVBAYTAkRFMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUL84nYl1iyqUIflUNSbKGB7QHJw754OPFhzG4VaztlhtSRrevxo++jb4VwjvZP+xQiuiUYnLepi5DYMqMgxGQaOB0jCBzzAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDBvBgNVHREEaDBmghBvaWQ0dmMuaWdyYW50LmlvhlJodHRwczovL29pZDR2Yy5pZ3JhbnQuaW8vb3JnYW5pc2F0aW9uL2Y5MDVjY2UxLTczYjEtNDNlNi1hMzQzLTE4ZTkyNjFlOGNjMi9zZXJ2aWNlMB0GA1UdDgQWBBTnBfzfbtN3GiG8H3qsgvcYJU6EDzAfBgNVHSMEGDAWgBToxDzzGl/9BZvdT7P4Ky75N0ID2DAKBggqhkjOPQQDAgNJADBGAiEAsHy0DYK2nMbtNO1Ipus0AQT5v3Om0+SQx4OMZ84CmGECIQDPYgjvISDtrr/pDB63OoIjZqTx4dCsYFFYMG3T9MI32A==</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">ABC organisation</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">ABC organisation</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Vasagatan 10</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <PostalCode>11121</PostalCode>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:holder@example.com</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://igrant.io/</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">EAA issuer</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICgjCCAWoCFBTtnNmo3TKkZQnL/ZbXOhChGr5fMA0GCSqGSIb3DQEBCwUAMIGaMQswCQYDVQQGEwJTRTESMBAGA1UECAwJU1RPQ0tIT0xNMRIwEAYDVQQHDAlTVE9DS0hPTE0xEzARBgNVBAoMCkVYQU1QTEUgQ0ExEzARBgNVBAsMCkVYQU1QTEUgQ0ExEzARBgNVBAMMCkVYQU1QTEUgQ0ExJDAiBgkqhkiG9w0BCQEWFWV4YW1wbGVjYUB5b3BtYWlsLmNvbTAeFw0yNjA0MTcxMTIzMDNaFw0yNzA0MTcxMTIzMDNaMCsxDTALBgNVBAMMBFRlc3QxDTALBgNVBAoMBFRlc3QxCzAJBgNVBAYTAlNFMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAExiiV9pZ1yi7fBtRcz4Ij2wnpINPKS1wkXj4/V84NH8cQnhf+o09/JRIjENtO372KWSsmCtQp3sRYpXQbCJuEtTANBgkqhkiG9w0BAQsFAAOCAQEANmNKPOQcdXojCUR88IUA5WzWFWvzExGZV28Ua+tmCD+CLIDCZ2UU2RYKbk/H52u8T/y/nH4Z5jsxdJ05mfVU/D8wgv4oaVhD5pZdX8g22XRSqk5H86RjQPCPja9ZcutS93oLRdqeQmEc9hes8zsszcd6FWsH0RmPBH1OZxURhKihTZujeR9YCU2e4GgfZ1PI5bHCOROjGDE6vseRWA6fNeEG8tOQC6FRH3cghuz4U5av0zWDo2W57bcUKZusQMU8InTQ88u5TzCCpZkYkoSWRN02G/B8IZpySReWmwfbtzBJAVl+6d5AnyI7UAgHGG27OyqHC4aQ+yJhKMw056Ak/A==</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-08-21T11:12:00Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Giga Education Wallet Showcase</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Giga Education Wallet Showcase</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Slottsbacken 8</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <PostalCode>111 30</PostalCode>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://education-showcase.eubw.dev</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Educational Institution Certificate Issuance</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICJjCCAc2gAwIBAgIUON83XDACjOQcWiAT/H12tz69hD8wCgYIKoZIzj0EAwIwXDELMAkGA1UEBhMCU0UxIzAhBgNVBAoMGkVkdWNhdGlvbiBTaG93Y2FzZSBEZW1vIENBMSgwJgYDVQQDDB9FZHVjYXRpb24gU2hvd2Nhc2UgRGVtbyBSb290IENBMB4XDTI2MDgxMzIyNDk1NVoXDTI4MDgxMjIyNDk1NVowXzEnMCUGA1UEAwweR2lnYSBFZHVjYXRpb24gV2FsbGV0IFNob3djYXNlMScwJQYDVQQKDB5HaWdhIEVkdWNhdGlvbiBXYWxsZXQgU2hvd2Nhc2UxCzAJBgNVBAYTAlNFMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEF348iBAQQQuUVOQBViBkfODLQxhXJXvJlDH/+Yy5jgJiup2ZjGpdqN/r1SIRRQsMSQR9qKSly/MtE2sD5dtJ2aNqMGgwJgYDVR0RBB8wHYIbZWR1Y2F0aW9uLXNob3djYXNlLmV1YncuZGV2MB0GA1UdDgQWBBRuJ4omPr8DZmEnOXXsvS7KBObInDAfBgNVHSMEGDAWgBTubX6NN/1yPQ3Mupv1Cm90+N6NeDAKBggqhkjOPQQDAgNHADBEAiADdzwhqiEBxJ08SOZ72LbqXeYreZ0QIn2xlEpKd2tH+gIgTVvOrYhuHLdR2H8W+exaUn1OnXcZOUeU0uSTRTkH4WM=</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Infogreffe</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Infogreffe</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>5-7 avenue de Paris</StreetAddress>
+              <Locality>Vincennes</Locality>
+              <PostalCode>94300</PostalCode>
+              <CountryName>FR</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:contact@infogreffe.fr</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.infogreffe.fr</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Infogreffe EBWOID Issuance</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICTTCCAfOgAwIBAgIUaxUaGggu1jVVVqchPcVNhwiijeMwCgYIKoZIzj0EAwIwQTEdMBsGA1UEAwwUSW5mb2dyZWZmZSBFQUEgRFMgQ0ExEzARBgNVBAoMCkluZm9ncmVmZmUxCzAJBgNVBAYTAkZSMB4XDTI2MDgyNzIyMDY1MVoXDTI3MDgyNzIyMDY1MVowNzETMBEGA1UEAwwKSW5mb2dyZWZmZTETMBEGA1UECgwKSW5mb2dyZWZmZTELMAkGA1UEBhMCRlIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASmC7OgweSyt+lLFh72CMNQVrj8CrHc9uSe9JGArTKXJzLlkr2qD4VXnuvN4RRox9VkBx2+SKfM0vT4y0J8YiDlo4HSMIHPMAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMB0GA1UdDgQWBBQYFN2Nfv4Ebimcwhy5/Pv5lyb/kjAfBgNVHSMEGDAWgBRUdgFCg8msV0PUL7YRonZYWkkxRTBvBgNVHREEaDBmghBvaWQ0dmMuaWdyYW50LmlvhlJodHRwczovL29pZDR2Yy5pZ3JhbnQuaW8vb3JnYW5pc2F0aW9uLzkwZTQ0MGI2LWVkMzQtNDg4YS1hMTRkLTNhMmU1MTlkNWRiMC9zZXJ2aWNlMAoGCCqGSM49BAMCA0gAMEUCIGi8DMw0t95DoYxCmpex/Xn41PBJlF2eWKwT4FFZEItQAiEAiWTBaH4E7sIHsj1zZA36V3Xjih3OD1WblYdcNZ/H0X8=</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">NEOTHERM</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">NEOTHERM</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>8 Rue le Château</StreetAddress>
+              <Locality>Caramany</Locality>
+              <PostalCode>66720</PostalCode>
+              <CountryName>FR</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:admin@neotherm.fr</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://neotherm-businesswallet.igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">NEOTHERM Business Wallet Authenticator (EAA Issuance)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICRTCCAeugAwIBAgIUESIRWybdVVxI3g1YhZGiIOVB7iIwCgYIKoZIzj0EAwIwPTEbMBkGA1UEAwwSTkVPVEhFUk0gRUFBIERTIENBMREwDwYDVQQKDAhORU9USEVSTTELMAkGA1UEBhMCRlIwHhcNMjYwOTE0MTUzMTM2WhcNMjgwOTEzMTUzMTM2WjAzMREwDwYDVQQDDAhORU9USEVSTTERMA8GA1UECgwITkVPVEhFUk0xCzAJBgNVBAYTAkZSMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEwcK2ORc0aZoz277VqfClLAU5ds06EDdT7NGK7oF45NRShfMvCs58t/Ty2n4NuHMR8do1D6pWZ+pB8IhFEt5tKqOB0jCBzzAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDAdBgNVHQ4EFgQUyBnYEH3J+mL+Io1KVLn4js68hKkwHwYDVR0jBBgwFoAUDqoilNF2Ba0wl2MSFv4C8Bp/wh4wbwYDVR0RBGgwZoIQb2lkNHZjLmlncmFudC5pb4ZSaHR0cHM6Ly9vaWQ0dmMuaWdyYW50LmlvL29yZ2FuaXNhdGlvbi8yNDVmYTBmZi04MGFiLTRlNDItOGMxMS1jNDZmYWRjNjVjYmMvc2VydmljZTAKBggqhkjOPQQDAgNIADBFAiEA/Qjme/mixeyigJQHermjAUVtYm8nBjPHJ+HnCuETXSMCIBPR9oDbPVjyv5k0OGb6LxfsrZ6y4iuZeq/K2VVyEDAE</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+            <ServiceSupplyPoints>
+              <ServiceSupplyPoint>https://oid4vc.igrant.io/organisation/245fa0ff-80ab-4e42-8c11-c46fadc65cbc/service</ServiceSupplyPoint>
+            </ServiceSupplyPoints>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">GALLE</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">GALLE</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>18 Rue de Vesle</StreetAddress>
+              <Locality>Reims</Locality>
+              <PostalCode>51100</PostalCode>
+              <CountryName>FR</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:admin@galle.fr</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://galle-businesswallet.igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">GALLE Business Wallet Authenticator (EAA Issuance)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICOTCCAd+gAwIBAgIUPhOa3HPjAFAMZLR/wTSeGV1N1cwwCgYIKoZIzj0EAwIwNzEYMBYGA1UEAwwPR0FMTEUgRUFBIERTIENBMQ4wDAYDVQQKDAVHQUxMRTELMAkGA1UEBhMCRlIwHhcNMjYwOTE0MTUzMTM1WhcNMjgwOTEzMTUzMTM1WjAtMQ4wDAYDVQQDDAVHQUxMRTEOMAwGA1UECgwFR0FMTEUxCzAJBgNVBAYTAkZSMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEafVEe6z5rUPowZ92Ml4/gcj3HOA4tqZlXQa6tQCFx8MwAxNJqBoHhnfdSXHZSrge/jRfVUViFxtVxKINCUTlbaOB0jCBzzAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDAdBgNVHQ4EFgQUSI2KYqzCvfHl6/0vq5atIgCTAIYwHwYDVR0jBBgwFoAUHY6OY5sZchQVcxPoZTf/rSiauMowbwYDVR0RBGgwZoIQb2lkNHZjLmlncmFudC5pb4ZSaHR0cHM6Ly9vaWQ0dmMuaWdyYW50LmlvL29yZ2FuaXNhdGlvbi9lMzIwMzljNi1kMDAyLTQ5MzItOTA0NS0wYTI4NDAzOTdjNTEvc2VydmljZTAKBggqhkjOPQQDAgNIADBFAiEAz5MDYNCp3jq9ynNqkk9ctqsljUBfzjiPDehfjE7dKIoCICeiBvDkNpXiiiisCaAbqkMDSvryMaLjOg434WraVFg+</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+            <ServiceSupplyPoints>
+              <ServiceSupplyPoint>https://oid4vc.igrant.io/organisation/e32039c6-d002-4932-9045-0a2840397c51/service</ServiceSupplyPoint>
+            </ServiceSupplyPoints>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">AU VERRE'DOUBLE</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">AU VERRE'DOUBLE</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Rue du Mas</StreetAddress>
+              <Locality>Paziols</Locality>
+              <PostalCode>11350</PostalCode>
+              <CountryName>FR</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:admin@auverredouble.fr</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://auverredouble-businesswallet.igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">AU VERRE'DOUBLE Business Wallet Authenticator (EAA Issuance)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICXjCCAgWgAwIBAgIUJJIsV45Zjs7SfU3IR1LcUJiDmGcwCgYIKoZIzj0EAwIwSTEhMB8GA1UEAwwYQVUgVkVSUkVET1VCTEUgRUFBIERTIENBMRcwFQYDVQQKDA5BVSBWRVJSRURPVUJMRTELMAkGA1UEBhMCRlIwHhcNMjYwOTE0MTUzMTM0WhcNMjgwOTEzMTUzMTM0WjBBMRgwFgYDVQQDDA9BVSBWRVJSRSdET1VCTEUxGDAWBgNVBAoMD0FVIFZFUlJFJ0RPVUJMRTELMAkGA1UEBhMCRlIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATidgmYharZF071UwvkbM8OaX8e4TeBJgUCPdzD9aBZB4SHv/wUrSwEiNRd3YvzzD8bS5EUQMYMztFYbbyfc8dUo4HSMIHPMAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMB0GA1UdDgQWBBSeGwS6MMrsX/PpycLUPWNUB2bACDAfBgNVHSMEGDAWgBSHdKTM7dhkIu0yJEEpaXEM0U6rNzBvBgNVHREEaDBmghBvaWQ0dmMuaWdyYW50LmlvhlJodHRwczovL29pZDR2Yy5pZ3JhbnQuaW8vb3JnYW5pc2F0aW9uLzNkZjUyMWE1LWQ4ZDAtNDAyNy1hMTE1LTM2ODQzZDQwNzliNC9zZXJ2aWNlMAoGCCqGSM49BAMCA0cAMEQCICilfMTloX8NaBPQue7do8LtfgYUNshvOdxwayXV1dTaAiBN5wHBogM3xED1s0vNKK1VLn8gJyvMFfTZsnKqRv/zTw==</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+            <ServiceSupplyPoints>
+              <ServiceSupplyPoint>https://oid4vc.igrant.io/organisation/3df521a5-d8d0-4027-a115-36843d4079b4/service</ServiceSupplyPoint>
+            </ServiceSupplyPoints>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Travel Company</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Travel Company</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Demo Street 1</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.igrant.io/demo</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Travel Company (Issuer, iGrant.io demo)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>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</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Banca Transilvania</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Banca Transilvania</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Demo Street 1</StreetAddress>
+              <Locality>Cluj-Napoca</Locality>
+              <CountryName>RO</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.igrant.io/demo</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Banca Transilvania (Issuer, iGrant.io demo)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>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</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Nordic Energy Services AB</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Nordic Energy Services AB</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Demo Street 1</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.igrant.io/demo</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Nordic Energy Services AB (Issuer, iGrant.io demo)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICczCCAhqgAwIBAgIUNTrYbMJczee/nyqjcsMQEdffC3wwCgYIKoZIzj0EAwIwSjELMAkGA1UEBhMCU0UxEjAQBgNVBAoMCWlHcmFudC5pbzEnMCUGA1UEAwweaUdyYW50LmlvIExhbmRpbmcgUGFnZSBEZW1vIENBMB4XDTI2MTAwNjA4MDUwM1oXDTI4MTAwNTA4MTAwM1owVTEiMCAGA1UEAwwZTm9yZGljIEVuZXJneSBTZXJ2aWNlcyBBQjEiMCAGA1UECgwZTm9yZGljIEVuZXJneSBTZXJ2aWNlcyBBQjELMAkGA1UEBhMCU0UwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATzVxfZNm491ykBBULN56EbIbRgTbukpunL2HwPzQ1/7VJI1jgBFzGl0xXxEz6TlPrTmsBU2o+0IRrigd80mCpuo4HSMIHPMAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMG8GA1UdEQRoMGaCEG9pZDR2Yy5pZ3JhbnQuaW+GUmh0dHBzOi8vb2lkNHZjLmlncmFudC5pby9vcmdhbmlzYXRpb24vZDA2MTdmMDItMDg5NS00NzI4LThhMzAtMDFiYzY0OWFlZTk1L3NlcnZpY2UwHQYDVR0OBBYEFBW+rdVLA0gsl6ApUD7GHYpaDuSNMB8GA1UdIwQYMBaAFOjEPPMaX/0Fm91Ps/grLvk3QgPYMAoGCCqGSM49BAMCA0cAMEQCIFSKXFRtwVJJmJqZANXbkO5QxzYA727cTu1GmgAzAAvhAiBnorNwmSbgPlga2LRePwhtGqy+W+HusR9zzqDzrDRgvw==</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">University A</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">University A</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Demo Street 1</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.igrant.io/demo</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">University A (Issuer, iGrant.io demo)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICWTCCAgCgAwIBAgIUJkd8RLneWGGMdp2wl0ZFFmRpOxEwCgYIKoZIzj0EAwIwSjELMAkGA1UEBhMCU0UxEjAQBgNVBAoMCWlHcmFudC5pbzEnMCUGA1UEAwweaUdyYW50LmlvIExhbmRpbmcgUGFnZSBEZW1vIENBMB4XDTI2MTAwNjA4MDQ1NVoXDTI4MTAwNTA4MDk1NVowOzEVMBMGA1UEAwwMVW5pdmVyc2l0eSBBMRUwEwYDVQQKDAxVbml2ZXJzaXR5IEExCzAJBgNVBAYTAlNFMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhz3pflLrm2n9m4IuUWPUsTfaZKfl4k865uf0CvM6SvhYhPrA2kiouWid5ZLZUqozymTMGojhzs/RZDUT/rdcSKOB0jCBzzAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDBvBgNVHREEaDBmghBvaWQ0dmMuaWdyYW50LmlvhlJodHRwczovL29pZDR2Yy5pZ3JhbnQuaW8vb3JnYW5pc2F0aW9uLzVjZDA3MjdkLWMwNWMtNGE0OS1hZjFjLTQyYTBjZWNkYTIzMi9zZXJ2aWNlMB0GA1UdDgQWBBQUOrjseDh9fap9qyeRVYQK8aKcsDAfBgNVHSMEGDAWgBToxDzzGl/9BZvdT7P4Ky75N0ID2DAKBggqhkjOPQQDAgNHADBEAiA/ZV+pii9BzGA6trjqiGoKeh+VLiqCN10ioK4420s73QIgR0ZaSWN8XtwhwRX0d3jpXjvUbBMCmjojhSshTIfVvHA=</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Developer Org</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Developer Org</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Demo Street 1</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://docs.igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Developer Org (EAA Issuer, iGrant.io docs)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICZzCCAg2gAwIBAgIUGq63/no4PPN75n107FkfOr8r8QkwCgYIKoZIzj0EAwIwSjELMAkGA1UEBhMCU0UxEjAQBgNVBAoMCWlHcmFudC5pbzEnMCUGA1UEAwweaUdyYW50LmlvIExhbmRpbmcgUGFnZSBEZW1vIENBMB4XDTI2MTAwNjExNTA0NVoXDTI4MTAwNTExNTU0NVowSDEhMB8GA1UEAwwYRGV2ZWxvcGVyIE9yZyBFQUEgSXNzdWVyMRYwFAYDVQQKDA1EZXZlbG9wZXIgT3JnMQswCQYDVQQGEwJTRTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABCIlnm1S8ynfzeICwkHUMpT/xoHmlRIhWNVKoOvnCbNYwVurZ9+FAZY5GnL/45F/4P5QK1cA9zLhwyx5Ul94ryijgdIwgc8wDAYDVR0TAQH/BAIwADAOBgNVHQ8BAf8EBAMCB4AwbwYDVR0RBGgwZoIQb2lkNHZjLmlncmFudC5pb4ZSaHR0cHM6Ly9vaWQ0dmMuaWdyYW50LmlvL29yZ2FuaXNhdGlvbi9jYzhmNjMwMy1jNDlmLTQ2OGMtYWQzYy1jZTkzYTg2NWY5NjMvc2VydmljZTAdBgNVHQ4EFgQU9TH798z5HC6gdBf02hjjQbmzKuMwHwYDVR0jBBgwFoAU6MQ88xpf/QWb3U+z+Csu+TdCA9gwCgYIKoZIzj0EAwIDSAAwRQIgcTTlRR2mtdmBJBd4E2g/5c64UIKisCyWpvhIoekgm4cCIQC2ZtvDJxCNkN5VbvDQ+GIBKycwMIng0hbiELetRpzJEQ==</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Piggy Bank</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Piggy Bank</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Vasagatan 10</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <PostalCode>111 20</PostalCode>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Piggy Bank Private</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIByjCCAXCgAwIBAgIUO4I870PaulS5BTYMAoqlom2ErowwCgYIKoZIzj0EAwIwSzELMAkGA1UEBhMCU0UxEjAQBgNVBAgMCVN0b2NraG9sbTETMBEGA1UECgwKUGlnZ3kgQmFuazETMBEGA1UEAwwKUGlnZ3kgQmFuazAeFw0yNjEwMDYwODQ5NDZaFw0zNjEwMDMwODQ5NDZaMEsxCzAJBgNVBAYTAlNFMRIwEAYDVQQIDAlTdG9ja2hvbG0xEzARBgNVBAoMClBpZ2d5IEJhbmsxEzARBgNVBAMMClBpZ2d5IEJhbmswWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATrT1BW7AZhnfRpeT83FElbbuAevOhHMqUGH4dvbB5k1sFr6uFsxm9daABHEr3EagHaVslR5x3XDtlB4yAr15H0ozIwMDAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBSyrcijj4/mtSS+eLArdyfZNoH2iDAKBggqhkjOPQQDAgNIADBFAiAeSmDtLT9YBxQPV4DKGXEGQ6soqWAmMJ8kY/3884EZzgIhAPVoYqyv3fOPBUZzkES7seUrrBhgS8/9rneRCxvZvY8s</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Bankovní identita, a.s.</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Bank iD</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Smrčkova 2485/4</StreetAddress>
+              <Locality>Praha 8</Locality>
+              <PostalCode>18000</PostalCode>
+              <CountryName>CZ</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:filip@bankid.cz</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.bankid.cz</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Bank iD EAA Issuer</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIBezCCASKgAwIBAgIEahXKijAKBggqhkjOPQQDAjAcMRowGAYDVQQDDBFCYW5rIElEIENaIElzc3VlcjAeFw0yNjA1MjYxNjMwMDJaFw0zNjA1MjYxNjMwMDJaMBwxGjAYBgNVBAMMEUJhbmsgSUQgQ1ogSXNzdWVyMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE61evoRVQLCyPD+yBDOy9J4/Jq9aw9iZc3vzJv5ypz+HAgmQFtN5DLwDda2V4SvmW5aCB0ihxDEpt+S1786Ev9qNSMFAwDgYDVR0PAQH/BAQDAgeAMB8GA1UdIwQYMBaAFKcU8MwHRPUBHt1T0cKOeAN54JUmMB0GA1UdDgQWBBSnFPDMB0T1AR7dU9HCjngDeeCVJjAKBggqhkjOPQQDAgNHADBEAiAe9ED7lnNk2lcSFszwP/9+IQaABh37WbhrK7rhLtCKhAIgSK/tRLUQP0ZQd96ajRNtaj4WsUO9xZj9769vpuy+HDg=</X509Certificate>
+              </DigitalId>
+              <DigitalId>
+                <X509Certificate>MIICUjCCAfigAwIBAgIRAMdzHfbEZ4tyYONHsy7ci1wwCgYIKoZIzj0EAwIwgY8xCzAJBgNVBAYTAkRFMQ8wDQYDVQQIEwZIZXNzZW4xDzANBgNVBAcTBkxhbmdlbjEXMBUGA1UECRMOUmhlaW5zdHJhc3NlIDUxDjAMBgNVBBETBTYzMjI1MRQwEgYDVQQKEwtJRHVuaW9uIFNDRTEfMB0GA1UEAxMWaHR0cHM6Ly93d3cuaWR1bmlvbi5ldTAeFw0yNjEwMDIwOTExMjZaFw0yODEwMDIwOTExMjZaMHExCzAJBgNVBAYTAkNaMQ4wDAYDVQQIEwVQcmFoYTEOMAwGA1UEBxMFUHJhaGExITAfBgNVBAoMGEJhbmtvdm7DrSBpZGVudGl0YSwgYS5zLjEfMB0GA1UEAxMWd2FsbGV0LnN0YWdlLmJhbmtpZC5jejBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABCCuGy/THyJCnzvfSiU/UxB3BI2Vwhe1qEbUQrwciuPeJXMmlYv7vlyhalD6s+HKzQnRWRPVqAOL02XLzVO1WwSjUjBQMA4GA1UdDwEB/wQEAwIHgDAdBgNVHQ4EFgQUUhLve5ZBEOrbX/B3n3OlNCAfulIwHwYDVR0jBBgwFoAUsVT9cYdkx6aI6ATvS5jGmLUmdp4wCgYIKoZIzj0EAwIDSAAwRQIgX5NSNwpj5DGTgtFNQdQF+kBt95ci/fg7lBOZfhnLv2oCIQDGkHkE69tZA1ifc+s0STaPUXVz/6o5Eau1guk2qTO9HQ==</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+            <ServiceSupplyPoints>
+              <ServiceSupplyPoint>https://wallet.stage.bankid.cz/.well-known/openid-credential-issuer/d3884895-816a-45e6-86e2-1024783fa295</ServiceSupplyPoint>
+            </ServiceSupplyPoints>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">iGrant.io Playground (France Identité)</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">iGrant.io Playground (France Identité)</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Vasagatan 10</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <PostalCode>111 20</PostalCode>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">iGrant.io Playground (France Identité) Issuer</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIB7jCCAZSgAwIBAgIUNO9U0wM5BPvAUfyplLIuTK5AUdUwCgYIKoZIzj0EAwIwQjELMAkGA1UEBhMCU0UxCzAJBgNVBAgMAlNFMRIwEAYDVQQKDAlpR3JhbnQuaW8xEjAQBgNVBAMMCW1kb2MgSUFDQTAeFw0yNjA0MjcxODMxNTBaFw0yNzA0MjcxODMxNTBaME0xCzAJBgNVBAYTAlNFMQswCQYDVQQIDAJTRTESMBAGA1UECgwJaUdyYW50LmlvMR0wGwYDVQQDDBRtZG9jIERvY3VtZW50IFNpZ25lcjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABFDb5cnl6hz69XWJU89BQOcqRQHD7MxOg4O9dukDeDm0aE9RssllOlR/ciWyZOw8R//yoIPUe01fuI9oAWTtEayjXTBbMAkGA1UdEwQCMAAwDgYDVR0PAQH/BAQDAgeAMB0GA1UdDgQWBBQ3GasoEW9WiIg9HfzmJRvBN0M4NTAfBgNVHSMEGDAWgBStUMMz6QhA19QQAqVwaTl53twUWzAKBggqhkjOPQQDAgNIADBFAiEAoGCbLVuXVviwFV4Wz0MwWab+dUOkpdaTHDkH/P5W1EwCIGWnfbfGebEz4yeffaWKUtAg4r5ySFY1eRBO3+pe0nNn</X509Certificate>
+              </DigitalId>
+              <DigitalId>
+                <X509Certificate>MIICTjCCAfWgAwIBAgIUDmACM+roI6J11Ub+6TLdtRRzcY4wCgYIKoZIzj0EAwIwQjELMAkGA1UEBhMCU0UxCzAJBgNVBAgMAlNFMRIwEAYDVQQKDAlpR3JhbnQuaW8xEjAQBgNVBAMMCVNELUpXVCBDQTAeFw0yNjA0MjcxODMxNTBaFw0yNzA0MjcxODMxNTBaME8xCzAJBgNVBAYTAlNFMQswCQYDVQQIDAJTRTESMBAGA1UECgwJaUdyYW50LmlvMR8wHQYDVQQDDBZTRC1KV1QgRG9jdW1lbnQgU2lnbmVyMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERct+LXEZk9DEEk23oqSgeD2Gnq5Roc/S+KobOjmFhUDAM6xmdMNIBgcWUNhTWd29qrtAw6sXUnUuzrruRrPFEqOBuzCBuDAJBgNVHRMEAjAAMA4GA1UdDwEB/wQEAwIHgDBbBgNVHREEVDBShitodHRwczovL2lzc3Vlci1wbGF5Z3JvdW5kLXNlcnZpY2UuaWdyYW50LmlvgiNpc3N1ZXItcGxheWdyb3VuZC1zZXJ2aWNlLmlncmFudC5pbzAdBgNVHQ4EFgQUr7IcuQVhOFCePBUf05YLjyeNzh0wHwYDVR0jBBgwFoAU+tJE6wRGOyxpKq6OdH9DKdGLlTcwCgYIKoZIzj0EAwIDRwAwRAIgTcbMsyFOrI0anoVxQ2Cl/nISrZJdc1KllhmPxwLIlfYCIALNXeQVr84Lx+mfQRcCydPES++XCRBubQpdM5Zb2fsm</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+            <ServiceSupplyPoints>
+              <ServiceSupplyPoint>https://api.playground.france-identite.gouv.fr/igrantio/issuer-backend</ServiceSupplyPoint>
+            </ServiceSupplyPoints>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Fyris universitetssjukhus</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Fyris universitetssjukhus</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Vasagatan 10</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <PostalCode>111 20</PostalCode>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://igrant.io/</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Fyris universitetssjukhus Issuer</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIBwTCCAWigAwIBAgITYjxOtKszfK79WrQccvrdOXn0EjAKBggqhkjOPQQDAjBMMQswCQYDVQQGEwJTRTELMAkGA1UECAwCU0UxEjAQBgNVBAoMCWlHcmFudC5pbzEcMBoGA1UEAwwTaUdyYW50LmlvIEVBQSBEUyBDQTAeFw0yNjExMDMxMDM3MjVaFw0yNzExMDMxMDM3MjVaMFUxCzAJBgNVBAYTAlNFMSIwIAYDVQQKDBlGeXJpcyB1bml2ZXJzaXRldHNzanVraHVzMSIwIAYDVQQDDBlGeXJpcyB1bml2ZXJzaXRldHNzanVraHVzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+CxX2Jjf/s+5JKhEzlOc1a3uWDmmAGtNFYZZzv+/+ev4jTaykcFIDKUk7TxnGSabLWCm8QgYWn/cLgvSqSQw5KMgMB4wDAYDVR0TAQH/BAIwADAOBgNVHQ8BAf8EBAMCB4AwCgYIKoZIzj0EAwIDRwAwRAIgamK4NNkX2nKVgu3gPrMm5Xif1aDp5Wr0sePmvpQoCV0CIE7ey6aYej3+apRz5DG3PYmEf/XV3TPqN/LfSmYaZam/</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Pharmacie Hirondelle</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Pharmacie Hirondelle</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>12 rue des Hirondelles</StreetAddress>
+              <Locality>Paris</Locality>
+              <PostalCode>75005</PostalCode>
+              <CountryName>FR</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Pharmacie Hirondelle Issuer</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIBuTCCAV+gAwIBAgIUUXPbL92Y2QkKwh13u+PL31RYCowwCgYIKoZIzj0EAwIwTDELMAkGA1UEBhMCU0UxCzAJBgNVBAgMAlNFMRIwEAYDVQQKDAlpR3JhbnQuaW8xHDAaBgNVBAMME2lHcmFudC5pbyBFQUEgRFMgQ0EwHhcNMjYxMTA0MTI0MzQyWhcNMjcxMTA0MTI0MzQyWjBLMQswCQYDVQQGEwJTRTEdMBsGA1UECgwUUGhhcm1hY2llIEhpcm9uZGVsbGUxHTAbBgNVBAMMFFBoYXJtYWNpZSBIaXJvbmRlbGxlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVDot6GS0/x0hfLBLwDEgiQK3fLtf80EqyZ8elpjiJaaYsvL6FmkzBlnIFRuKPiU0rUkSfD3jIn4Q4A3skwtY9KMgMB4wDAYDVR0TAQH/BAIwADAOBgNVHQ8BAf8EBAMCB4AwCgYIKoZIzj0EAwIDSAAwRQIgVPI0Z+PQw/IVs+0Gz1VhxTotAGUtI1YvLN9muAqhQNwCIQDboa8NqAMHjytxKtCGT6XdAwgipUOl59lpIH++bDpESg==</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+  </TrustServiceProviderList>
+<ds:Signature xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Id="SignXMLSignatureE0BC825D"><ds:SignedInfo><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/><ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"/><ds:Reference URI="#nxd-tl-eaa-1" Id="SignXMLReference776C4B6D"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>yn4O27aXfK+uvJpcD4cfadLY4VCmWkxa7Xq3mXL9ek0=</ds:DigestValue></ds:Reference><ds:Reference URI="#SignXMLSignatureE0BC825D-SignedPropertiesCC8BB9C7" Type="http://uri.etsi.org/01903#SignedProperties"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>mJgBrk99fH4olR+ztCdKdkjLijlkHx+NNAqNtrlNOwc=</ds:DigestValue></ds:Reference><ds:Reference URI="#SignXMLCertificate3EA8908C"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>8g1+czZcK0gUWoh1Rc+mQLJ/E+4DxmuFye8WCaPjSy4=</ds:DigestValue></ds:Reference></ds:SignedInfo><ds:SignatureValue>KMMA0saNF6VoBH+YWarCg7e16Iv+WsS/TLEGDe7gcMxB88jdqfv5w6g2+pt1zk0Qi9wXimy1d5c18P3lwwYSYA==</ds:SignatureValue><ds:KeyInfo Id="SignXMLCertificate3EA8908C"><ds:X509Data><ds:X509Certificate>MIIBoDCCAUagAwIBAgIUeQPc75dyOVwCJVf0X5gtsJ8tkbMwCgYIKoZIzj0EAwIw
+JjELMAkGA1UEBhMCU0UxFzAVBgNVBAoMDk5YRCBGb3VuZGF0aW9uMB4XDTI2MDky
+MTA5NDgzOVoXDTI5MDkyMDA5NTMzOVowJjELMAkGA1UEBhMCU0UxFzAVBgNVBAoM
+Dk5YRCBGb3VuZGF0aW9uMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQVTqk6oG
+WN4G15IcOeW27Pp4Akfu54kGaoT1JNNAJbnB7v3zZu1o/9/gHoyrN6Yyu9ww0dAU
+xsWPQFcq2/+U56NSMFAwDgYDVR0PAQH/BAQDAgbAMBEGA1UdJQQKMAgGBgQAkTcD
+ADAMBgNVHRMBAf8EAjAAMB0GA1UdDgQWBBQVww37whbwN3DMilF8pSAtQRgIsTAK
+BggqhkjOPQQDAgNIADBFAiBR4C7Tiv94JRayfJ19gggyj68PjdfOfHuCe0Y6B9Gg
+JgIhAKIw81dJK5lGBZXM2d3FSfKAmYH1TpK3TEAjxeZenO4S
+</ds:X509Certificate></ds:X509Data></ds:KeyInfo><ds:Object><xades:QualifyingProperties Target="#SignXMLSignatureE0BC825D"><xades:SignedProperties Id="SignXMLSignatureE0BC825D-SignedPropertiesCC8BB9C7"><xades:SignedSignatureProperties><xades:SigningTime>2026-11-04T12:45:18Z</xades:SigningTime><xades:SigningCertificateV2><xades:Cert><xades:CertDigest><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>STLO7Yo9dVxGADJo2Yb+/SmWC8sUQVWcclRcmtVLFXk=</ds:DigestValue></xades:CertDigest></xades:Cert></xades:SigningCertificateV2></xades:SignedSignatureProperties><xades:SignedDataObjectProperties><xades:DataObjectFormat ObjectReference="#SignXMLReference776C4B6D"><xades:Description>NXD Foundation trust list</xades:Description><xades:MimeType>application/vnd.etsi.tsl+xml</xades:MimeType></xades:DataObjectFormat></xades:SignedDataObjectProperties></xades:SignedProperties></xades:QualifyingProperties></ds:Object></ds:Signature></TrustServiceStatusList>

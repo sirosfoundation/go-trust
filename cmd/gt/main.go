@@ -723,6 +723,9 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			LoTLSources:         loteCfg.LoTLSources,
 			MaxDereferenceDepth: loteCfg.MaxDereferenceDepth,
 			VerifyJWS:           loteCfg.VerifyJWS,
+			AllowStale:          loteCfg.AllowStale,
+			RoleSchemeTypes:     loteCfg.RoleSchemeTypes,
+			RequireRole:         loteCfg.RequireRole,
 			Logger:              slog.Default(),
 			CryptoExt:           cryptoExt,
 		}
@@ -1490,6 +1493,7 @@ func etsiTSLConfig(etsiCfg *config.ETSIRegistryConfig, cryptoExt *gocryptoutil.E
 		LOTLSignerBundle:   etsiCfg.LOTLSignerBundle,
 		RequireSignature:   etsiCfg.RequireSignature,
 		FollowPivots:       etsiCfg.FollowPivots,
+		AllowStale:         etsiCfg.AllowStale,
 	}
 
 	if etsiCfg.FetchTimeout != "" {

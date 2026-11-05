@@ -1,6 +1,8 @@
 package registry
 
 import (
+	"crypto/x509"
+	"sort"
 	"strings"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
@@ -133,4 +135,91 @@ func AddDIDVerifierID(resp *authzen.EvaluationResponse, req *authzen.EvaluationR
 		return
 	}
 	AddVerifierID(resp, req, authzen.VerifierIDTypeDID, CanonicalDID(docID), authzen.VerifierIDBasisDIDResolution)
+}
+
+// DeriveCertVerifierIDs derives the verifier identifiers of the relying party
+// from a leaf certificate that a registry outside the ETSI/LoTE path has
+// accepted, for the types the policy enabled. It applies exactly the rules of
+// the etsi and lote registries (same canonical forms, same wildcard and
+// intermediary omissions, same VerifyLeafBinding check) and is the single
+// derivation for the whitelist, system_cert_pool and mdoc_rical registries.
+//
+// chainValidated says whether the leaf's content is authenticated, i.e. the
+// registry validated the chain to a trust anchor. When false (the whitelist's
+// pinned-key path, where trust rests on the key and not on the certificate) the
+// certificate's own claims are not vouched for by anyone, so the access
+// certificate's semantic identifier is not emitted; the SAN identifiers still
+// need the client_id binding, and the client_id is the very entry the
+// whitelist authorised for that key.
+//
+// Call it only for a positive decision; AddVerifierIDs enforces that again.
+func DeriveCertVerifierIDs(req *authzen.EvaluationRequest, leaf *x509.Certificate, chainValidated bool) []authzen.VerifierID {
+	if req == nil || leaf == nil {
+		return nil
+	}
+	ids := deriveX5CVerifierIDs(req, leaf, len(extractIntermediaryX5C(req)) > 0)
+	if chainValidated {
+		return ids
+	}
+	kept := ids[:0:0]
+	for _, id := range ids {
+		if id.Type != authzen.VerifierIDTypeSemantic {
+			kept = append(kept, id)
+		}
+	}
+	return kept
+}
+
+// AddVerifierIDs appends already-derived identifiers to resp.Context.VerifierIDs.
+// Like AddVerifierID it fails closed (nothing on a deny) and never adds a
+// (type, id) pair twice. Identifiers are re-checked against the policy's enabled
+// types, so a caller cannot widen what the policy allows.
+func AddVerifierIDs(resp *authzen.EvaluationResponse, req *authzen.EvaluationRequest, ids []authzen.VerifierID) {
+	for _, v := range ids {
+		AddVerifierID(resp, req, v.Type, v.ID, v.Basis)
+	}
+}
+
+// mergeVerifierIDs copies the verifier identifiers of the positive child
+// responses into resp (the aggregate of a multi-registry strategy or composite).
+// Only positive children contribute: an identifier is only ever as verified as
+// the decision it came from. resp itself must already be positive.
+func mergeVerifierIDs(resp *authzen.EvaluationResponse, children []*authzen.EvaluationResponse) {
+	if resp == nil || !resp.Decision {
+		return
+	}
+	for _, c := range children {
+		if c == nil || !c.Decision || c.Context == nil {
+			continue
+		}
+		for _, v := range c.Context.VerifierIDs {
+			dup := false
+			if resp.Context != nil {
+				for _, e := range resp.Context.VerifierIDs {
+					if e.Type == v.Type && e.ID == v.ID {
+						dup = true
+						break
+					}
+				}
+			}
+			if dup {
+				continue
+			}
+			if resp.Context == nil {
+				resp.Context = &authzen.EvaluationResponseContext{}
+			}
+			resp.Context.VerifierIDs = append(resp.Context.VerifierIDs, v)
+		}
+	}
+	// Children finish in no particular order; a stable order keeps responses
+	// reproducible (the order carries no meaning for clients).
+	if resp.Context != nil {
+		sort.SliceStable(resp.Context.VerifierIDs, func(i, j int) bool {
+			a, b := resp.Context.VerifierIDs[i], resp.Context.VerifierIDs[j]
+			if a.Type != b.Type {
+				return a.Type < b.Type
+			}
+			return a.ID < b.ID
+		})
+	}
 }
