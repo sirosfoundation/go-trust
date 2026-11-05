@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -12,6 +13,11 @@ import (
 
 // evaluateFirstMatch queries registries in parallel and returns first positive match.
 // If no registry approves, the response includes aggregated deny reasons from all registries.
+// errCircuitOpen is the result recorded for a registry skipped by an open
+// circuit breaker: it did not answer, and a denial without it can become an
+// allow when the circuit recovers.
+var errCircuitOpen = errors.New("circuit breaker open")
+
 func (m *RegistryManager) evaluateFirstMatch(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	m.mu.RLock()
 	registries := m.getApplicableRegistries(req)
@@ -303,6 +309,7 @@ func (m *RegistryManager) evaluateAll(ctx context.Context, req *authzen.Evaluati
 			if !m.circuitBreakers[info.Name].CanAttempt() {
 				m.getLogger().Debug("Strategy[All]: circuit breaker open, skipping",
 					logging.F("registry", info.Name))
+				results <- result{registry: info.Name, err: errCircuitOpen}
 				return
 			}
 
@@ -723,6 +730,7 @@ func (m *RegistryManager) evaluateAllFiltered(ctx context.Context, req *authzen.
 			if !m.circuitBreakers[info.Name].CanAttempt() {
 				m.getLogger().Debug("Strategy[AllFiltered]: circuit breaker open, skipping",
 					logging.F("registry", info.Name))
+				results <- result{registry: info.Name, err: errCircuitOpen}
 				return
 			}
 

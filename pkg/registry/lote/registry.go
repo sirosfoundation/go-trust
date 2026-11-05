@@ -115,6 +115,9 @@ type Registry struct {
 	profiles    *rpcert.ProfileRegistry
 	healthy     bool
 	lastUpdated time.Time
+	// lotlNextUpdates are the NextUpdate values of the LoTLs followed to load
+	// lotes (see resolveState).
+	lotlNextUpdates []time.Time
 
 	stopCh chan struct{}
 }
@@ -495,6 +498,29 @@ func (r *Registry) Info() registry.RegistryInfo {
 	return info
 }
 
+// Freshness reports when the LoTEs were loaded and the earliest NextUpdate among
+// them. A decision may rest on any loaded LoTE, so if one of them has no usable
+// NextUpdate the registry's NextUpdate is unknown rather than another list's date.
+// The LoTLs followed to discover LoTEs count as lists, and the NextUpdate is
+// unknown when a National Register fallback is configured.
+func (r *Registry) Freshness() registry.Freshness {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	// A National Register fallback can authorise a decision with data that has
+	// no freshness contract.
+	if r.config.RegisterClient != nil {
+		return registry.Freshness{AsOf: r.lastUpdated}
+	}
+	next := append(make([]time.Time, 0, len(r.lotes)+len(r.lotlNextUpdates)), r.lotlNextUpdates...)
+	for _, l := range r.lotes {
+		if l == nil {
+			continue
+		}
+		next = append(next, registry.ParseSourceTime(l.ListAndSchemeInformation.NextUpdate))
+	}
+	return registry.Freshness{AsOf: r.lastUpdated, NextUpdate: registry.EarliestKnown(next...)}
+}
+
 func (r *Registry) Healthy() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -859,6 +885,7 @@ func (r *Registry) refresh() error {
 
 	r.mu.Lock()
 	r.lotes = lotes
+	r.lotlNextUpdates = st.lotlNextUpdates
 	r.deadlines = deadlines
 	r.nextExpiry = next
 	r.index = idx
@@ -1214,6 +1241,9 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 	// top-level sources, and marking it earlier would let a later top-level
 	// reference to the same location skip verification and "succeed".
 	st.visited[location] = true
+	// The LoTL decides which LoTEs are loaded: when it is replaced a pointer may
+	// go away, so its deadline bounds the loaded LoTEs too. Undated is unknown.
+	st.lotlNextUpdates = append(st.lotlNextUpdates, registry.ParseSourceTime(lotl.ListAndSchemeInformation.NextUpdate))
 	ownDeadline, _ := listDeadline(lotl.ListAndSchemeInformation)
 	via = earliest(via, ownDeadline)
 
@@ -1321,6 +1351,10 @@ func (r *Registry) expireStale() {
 type resolveState struct {
 	visited map[string]bool
 	skipped int // pointers skipped (fetch, parse or signature failure)
+	// lotlNextUpdates holds the NextUpdate of every LoTL followed, nested ones
+	// included; a zero time is a LoTL without a usable date, or a pointer
+	// target that failed to load.
+	lotlNextUpdates []time.Time
 	// inherited is, per discovered list, the earliest NextUpdate among the
 	// LoTLs it was reached through: the list stops being trusted when any of
 	// them lapses. Directly configured sources have none.
@@ -1384,6 +1418,9 @@ func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119
 		}
 	}
 	if err != nil {
+		// The skipped target's entities are missing from this registry, and a
+		// denial for one of them can flip once fetching recovers: unknown.
+		st.lotlNextUpdates = append(st.lotlNextUpdates, time.Time{})
 		st.skipped++
 		if r.config.Logger != nil {
 			r.config.Logger.Error("failed to load "+kind+" from LoTL pointer; source skipped",
