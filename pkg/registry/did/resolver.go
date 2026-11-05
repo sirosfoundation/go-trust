@@ -701,6 +701,13 @@ func decodeMultibaseKey(multibaseKey string) (string, map[string]interface{}, er
 	}
 }
 
+// DecodeMultibaseKeyJWK decodes a multibase-encoded multicodec public key (the publicKeyMultibase of a
+// Multikey or Ed25519VerificationKey2020 verification method) into its public JWK.
+func DecodeMultibaseKeyJWK(multibaseKey string) (map[string]interface{}, error) {
+	_, jwk, err := decodeMultibaseKey(multibaseKey)
+	return jwk, err
+}
+
 // Base58btc alphabet
 const base58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 

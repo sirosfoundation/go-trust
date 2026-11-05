@@ -693,3 +693,34 @@ func TestDIDDocumentToTrustMetadataKeepsPublicKeyMultibase(t *testing.T) {
 	assert.Equal(t, "z6MkqFENPafCx8qmm3KEE99cct7Qrr6eNbJR8inKLSE6vZiC", vms[0]["publicKeyMultibase"])
 	assert.Equal(t, "zDnaeuGVUZ13VTEkfg6jB79b2gMLSiXBrAF7kGSP3Dnffm4it", vms[1]["publicKeyMultibase"])
 }
+
+// An issuer whose did:web document publishes its keys as publicKeyMultibase (Multikey) must be matchable against the
+// JWK a relying party presents: with only publicKeyJwk compared, key binding could never succeed for such an issuer.
+// The key is Accredify's UAT issuer key (P-256); its JWK coordinates were derived independently with Python's
+// cryptography package, not with this repository's decoder.
+func TestVerifyKeyBindingMultikeyMethod(t *testing.T) {
+	const multikey = "zDnaeuGVUZ13VTEkfg6jB79b2gMLSiXBrAF7kGSP3Dnffm4it"
+	doc := &DIDDocument{
+		ID: "did:web:issuer.example",
+		VerificationMethod: []VerificationMethod{
+			{ID: "did:web:issuer.example#bad", Type: "Multikey", PublicKeyMultibase: "not-multibase"},
+			{ID: "did:web:issuer.example#k1", Type: "Multikey", PublicKeyMultibase: multikey},
+		},
+	}
+	presented := func(x, y string) *authzen.EvaluationRequest {
+		return &authzen.EvaluationRequest{Resource: authzen.Resource{Type: "jwk", Key: []interface{}{
+			map[string]interface{}{"kty": "EC", "crv": "P-256", "x": x, "y": y},
+		}}}
+	}
+	r := &DIDWebRegistry{}
+
+	matched, vm, err := r.verifyKeyBinding(presented("rHWFC2GSRWDRf0WpbVl3onE3-mCxexMKdQhI-Y7uFyk", "jsSL3sr06UR-w_7vHZ3aQ_8mlkzP8ZXApARXMUrt408"), doc)
+	require.NoError(t, err)
+	require.True(t, matched)
+	assert.Equal(t, "did:web:issuer.example#k1", vm.ID)
+
+	// Another key on the same curve is refused.
+	matched, _, err = r.verifyKeyBinding(presented("jsSL3sr06UR-w_7vHZ3aQ_8mlkzP8ZXApARXMUrt408", "rHWFC2GSRWDRf0WpbVl3onE3-mCxexMKdQhI-Y7uFyk"), doc)
+	require.NoError(t, err)
+	assert.False(t, matched)
+}
