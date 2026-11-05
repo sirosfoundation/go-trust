@@ -15,6 +15,7 @@ import (
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry"
+	"github.com/sirosfoundation/go-trust/pkg/registry/did"
 )
 
 // DIDWebRegistry implements a trust registry using the did:web method.
@@ -427,12 +428,20 @@ func (r *DIDWebRegistry) matchJWK(keyArray []interface{}, didDoc *DIDDocument) (
 	// Compare against each verification method
 	for i := range didDoc.VerificationMethod {
 		vm := &didDoc.VerificationMethod[i]
-		if vm.PublicKeyJwk == nil {
+		methodJWK := vm.PublicKeyJwk
+		if methodJWK == nil && vm.PublicKeyMultibase != "" {
+			// Multikey / Ed25519VerificationKey2020 methods publish the key as publicKeyMultibase. A method whose
+			// key cannot be decoded matches nothing; the others are still compared.
+			if jwk, err := did.DecodeMultibaseKeyJWK(vm.PublicKeyMultibase); err == nil {
+				methodJWK = jwk
+			}
+		}
+		if methodJWK == nil {
 			continue
 		}
 
 		// Compare key fields
-		if registry.JWKsMatch(requestJWK, vm.PublicKeyJwk) {
+		if registry.JWKsMatch(requestJWK, methodJWK) {
 			return true, vm, nil
 		}
 	}
