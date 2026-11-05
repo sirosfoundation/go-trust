@@ -53,6 +53,28 @@ type Config struct {
 	// FetchTimeout is the timeout for fetching remote LoTE documents.
 	FetchTimeout time.Duration
 
+	// RoleSchemeTypes maps an AuthZEN action name (the requested role) to the
+	// LoTE types whose entities may act in that role. A request whose
+	// action.name is a key here, or is itself a LoTE type URI, is evaluated
+	// only against lists of those types. Without it, a registry that holds
+	// several list types (for example one LoTL resolving to wallet, PID and
+	// WRPAC lists) accepts a certificate chaining to any listed entity, for any
+	// role.
+	RoleSchemeTypes map[string][]string
+
+	// RequireRole denies x5c requests that reach the CA-anchored path (subject
+	// not itself listed) without a role that resolves through RoleSchemeTypes.
+	RequireRole bool
+
+	// AllowStale accepts lists whose NextUpdate has passed. By default a
+	// list past NextUpdate is no longer current (ETSI TS 119 602 clause 6.3):
+	// a directly configured source then fails the refresh, and a list or LoTL
+	// pointer target is skipped like one that cannot be fetched.
+	AllowStale bool
+
+	// Now returns the current time for freshness checks. Defaults to time.Now.
+	Now func() time.Time
+
 	// RefreshInterval is how often to re-fetch LoTE documents. Zero disables.
 	RefreshInterval time.Duration
 
@@ -86,11 +108,16 @@ type Registry struct {
 	config Config
 
 	mu          sync.RWMutex
+	deadlines   []time.Time
+	nextExpiry  time.Time
 	lotes       []*etsi119602.ListOfTrustedEntities
 	index       *entityIndex
 	profiles    *rpcert.ProfileRegistry
 	healthy     bool
 	lastUpdated time.Time
+	// lotlNextUpdates are the NextUpdate values of the LoTLs followed to load
+	// lotes (see resolveState).
+	lotlNextUpdates []time.Time
 
 	stopCh chan struct{}
 }
@@ -100,6 +127,13 @@ type entityIndex struct {
 	// byID maps entity ID (subject URL) → entity data.
 	byID map[string]*indexedEntity
 
+	// variants holds every entity sharing an identifier, one per LoTE type, so
+	// keys and certificates never leak between types.
+	variants map[string][]*indexedEntity
+
+	// all is every indexed entity.
+	all []*indexedEntity
+
 	// byKeyHash maps SHA-256 key hash → set of entity IDs that have that key.
 	byKeyHash map[string]map[string]bool
 
@@ -107,6 +141,12 @@ type entityIndex struct {
 	// CA-anchored chain validation when subject.id is not itself a listed entity
 	// (e.g. Access Certificate lists enumerate CAs, not individual RPs).
 	globalCertPool *x509.CertPool
+
+	// poolByType and certsByType are globalCertPool split by LoTE type.
+	poolByType map[string]*x509.CertPool
+	// schemeTypes is the set of LoTE types loaded.
+	schemeTypes map[string]bool
+	certsByType map[string][]*x509.Certificate
 }
 
 // indexedEntity holds a single entity and its precomputed key hashes.
@@ -179,7 +219,7 @@ func New(cfg Config) (*Registry, error) {
 	r := &Registry{
 		config:   cfg,
 		profiles: rpcert.DefaultProfileRegistry(),
-		index:    &entityIndex{byID: make(map[string]*indexedEntity), byKeyHash: make(map[string]map[string]bool)},
+		index:    &entityIndex{byID: make(map[string]*indexedEntity), variants: make(map[string][]*indexedEntity), byKeyHash: make(map[string]map[string]bool)},
 		stopCh:   make(chan struct{}),
 	}
 
@@ -226,9 +266,42 @@ func (r *Registry) Stop() {
 	}
 }
 
+// loteTypePrefix starts every TS 119 602 LoTE type URI. An action naming one is
+// scoped to that type even when no list of the type is loaded, so an absent
+// type matches nothing rather than falling back to unscoped trust.
+var loteTypePrefix = strings.TrimSuffix(etsi119602.LoTETypePIDProviders, "EUPIDProvidersList")
+
+// roleTypes returns the LoTE types a request's role is limited to, or nil when
+// the request carries no role this registry can scope by.
+func (r *Registry) roleTypes(req *authzen.EvaluationRequest) []string {
+	if req.Action == nil || req.Action.Name == "" {
+		return nil
+	}
+	if types, ok := r.config.RoleSchemeTypes[req.Action.Name]; ok && len(types) > 0 {
+		return types
+	}
+	if r.index.schemeTypes[req.Action.Name] || strings.HasPrefix(req.Action.Name, loteTypePrefix) {
+		return []string{req.Action.Name}
+	}
+	return nil
+}
+
+func typeAllowed(allowed []string, schemeType string) bool {
+	if allowed == nil {
+		return true
+	}
+	for _, a := range allowed {
+		if a == schemeType {
+			return true
+		}
+	}
+	return false
+}
+
 // --- TrustRegistry interface ---
 
 func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	r.expireStale()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -237,15 +310,31 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	// Extract credential_types early for inclusion in all responses (audit).
 	credentialTypes := extractCredentialTypes(req)
 
-	// Look up entity by subject ID.
-	ent, ok := r.index.byID[subjectID]
+	// Look up the entity by subject ID, limited to the LoTE types the
+	// requested role allows.
+	roleTypes := r.roleTypes(req)
+	variants := r.index.variants[subjectID]
+	var candidates []*indexedEntity
+	for _, v := range variants {
+		if typeAllowed(roleTypes, v.schemeType) {
+			candidates = append(candidates, v)
+		}
+	}
+	if len(variants) > 0 && len(candidates) == 0 {
+		reason := map[string]interface{}{
+			"admin": fmt.Sprintf("entity %q is not listed in a LoTE type permitted for role %q", subjectID, req.Action.Name),
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
+		return &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{Reason: reason}}, nil
+	}
+	ok := len(candidates) > 0
 	if !ok {
 		// For x5c requests: the list may enumerate CAs rather than individual
 		// relying parties (e.g. an Access Certificate list). Attempt CA-anchored
 		// chain validation against the combined pool of all listed entity certs.
 		// This matches the model described in issue #90.
 		if req.Resource.Type == "x5c" && r.index.globalCertPool != nil {
-			if resp := r.validateX5CChainCA(req, credentialTypes); resp != nil {
+			if resp := r.validateX5CChainCA(req, credentialTypes, roleTypes); resp != nil {
 				return resp, nil
 			}
 		}
@@ -287,6 +376,23 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		}, nil
 	}
 
+	// An identifier can be listed under several LoTE types; the first variant
+	// that grants decides, otherwise the first denial is reported.
+	var denied *authzen.EvaluationResponse
+	for _, ent := range candidates {
+		resp := r.evaluateEntity(req, ent, subjectID, credentialTypes)
+		if resp.Decision {
+			return resp, nil
+		}
+		if denied == nil {
+			denied = resp
+		}
+	}
+	return denied, nil
+}
+
+// evaluateEntity evaluates a request against one indexed entity.
+func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEntity, subjectID string, credentialTypes []string) *authzen.EvaluationResponse {
 	// Check trust status based on LoTE profile type (ETSI TS 119 602 compliance).
 	// - Pub-EAA (Annex H): ServiceStatus is mandatory, check at service level
 	// - All other profiles (PID, Wallet, WRPAC, WRPRC, Registrars): presence in list = trusted
@@ -303,7 +409,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 			return &authzen.EvaluationResponse{
 				Decision: false,
 				Context:  &authzen.EvaluationResponseContext{Reason: reason},
-			}, nil
+			}
 		}
 	}
 	// For non-Pub-EAA profiles: presence in list means trusted (no status check needed)
@@ -315,7 +421,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 			Context: &authzen.EvaluationResponseContext{
 				TrustMetadata: ent.entity,
 			},
-		}, nil
+		}
 	}
 
 	// Validate key binding.
@@ -331,17 +437,17 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 			Context: &authzen.EvaluationResponseContext{
 				Reason: reason,
 			},
-		}, nil
+		}
 	}
 
 	if ent.keyHashes[keyHash] {
-		return r.buildSuccessResponse(subjectID, ent.territory, "key matches entity", credentialTypes), nil
+		return r.buildSuccessResponse(subjectID, ent.territory, "key matches entity", credentialTypes)
 	}
 
 	// For x5c: attempt PKIX path validation if the entity has X.509 trust anchors.
 	if req.Resource.Type == "x5c" && ent.certPool != nil {
 		if resp := r.validateX5CChain(req, ent, credentialTypes); resp != nil {
-			return resp, nil
+			return resp
 		}
 	}
 
@@ -354,7 +460,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		Context: &authzen.EvaluationResponseContext{
 			Reason: reason,
 		},
-	}, nil
+	}
 }
 
 func (r *Registry) SupportedResourceTypes() []string {
@@ -390,6 +496,29 @@ func (r *Registry) Info() registry.RegistryInfo {
 		info.LastUpdated = &lastUpdated
 	}
 	return info
+}
+
+// Freshness reports when the LoTEs were loaded and the earliest NextUpdate among
+// them. A decision may rest on any loaded LoTE, so if one of them has no usable
+// NextUpdate the registry's NextUpdate is unknown rather than another list's date.
+// The LoTLs followed to discover LoTEs count as lists, and the NextUpdate is
+// unknown when a National Register fallback is configured.
+func (r *Registry) Freshness() registry.Freshness {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	// A National Register fallback can authorise a decision with data that has
+	// no freshness contract.
+	if r.config.RegisterClient != nil {
+		return registry.Freshness{AsOf: r.lastUpdated}
+	}
+	next := append(make([]time.Time, 0, len(r.lotes)+len(r.lotlNextUpdates)), r.lotlNextUpdates...)
+	for _, l := range r.lotes {
+		if l == nil {
+			continue
+		}
+		next = append(next, registry.ParseSourceTime(l.ListAndSchemeInformation.NextUpdate))
+	}
+	return registry.Freshness{AsOf: r.lastUpdated, NextUpdate: registry.EarliestKnown(next...)}
 }
 
 func (r *Registry) Healthy() bool {
@@ -502,19 +631,65 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 	return nil
 }
 
+// leafBindingFailure returns a denial when the request used a certificate-binding
+// client_id_scheme and the leaf does not satisfy it, nil otherwise.
+func leafBindingFailure(req *authzen.EvaluationRequest, leaf *x509.Certificate, credentialTypes []string) *authzen.EvaluationResponse {
+	scheme, value, ok := registry.ParseClientIDScheme(registry.OriginalSubjectID(req))
+	if !ok {
+		return nil
+	}
+	bindErr := registry.VerifyLeafBinding(scheme, value, leaf)
+	if bindErr == nil {
+		return nil
+	}
+	reason := map[string]interface{}{
+		"admin": fmt.Sprintf("x5c chain validates against a listed CA but certificate binding check failed: %s", bindErr),
+	}
+	addCredentialTypesToReason(reason, credentialTypes)
+	return &authzen.EvaluationResponse{
+		Decision: false,
+		Context:  &authzen.EvaluationResponseContext{Reason: reason},
+	}
+}
+
+// scopedRoots returns the CA pool an x5c chain may anchor to: the certificates
+// of the role's LoTE types, or every listed certificate when the request names
+// no role. It reports false when the request names no role and RequireRole is set.
+func (r *Registry) scopedRoots(roleTypes []string) (*x509.CertPool, bool) {
+	if roleTypes == nil {
+		return r.index.globalCertPool, !r.config.RequireRole
+	}
+	roots := x509.NewCertPool()
+	for _, t := range roleTypes {
+		for _, c := range r.index.certsByType[t] {
+			roots.AddCert(c)
+		}
+	}
+	return roots, true
+}
+
 // validateX5CChainCA handles the CA-anchored trust model (issue #90): when the
 // subject.id is not itself a listed entity — as is the case for Access Certificate
 // trust lists that enumerate CAs rather than individual relying parties — the x5c
 // chain is validated against the combined pool of all listed entity certs.
 // Returns a positive response if the chain validates, nil otherwise.
-func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credentialTypes []string) *authzen.EvaluationResponse {
+func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credentialTypes []string, roleTypes []string) *authzen.EvaluationResponse {
 	certs, err := parseX5CCerts(req, r.config.CryptoExt)
 	if err != nil || len(certs) == 0 {
 		return nil
 	}
 
+	roots, ok := r.scopedRoots(roleTypes)
+	if !ok {
+		reason := map[string]interface{}{
+			"admin": "x5c chain would be validated against a listed CA, but the request names no role this registry can scope by (RequireRole)",
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
+		return &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{Reason: reason}}
+	}
+
 	opts := x509.VerifyOptions{
-		Roots: r.index.globalCertPool,
+		Roots: roots,
 		// ExtKeyUsageAny: access certificates may carry only id-kp-clientAuth.
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
@@ -540,22 +715,13 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 	// these schemes (e.g. a plain RP identifier under an Access Certificate
 	// list, issue #90) are unaffected - there is no additional claim to bind
 	// in that model, so behavior is unchanged for them.
-	if scheme, value, ok := registry.ParseClientIDScheme(registry.OriginalSubjectID(req)); ok {
-		if bindErr := registry.VerifyLeafBinding(scheme, value, certs[0]); bindErr != nil {
-			reason := map[string]interface{}{
-				"admin": fmt.Sprintf("x5c chain validates against a listed CA but certificate binding check failed: %s", bindErr),
-			}
-			addCredentialTypesToReason(reason, credentialTypes)
-			return &authzen.EvaluationResponse{
-				Decision: false,
-				Context:  &authzen.EvaluationResponseContext{Reason: reason},
-			}
-		}
+	if resp := leafBindingFailure(req, certs[0], credentialTypes); resp != nil {
+		return resp
 	}
 
 	// Find which listed entity's CA pool the chain validates against (for metadata
 	// and profile-aware status checking).
-	matchedEnt := r.findMatchingEntityForChain(certs)
+	matchedEnt := r.findMatchingEntityForChain(certs, roleTypes)
 	if matchedEnt == nil {
 		// chain validated against globalCertPool but we can't identify the CA entity;
 		// this should not normally happen — treat as unresolvable.
@@ -607,9 +773,9 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 
 // findMatchingEntityForChain identifies which listed entity's cert pool the given
 // chain validates against. Returns the first matched indexedEntity, or nil if none match.
-func (r *Registry) findMatchingEntityForChain(certs []*x509.Certificate) *indexedEntity {
-	for _, ent := range r.index.byID {
-		if ent.certPool == nil {
+func (r *Registry) findMatchingEntityForChain(certs []*x509.Certificate, roleTypes []string) *indexedEntity {
+	for _, ent := range r.index.all {
+		if ent.certPool == nil || !typeAllowed(roleTypes, ent.schemeType) {
 			continue
 		}
 		opts := x509.VerifyOptions{
@@ -681,6 +847,9 @@ func (r *Registry) refresh() error {
 			if err != nil {
 				return err
 			}
+			if err := r.checkFresh(src, lote.ListAndSchemeInformation); err != nil {
+				return err
+			}
 			lotes = append(lotes, lote)
 			continue
 		}
@@ -688,13 +857,16 @@ func (r *Registry) refresh() error {
 		if err != nil {
 			return fmt.Errorf("failed to fetch LoTE from %s: %w", src, err)
 		}
+		if err := r.checkFresh(src, lote.ListAndSchemeInformation); err != nil {
+			return err
+		}
 		lotes = append(lotes, lote)
 	}
 
 	// Load LoTL sources and follow pointers to discover LoTEs.
-	visited := make(map[string]bool)
+	st := &resolveState{visited: make(map[string]bool), inherited: make(map[*etsi119602.ListOfTrustedEntities]time.Time)}
 	for _, src := range r.config.LoTLSources {
-		discovered, err := r.resolveLoTL(src, opts, 0, visited, taPool)
+		discovered, err := r.resolveLoTL(src, opts, 0, st, taPool, time.Time{})
 		if err != nil {
 			return fmt.Errorf("failed to resolve LoTL from %s: %w", src, err)
 		}
@@ -703,8 +875,19 @@ func (r *Registry) refresh() error {
 
 	idx := buildIndex(lotes, r.config.CryptoExt)
 
+	deadlines := make([]time.Time, len(lotes))
+	var next time.Time
+	for i, l := range lotes {
+		own, _ := listDeadline(l.ListAndSchemeInformation)
+		deadlines[i] = earliest(own, st.inherited[l])
+		next = earliest(next, deadlines[i])
+	}
+
 	r.mu.Lock()
 	r.lotes = lotes
+	r.lotlNextUpdates = st.lotlNextUpdates
+	r.deadlines = deadlines
+	r.nextExpiry = next
 	r.index = idx
 	r.healthy = true
 	r.lastUpdated = time.Now()
@@ -715,6 +898,7 @@ func (r *Registry) refresh() error {
 			slog.Int("sources", len(r.config.Sources)),
 			slog.Int("lotl_sources", len(r.config.LoTLSources)),
 			slog.Int("lotes_loaded", len(lotes)),
+			slog.Int64("lotl_pointers_skipped", int64(st.skipped)),
 			slog.Int("entities", len(idx.byID)))
 	}
 
@@ -723,22 +907,54 @@ func (r *Registry) refresh() error {
 
 func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Extensions) *entityIndex {
 	idx := &entityIndex{
-		byID:      make(map[string]*indexedEntity),
-		byKeyHash: make(map[string]map[string]bool),
+		byID:        make(map[string]*indexedEntity),
+		variants:    make(map[string][]*indexedEntity),
+		byKeyHash:   make(map[string]map[string]bool),
+		poolByType:  make(map[string]*x509.CertPool),
+		certsByType: make(map[string][]*x509.Certificate),
+		schemeTypes: make(map[string]bool),
 	}
 
 	for _, lote := range lotes {
 		territory := lote.ListAndSchemeInformation.SchemeTerritory
 		schemeType := lote.ListAndSchemeInformation.LoTEType
+		idx.schemeTypes[schemeType] = true
 		isPubEAA := etsi119602.IsPubEAASchemeType(schemeType)
 		for _, ent := range lote.TrustedEntitiesList {
 			id := entityID(ent)
-			ie := &indexedEntity{
-				entity:     ent,
-				entityID:   id,
-				territory:  territory,
-				schemeType: schemeType,
-				keyHashes:  make(map[string]bool),
+			// Several entities can share one identifier: TEInformationURI[0]
+			// is a per-country scheme URI in the WE BUILD WP4 lists (e.g.
+			// .../WalletProvider/NL for every Dutch wallet provider). Overwriting
+			// would silently drop all but the last, so entities sharing an
+			// identifier within one LoTE type are merged: their services, keys
+			// and certificates are pooled. Entities of different types stay
+			// separate variants of the identifier.
+			var ie *indexedEntity
+			for _, v := range idx.variants[id] {
+				if v.schemeType == schemeType {
+					ie = v
+					break
+				}
+			}
+			if ie == nil {
+				ie = &indexedEntity{
+					entity:     ent,
+					entityID:   id,
+					territory:  territory,
+					schemeType: schemeType,
+					keyHashes:  make(map[string]bool),
+				}
+				idx.variants[id] = append(idx.variants[id], ie)
+				idx.all = append(idx.all, ie)
+				if idx.byID[id] == nil {
+					idx.byID[id] = ie
+				}
+			} else {
+				merged := ie.entity
+				merged.TrustedEntityServices = append(
+					append([]etsi119602.TrustedEntityService(nil), ie.entity.TrustedEntityServices...),
+					ent.TrustedEntityServices...)
+				ie.entity = merged
 			}
 
 			// Index service digital identities.
@@ -785,12 +1001,16 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 								idx.globalCertPool = x509.NewCertPool()
 							}
 							idx.globalCertPool.AddCert(cert)
+							if idx.poolByType[schemeType] == nil {
+								idx.poolByType[schemeType] = x509.NewCertPool()
+							}
+							idx.poolByType[schemeType].AddCert(cert)
+							idx.certsByType[schemeType] = append(idx.certsByType[schemeType], cert)
 						}
 					}
 				}
 			}
 
-			idx.byID[id] = ie
 		}
 	}
 
@@ -989,7 +1209,7 @@ func (r *Registry) fetchVerifiedLoTE(src string, roots *x509.CertPool) (*etsi119
 // verification is an error (never parsed); a pointer target that fails
 // verification is logged at error level and skipped, exactly like a pointer
 // target that cannot be fetched, so it never contributes entities.
-func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int, visited map[string]bool, roots *x509.CertPool) ([]*etsi119602.ListOfTrustedEntities, error) {
+func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, depth int, st *resolveState, roots *x509.CertPool, via time.Time) ([]*etsi119602.ListOfTrustedEntities, error) {
 	if r.config.MaxDereferenceDepth > 0 && depth >= r.config.MaxDereferenceDepth {
 		if r.config.Logger != nil {
 			r.config.Logger.Warn("LoTL dereference depth limit reached",
@@ -999,7 +1219,7 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 		return nil, nil
 	}
 
-	if visited[location] {
+	if st.visited[location] {
 		if r.config.Logger != nil {
 			r.config.Logger.Warn("LoTL cycle detected, skipping",
 				slog.String("location", location))
@@ -1020,14 +1240,19 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 	// failed to verify must stay unvisited: the visited set is shared across
 	// top-level sources, and marking it earlier would let a later top-level
 	// reference to the same location skip verification and "succeed".
-	visited[location] = true
+	st.visited[location] = true
+	// The LoTL decides which LoTEs are loaded: when it is replaced a pointer may
+	// go away, so its deadline bounds the loaded LoTEs too. Undated is unknown.
+	st.lotlNextUpdates = append(st.lotlNextUpdates, registry.ParseSourceTime(lotl.ListAndSchemeInformation.NextUpdate))
+	ownDeadline, _ := listDeadline(lotl.ListAndSchemeInformation)
+	via = earliest(via, ownDeadline)
 
 	var lotes []*etsi119602.ListOfTrustedEntities
 	for _, ptr := range lotl.ListAndSchemeInformation.PointersToOtherLoTE {
 		if ptr.LoTELocation == "" {
 			continue
 		}
-		lotes = append(lotes, r.resolvePointer(ptr, opts, depth, visited, roots)...)
+		lotes = append(lotes, r.resolvePointer(ptr, opts, depth, st, roots, via)...)
 	}
 
 	if r.config.Logger != nil {
@@ -1039,41 +1264,164 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 	return lotes, nil
 }
 
+// listDeadline returns the list's NextUpdate, or the zero time when absent.
+func listDeadline(si etsi119602.ListAndSchemeInformation) (time.Time, error) {
+	if si.NextUpdate == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339, si.NextUpdate)
+}
+
+// earliest returns the earlier of two deadlines, ignoring the zero time.
+func earliest(a, b time.Time) time.Time {
+	switch {
+	case a.IsZero():
+		return b
+	case b.IsZero():
+		return a
+	case b.Before(a):
+		return b
+	}
+	return a
+}
+
+func (r *Registry) now() time.Time {
+	if r.config.Now != nil {
+		return r.config.Now()
+	}
+	return time.Now()
+}
+
+// checkFresh refuses a list whose NextUpdate has passed, unless AllowStale is
+// set. A list without NextUpdate is accepted; an unparseable one is not.
+func (r *Registry) checkFresh(src string, si etsi119602.ListAndSchemeInformation) error {
+	if r.config.AllowStale {
+		return nil
+	}
+	next, err := listDeadline(si)
+	if err != nil {
+		return fmt.Errorf("%s: invalid NextUpdate %q: %w", src, si.NextUpdate, err)
+	}
+	if !next.IsZero() && r.now().After(next) {
+		return fmt.Errorf("%s: list is stale, NextUpdate %s has passed", src, si.NextUpdate)
+	}
+	return nil
+}
+
+// expireStale drops lists whose NextUpdate passed after they were loaded, so a
+// registry that is not refreshed (or whose refresh keeps failing) stops
+// trusting them. A lapsed LoTL invalidates everything resolved through it.
+func (r *Registry) expireStale() {
+	if r.config.AllowStale {
+		return
+	}
+	now := r.now()
+	r.mu.RLock()
+	due := !r.nextExpiry.IsZero() && now.After(r.nextExpiry)
+	r.mu.RUnlock()
+	if !due {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.nextExpiry.IsZero() || !now.After(r.nextExpiry) {
+		return // another caller already rebuilt
+	}
+	var live []*etsi119602.ListOfTrustedEntities
+	var next time.Time
+	for i, l := range r.lotes {
+		if d := r.deadlines[i]; d.IsZero() || !now.After(d) {
+			live = append(live, l)
+			next = earliest(next, d)
+		}
+	}
+	if r.config.Logger != nil {
+		r.config.Logger.Warn("LoTE lists past NextUpdate dropped from the index",
+			slog.Int("lists_before", len(r.lotes)), slog.Int("lists_after", len(live)))
+	}
+	r.index = buildIndex(live, r.config.CryptoExt)
+	r.nextExpiry = next
+}
+
+// resolveState is the per-refresh state of LoTL resolution: the cycle-detection set
+// shared across top-level sources, the number of pointer targets skipped, and each
+// discovered list's inherited deadline. It is local to one refresh so that
+// overlapping refreshes cannot affect each other.
+type resolveState struct {
+	visited map[string]bool
+	skipped int // pointers skipped (fetch, parse or signature failure)
+	// lotlNextUpdates holds the NextUpdate of every LoTL followed, nested ones
+	// included; a zero time is a LoTL without a usable date, or a pointer
+	// target that failed to load.
+	lotlNextUpdates []time.Time
+	// inherited is, per discovered list, the earliest NextUpdate among the
+	// LoTLs it was reached through: the list stops being trusted when any of
+	// them lapses. Directly configured sources have none.
+	inherited map[*etsi119602.ListOfTrustedEntities]time.Time
+}
+
 // loadLoTL fetches a LoTL, verifying its JWS first when roots is non-nil.
 func (r *Registry) loadLoTL(location string, opts *etsi119602.FetchOptions, roots *x509.CertPool) (*etsi119602.ListOfTrustedLists, error) {
+	var lotl *etsi119602.ListOfTrustedLists
 	if roots == nil {
-		return etsi119602.FetchLoTL(location, opts)
+		var err error
+		if lotl, err = etsi119602.FetchLoTL(location, opts); err != nil {
+			return nil, err
+		}
+	} else {
+		payload, err := r.fetchVerifiedPayload(location, roots)
+		if err != nil {
+			return nil, err
+		}
+		if lotl, err = etsi119602.ParseLoTL(payload); err != nil {
+			return nil, err
+		}
 	}
-	payload, err := r.fetchVerifiedPayload(location, roots)
-	if err != nil {
+	// A document that is not a LoTL (for example a TS 119 612 XML list, which
+	// older g119612 releases parse as an empty LoTL) carries no list type.
+	if lotl.ListAndSchemeInformation.LoTEType == "" {
+		return nil, fmt.Errorf("%s is not a TS 119 602 list: it has no LoTEType", location)
+	}
+	if err := r.checkFresh(location, lotl.ListAndSchemeInformation); err != nil {
 		return nil, err
 	}
-	return etsi119602.ParseLoTL(payload)
+	return lotl, nil
 }
 
 // resolvePointer loads the target of one LoTL pointer: a nested LoTL is
 // resolved recursively, anything else is loaded as a LoTE. Failures (including
 // signature verification failures) are logged at error level and the target is
 // skipped, so an unverified document never contributes entities.
-func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119602.FetchOptions, depth int, visited map[string]bool, roots *x509.CertPool) []*etsi119602.ListOfTrustedEntities {
+func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119602.FetchOptions, depth int, st *resolveState, roots *x509.CertPool, via time.Time) []*etsi119602.ListOfTrustedEntities {
+	schemeType := pointerSchemeType(ptr)
 	var out []*etsi119602.ListOfTrustedEntities
 	var err error
 	kind := "LoTE"
-	if etsi119602.IsLoTLSchemeType(pointerSchemeType(ptr)) {
+	switch {
+	case etsi119602.IsLoTLSchemeType(schemeType):
 		kind = "nested LoTL"
-		out, err = r.resolveLoTL(ptr.LoTELocation, opts, depth+1, visited, roots)
-	} else {
-		var lote *etsi119602.ListOfTrustedEntities
-		if roots != nil {
-			lote, err = r.fetchVerifiedLoTE(ptr.LoTELocation, roots)
-		} else {
-			lote, err = etsi119602.FetchLoTE(ptr.LoTELocation, opts)
-		}
-		if err == nil {
-			out = []*etsi119602.ListOfTrustedEntities{lote}
+		out, err = r.resolveLoTL(ptr.LoTELocation, opts, depth+1, st, roots, via)
+	case isClassicTSLPointer(ptr):
+		kind = "classic TSL"
+		out, err = r.resolveClassicPointer(ptr.LoTELocation, roots)
+	default:
+		out, err = r.resolveLoTEPointer(ptr.LoTELocation, opts, roots)
+	}
+	if err == nil && kind != "nested LoTL" {
+		for _, l := range out {
+			if err = r.checkFresh(ptr.LoTELocation, l.ListAndSchemeInformation); err != nil {
+				out = nil
+				break
+			}
+			st.inherited[l] = via
 		}
 	}
 	if err != nil {
+		// The skipped target's entities are missing from this registry, and a
+		// denial for one of them can flip once fetching recovers: unknown.
+		st.lotlNextUpdates = append(st.lotlNextUpdates, time.Time{})
+		st.skipped++
 		if r.config.Logger != nil {
 			r.config.Logger.Error("failed to load "+kind+" from LoTL pointer; source skipped",
 				slog.String("location", ptr.LoTELocation),
@@ -1082,6 +1430,30 @@ func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119
 		return nil
 	}
 	return out
+}
+
+// resolveLoTEPointer loads a native LoTE pointer target, JWS-verified when roots is non-nil.
+func (r *Registry) resolveLoTEPointer(location string, opts *etsi119602.FetchOptions, roots *x509.CertPool) ([]*etsi119602.ListOfTrustedEntities, error) {
+	var lote *etsi119602.ListOfTrustedEntities
+	var err error
+	if roots != nil {
+		lote, err = r.fetchVerifiedLoTE(location, roots)
+	} else {
+		lote, err = etsi119602.FetchLoTE(location, opts)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []*etsi119602.ListOfTrustedEntities{lote}, nil
+}
+
+// resolveClassicPointer loads a classic TS 119 612 TSL pointer target as a LoTE.
+func (r *Registry) resolveClassicPointer(location string, roots *x509.CertPool) ([]*etsi119602.ListOfTrustedEntities, error) {
+	lote, err := r.loadClassicTSL(location, roots)
+	if err != nil {
+		return nil, err
+	}
+	return []*etsi119602.ListOfTrustedEntities{lote}, nil
 }
 
 // entityID derives the entity identifier from a TrustedEntity.

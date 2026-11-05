@@ -316,6 +316,7 @@ func buildRegistryCatalogue(t *testing.T) []registryEntry {
 	}
 
 	if reg, err := lote.New(lote.Config{
+		AllowStale:   true, // the demo LoTE fixture is a snapshot, past its NextUpdate
 		Name:         "SIROS-LoTE-Demo",
 		Sources:      []string{"https://trust.siros.org/lote-demo.json"},
 		FetchTimeout: 15 * time.Second,
@@ -326,6 +327,7 @@ func buildRegistryCatalogue(t *testing.T) []registryEntry {
 	}
 
 	if reg, err := lote.New(lote.Config{
+		AllowStale:   true, // the demo LoTE fixture is a snapshot, past its NextUpdate
 		Name:         "SIROS-LoTL-Demo",
 		LoTLSources:  []string{"https://trust.siros.org/list_of_trusted_lists-demo.json"},
 		FetchTimeout: 15 * time.Second,
@@ -360,8 +362,9 @@ func buildFixtureRegistries(t *testing.T) []registryEntry {
 	// ETSI LoTE from local fixture XML (ewc-demo.xml is LoTE format, not TSL)
 	loteXmlFile := filepath.Join(fixtureDir, "ewc-demo.xml")
 	if reg, err := lote.New(lote.Config{
-		Name:    "EWC-Demo-Fixture",
-		Sources: []string{loteXmlFile},
+		AllowStale: true, // the demo LoTE fixture is a snapshot, past its NextUpdate
+		Name:       "EWC-Demo-Fixture",
+		Sources:    []string{loteXmlFile},
 	}); err == nil {
 		entries = append(entries, registryEntry{Name: "fixture/etsi_lote_xml", Registry: reg})
 	} else {
@@ -371,8 +374,9 @@ func buildFixtureRegistries(t *testing.T) []registryEntry {
 	// LoTE from local fixture JSON
 	loteFile := filepath.Join(fixtureDir, "lote-demo.json")
 	if reg, err := lote.New(lote.Config{
-		Name:    "SIROS-LoTE-Fixture",
-		Sources: []string{loteFile},
+		AllowStale: true, // the demo LoTE fixture is a snapshot, past its NextUpdate
+		Name:       "SIROS-LoTE-Fixture",
+		Sources:    []string{loteFile},
 	}); err == nil {
 		entries = append(entries, registryEntry{Name: "fixture/lote", Registry: reg})
 	} else {

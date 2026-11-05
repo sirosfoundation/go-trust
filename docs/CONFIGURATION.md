@@ -129,6 +129,7 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 | `registries.etsi.lotl_signer_bundle` | — | string | LOTLSignerBundle is the path to a PEM file containing trusted LOTL signer certificates. These certificates are used to validate signatures on the List of Trusted Lists (LOTL). |
 | `registries.etsi.require_signature` | — | boolean | RequireSignature controls whether TSLs must have valid signatures. When true, LOTLSignerBundle must also be configured. |
 | `registries.etsi.follow_pivots` | — | boolean | FollowPivots enables ETSI TS 119 615 pivot LOTL processing for signer certificate rollover. When true, the registry will fetch pivot LOTLs to discover new signer certificates. |
+| `registries.etsi.allow_stale` | — | boolean | AllowStale accepts TSLs whose NextUpdate has passed. By default a stale TSL fails the load (a stale TSL reached only through a reference is dropped). |
 | `registries.etsi.refresh_interval` | — | string | RefreshInterval is how often to re-fetch TSL data in the background, as a duration string (e.g. "6h"). Empty or zero disables background refresh, leaving the registry on whatever it loaded at startup. |
 
 ## registries.whitelist
@@ -226,7 +227,10 @@ ETSI TS 119 602 LoTE registry
 | `registries.lote.lotl_sources` | — | string list |  |
 | `registries.lote.max_dereference_depth` | — | integer |  |
 | `registries.lote.verify_jws` | — | boolean |  |
-| `registries.lote.trust_anchor_bundle` | — | string | TrustAnchorBundle is the path to a PEM file of CA certificates that anchor the x5c chain of the JWS signer of every LoTE and LoTL. Required when verify_jws is true (startup is refused without it). When set, signatures are verified even if verify_jws is false: configured anchors are never silently ignored. |
+| `registries.lote.allow_stale` | — | boolean | AllowStale accepts lists whose NextUpdate has passed. By default a stale list is refused (direct source) or skipped (LoTL pointer target). |
+| `registries.lote.role_scheme_types` | — | map[string][]string (object) | RoleSchemeTypes maps an AuthZEN action name to the LoTE types whose entities may act in that role. An action name that is itself a LoTE type URI needs no entry. |
+| `registries.lote.require_role` | — | boolean | RequireRole denies x5c requests that reach the CA-anchored path without a role that resolves to LoTE types. |
+| `registries.lote.trust_anchor_bundle` | — | string | TrustAnchorBundle is the path to a PEM file of CA certificates that anchor the x5c chain of the JWS signer of every LoTE and LoTL, and the XMLDSig signer certificate chain of every classic TS 119 612 TSL reached through a LoTL pointer. Required when verify_jws is true (startup is refused without it). When set, signatures are verified even if verify_jws is false: configured anchors are never silently ignored. |
 | `registries.lote.fetch_timeout` | — | string |  |
 | `registries.lote.refresh_interval` | — | string |  |
 
