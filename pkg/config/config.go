@@ -194,6 +194,9 @@ type ETSIRegistryConfig struct {
 	// FollowPivots enables ETSI TS 119 615 pivot LOTL processing for signer certificate rollover.
 	// When true, the registry will fetch pivot LOTLs to discover new signer certificates.
 	FollowPivots bool `yaml:"follow_pivots"`
+	// AllowStale accepts TSLs whose NextUpdate has passed. By default a stale
+	// TSL fails the load (a stale TSL reached only through a reference is dropped).
+	AllowStale bool `yaml:"allow_stale,omitempty"`
 	// RefreshInterval is how often to re-fetch TSL data in the background,
 	// as a duration string (e.g. "6h"). Empty or zero disables background
 	// refresh, leaving the registry on whatever it loaded at startup.
@@ -390,6 +393,16 @@ type LoTERegistryConfig struct {
 	LoTLSources         []string `yaml:"lotl_sources,omitempty"`
 	MaxDereferenceDepth int      `yaml:"max_dereference_depth,omitempty"`
 	VerifyJWS           bool     `yaml:"verify_jws,omitempty"`
+	// AllowStale accepts lists whose NextUpdate has passed. By default a stale
+	// list is refused (direct source) or skipped (LoTL pointer target).
+	AllowStale bool `yaml:"allow_stale,omitempty"`
+	// RoleSchemeTypes maps an AuthZEN action name to the LoTE types whose
+	// entities may act in that role. An action name that is itself a LoTE type
+	// URI needs no entry.
+	RoleSchemeTypes map[string][]string `yaml:"role_scheme_types,omitempty"`
+	// RequireRole denies x5c requests that reach the CA-anchored path without
+	// a role that resolves to LoTE types.
+	RequireRole bool `yaml:"require_role,omitempty"`
 	// TrustAnchorBundle is the path to a PEM file of CA certificates that anchor
 	// the x5c chain of the JWS signer of every LoTE and LoTL. Required when
 	// verify_jws is true (startup is refused without it). When set, signatures

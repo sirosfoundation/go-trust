@@ -120,6 +120,15 @@ type TSLConfig struct {
 	// RefreshInterval is how often to re-fetch TSL data. Zero disables.
 	RefreshInterval time.Duration
 
+	// AllowStale accepts TSLs whose NextUpdate has passed. By default a TSL
+	// past NextUpdate is no longer current (ETSI TS 119 612 clause 5.3.15):
+	// a directly configured TSL fails the load, and a TSL reached only through
+	// a reference is dropped.
+	AllowStale bool
+
+	// Now returns the current time for freshness checks. Defaults to time.Now.
+	Now func() time.Time
+
 	// Logger for structured logging. May be nil.
 	Logger *slog.Logger
 }
@@ -493,10 +502,39 @@ func (r *TSLRegistry) loadLocalTSL(path string) (*etsi119612.TSL, []*x509.Certif
 		return nil, nil, fmt.Errorf("failed to load TSL from %s: %w", absPath, err)
 	}
 
+	if err := r.checkFresh(tsl); err != nil {
+		return nil, nil, err
+	}
+
 	// Extract certificates from TSL
 	certs := extractCertsFromTSL(tsl, r.config.CryptoExt)
 
 	return tsl, certs, nil
+}
+
+// checkFresh refuses a TSL whose NextUpdate has passed, unless AllowStale is
+// set. A TSL without NextUpdate is accepted; an unparseable one is not.
+func (r *TSLRegistry) checkFresh(tsl *etsi119612.TSL) error {
+	if r.config.AllowStale || tsl == nil || tsl.StatusList.TslSchemeInformation == nil ||
+		tsl.StatusList.TslSchemeInformation.TslNextUpdate == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(tsl.StatusList.TslSchemeInformation.TslNextUpdate.DateTime)
+	if raw == "" {
+		return nil
+	}
+	next, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return fmt.Errorf("%s: invalid NextUpdate %q: %w", tsl.Source, raw, err)
+	}
+	now := time.Now()
+	if r.config.Now != nil {
+		now = r.config.Now()
+	}
+	if now.After(next) {
+		return fmt.Errorf("%s: TSL is stale, NextUpdate %s has passed", tsl.Source, raw)
+	}
+	return nil
 }
 
 // loadTSLFromURL loads a TSL from a URL (file:// or http(s)://).
@@ -534,6 +572,22 @@ func (r *TSLRegistry) loadTSLFromURL(url string) ([]*etsi119612.TSL, []*x509.Cer
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load TSL from %s: %w", url, err)
 	}
+
+	// The requested TSL must be current; a stale referenced TSL is dropped.
+	var current []*etsi119612.TSL
+	for i, tsl := range tsls {
+		if err := r.checkFresh(tsl); err != nil {
+			if i == 0 {
+				return nil, nil, err
+			}
+			if r.config.Logger != nil {
+				r.config.Logger.Warn("dropping stale referenced TSL", slog.String("error", err.Error()))
+			}
+			continue
+		}
+		current = append(current, tsl)
+	}
+	tsls = current
 
 	// Extract certificates from all loaded TSLs
 	var allCerts []*x509.Certificate

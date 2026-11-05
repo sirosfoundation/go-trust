@@ -53,6 +53,28 @@ type Config struct {
 	// FetchTimeout is the timeout for fetching remote LoTE documents.
 	FetchTimeout time.Duration
 
+	// RoleSchemeTypes maps an AuthZEN action name (the requested role) to the
+	// LoTE types whose entities may act in that role. A request whose
+	// action.name is a key here, or is itself a LoTE type URI, is evaluated
+	// only against lists of those types. Without it, a registry that holds
+	// several list types (for example one LoTL resolving to wallet, PID and
+	// WRPAC lists) accepts a certificate chaining to any listed entity, for any
+	// role.
+	RoleSchemeTypes map[string][]string
+
+	// RequireRole denies x5c requests that reach the CA-anchored path (subject
+	// not itself listed) without a role that resolves through RoleSchemeTypes.
+	RequireRole bool
+
+	// AllowStale accepts lists whose NextUpdate has passed. By default a
+	// list past NextUpdate is no longer current (ETSI TS 119 602 clause 6.3):
+	// a directly configured source then fails the refresh, and a list or LoTL
+	// pointer target is skipped like one that cannot be fetched.
+	AllowStale bool
+
+	// Now returns the current time for freshness checks. Defaults to time.Now.
+	Now func() time.Time
+
 	// RefreshInterval is how often to re-fetch LoTE documents. Zero disables.
 	RefreshInterval time.Duration
 
@@ -107,6 +129,12 @@ type entityIndex struct {
 	// CA-anchored chain validation when subject.id is not itself a listed entity
 	// (e.g. Access Certificate lists enumerate CAs, not individual RPs).
 	globalCertPool *x509.CertPool
+
+	// poolByType and certsByType are globalCertPool split by LoTE type.
+	poolByType map[string]*x509.CertPool
+	// schemeTypes is the set of LoTE types loaded.
+	schemeTypes map[string]bool
+	certsByType map[string][]*x509.Certificate
 }
 
 // indexedEntity holds a single entity and its precomputed key hashes.
@@ -226,6 +254,33 @@ func (r *Registry) Stop() {
 	}
 }
 
+// roleTypes returns the LoTE types a request's role is limited to, or nil when
+// the request carries no role this registry can scope by.
+func (r *Registry) roleTypes(req *authzen.EvaluationRequest) []string {
+	if req.Action == nil || req.Action.Name == "" {
+		return nil
+	}
+	if types, ok := r.config.RoleSchemeTypes[req.Action.Name]; ok && len(types) > 0 {
+		return types
+	}
+	if r.index.schemeTypes[req.Action.Name] {
+		return []string{req.Action.Name}
+	}
+	return nil
+}
+
+func typeAllowed(allowed []string, schemeType string) bool {
+	if allowed == nil {
+		return true
+	}
+	for _, a := range allowed {
+		if a == schemeType {
+			return true
+		}
+	}
+	return false
+}
+
 // --- TrustRegistry interface ---
 
 func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
@@ -238,14 +293,22 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	credentialTypes := extractCredentialTypes(req)
 
 	// Look up entity by subject ID.
+	roleTypes := r.roleTypes(req)
 	ent, ok := r.index.byID[subjectID]
+	if ok && !typeAllowed(roleTypes, ent.schemeType) {
+		reason := map[string]interface{}{
+			"admin": fmt.Sprintf("entity %q is not listed in a LoTE type permitted for role %q", subjectID, req.Action.Name),
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
+		return &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{Reason: reason}}, nil
+	}
 	if !ok {
 		// For x5c requests: the list may enumerate CAs rather than individual
 		// relying parties (e.g. an Access Certificate list). Attempt CA-anchored
 		// chain validation against the combined pool of all listed entity certs.
 		// This matches the model described in issue #90.
 		if req.Resource.Type == "x5c" && r.index.globalCertPool != nil {
-			if resp := r.validateX5CChainCA(req, credentialTypes); resp != nil {
+			if resp := r.validateX5CChainCA(req, credentialTypes, roleTypes); resp != nil {
 				return resp, nil
 			}
 		}
@@ -507,14 +570,30 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 // trust lists that enumerate CAs rather than individual relying parties — the x5c
 // chain is validated against the combined pool of all listed entity certs.
 // Returns a positive response if the chain validates, nil otherwise.
-func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credentialTypes []string) *authzen.EvaluationResponse {
+func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credentialTypes []string, roleTypes []string) *authzen.EvaluationResponse {
 	certs, err := parseX5CCerts(req, r.config.CryptoExt)
 	if err != nil || len(certs) == 0 {
 		return nil
 	}
 
+	roots := r.index.globalCertPool
+	if roleTypes != nil {
+		roots = x509.NewCertPool()
+		for _, t := range roleTypes {
+			for _, c := range r.index.certsByType[t] {
+				roots.AddCert(c)
+			}
+		}
+	} else if r.config.RequireRole {
+		reason := map[string]interface{}{
+			"admin": "x5c chain would be validated against a listed CA, but the request names no role this registry can scope by (RequireRole)",
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
+		return &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{Reason: reason}}
+	}
+
 	opts := x509.VerifyOptions{
-		Roots: r.index.globalCertPool,
+		Roots: roots,
 		// ExtKeyUsageAny: access certificates may carry only id-kp-clientAuth.
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
@@ -555,7 +634,7 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 
 	// Find which listed entity's CA pool the chain validates against (for metadata
 	// and profile-aware status checking).
-	matchedEnt := r.findMatchingEntityForChain(certs)
+	matchedEnt := r.findMatchingEntityForChain(certs, roleTypes)
 	if matchedEnt == nil {
 		// chain validated against globalCertPool but we can't identify the CA entity;
 		// this should not normally happen — treat as unresolvable.
@@ -607,9 +686,9 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 
 // findMatchingEntityForChain identifies which listed entity's cert pool the given
 // chain validates against. Returns the first matched indexedEntity, or nil if none match.
-func (r *Registry) findMatchingEntityForChain(certs []*x509.Certificate) *indexedEntity {
+func (r *Registry) findMatchingEntityForChain(certs []*x509.Certificate, roleTypes []string) *indexedEntity {
 	for _, ent := range r.index.byID {
-		if ent.certPool == nil {
+		if ent.certPool == nil || !typeAllowed(roleTypes, ent.schemeType) {
 			continue
 		}
 		opts := x509.VerifyOptions{
@@ -681,12 +760,18 @@ func (r *Registry) refresh() error {
 			if err != nil {
 				return err
 			}
+			if err := r.checkFresh(src, lote.ListAndSchemeInformation); err != nil {
+				return err
+			}
 			lotes = append(lotes, lote)
 			continue
 		}
 		lote, err := etsi119602.FetchLoTE(src, opts)
 		if err != nil {
 			return fmt.Errorf("failed to fetch LoTE from %s: %w", src, err)
+		}
+		if err := r.checkFresh(src, lote.ListAndSchemeInformation); err != nil {
+			return err
 		}
 		lotes = append(lotes, lote)
 	}
@@ -723,22 +808,41 @@ func (r *Registry) refresh() error {
 
 func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Extensions) *entityIndex {
 	idx := &entityIndex{
-		byID:      make(map[string]*indexedEntity),
-		byKeyHash: make(map[string]map[string]bool),
+		byID:        make(map[string]*indexedEntity),
+		byKeyHash:   make(map[string]map[string]bool),
+		poolByType:  make(map[string]*x509.CertPool),
+		certsByType: make(map[string][]*x509.Certificate),
+		schemeTypes: make(map[string]bool),
 	}
 
 	for _, lote := range lotes {
 		territory := lote.ListAndSchemeInformation.SchemeTerritory
 		schemeType := lote.ListAndSchemeInformation.LoTEType
+		idx.schemeTypes[schemeType] = true
 		isPubEAA := etsi119602.IsPubEAASchemeType(schemeType)
 		for _, ent := range lote.TrustedEntitiesList {
 			id := entityID(ent)
-			ie := &indexedEntity{
-				entity:     ent,
-				entityID:   id,
-				territory:  territory,
-				schemeType: schemeType,
-				keyHashes:  make(map[string]bool),
+			// Several entities can share one identifier: TEInformationURI[0]
+			// is a per-country scheme URI in the WE BUILD WP4 lists (e.g.
+			// .../WalletProvider/NL for every Dutch wallet provider). Overwriting
+			// would silently drop all but the last, so entities sharing an
+			// identifier are merged: their services, keys and certificates
+			// are pooled under that identifier.
+			ie := idx.byID[id]
+			if ie == nil {
+				ie = &indexedEntity{
+					entity:     ent,
+					entityID:   id,
+					territory:  territory,
+					schemeType: schemeType,
+					keyHashes:  make(map[string]bool),
+				}
+			} else {
+				merged := ie.entity
+				merged.TrustedEntityServices = append(
+					append([]etsi119602.TrustedEntityService(nil), ie.entity.TrustedEntityServices...),
+					ent.TrustedEntityServices...)
+				ie.entity = merged
 			}
 
 			// Index service digital identities.
@@ -785,6 +889,11 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 								idx.globalCertPool = x509.NewCertPool()
 							}
 							idx.globalCertPool.AddCert(cert)
+							if idx.poolByType[schemeType] == nil {
+								idx.poolByType[schemeType] = x509.NewCertPool()
+							}
+							idx.poolByType[schemeType].AddCert(cert)
+							idx.certsByType[schemeType] = append(idx.certsByType[schemeType], cert)
 						}
 					}
 				}
@@ -1039,16 +1148,52 @@ func (r *Registry) resolveLoTL(location string, opts *etsi119602.FetchOptions, d
 	return lotes, nil
 }
 
+// checkFresh refuses a list whose NextUpdate has passed, unless AllowStale is
+// set. A list without NextUpdate is accepted; an unparseable one is not.
+func (r *Registry) checkFresh(src string, si etsi119602.ListAndSchemeInformation) error {
+	if r.config.AllowStale || si.NextUpdate == "" {
+		return nil
+	}
+	next, err := time.Parse(time.RFC3339, si.NextUpdate)
+	if err != nil {
+		return fmt.Errorf("%s: invalid NextUpdate %q: %w", src, si.NextUpdate, err)
+	}
+	now := time.Now()
+	if r.config.Now != nil {
+		now = r.config.Now()
+	}
+	if now.After(next) {
+		return fmt.Errorf("%s: list is stale, NextUpdate %s has passed", src, si.NextUpdate)
+	}
+	return nil
+}
+
 // loadLoTL fetches a LoTL, verifying its JWS first when roots is non-nil.
 func (r *Registry) loadLoTL(location string, opts *etsi119602.FetchOptions, roots *x509.CertPool) (*etsi119602.ListOfTrustedLists, error) {
+	var lotl *etsi119602.ListOfTrustedLists
 	if roots == nil {
-		return etsi119602.FetchLoTL(location, opts)
+		var err error
+		if lotl, err = etsi119602.FetchLoTL(location, opts); err != nil {
+			return nil, err
+		}
+	} else {
+		payload, err := r.fetchVerifiedPayload(location, roots)
+		if err != nil {
+			return nil, err
+		}
+		if lotl, err = etsi119602.ParseLoTL(payload); err != nil {
+			return nil, err
+		}
 	}
-	payload, err := r.fetchVerifiedPayload(location, roots)
-	if err != nil {
+	// A document that is not a LoTL (for example a TS 119 612 XML list, which
+	// older g119612 releases parse as an empty LoTL) carries no list type.
+	if lotl.ListAndSchemeInformation.LoTEType == "" {
+		return nil, fmt.Errorf("%s is not a TS 119 602 list: it has no LoTEType", location)
+	}
+	if err := r.checkFresh(location, lotl.ListAndSchemeInformation); err != nil {
 		return nil, err
 	}
-	return etsi119602.ParseLoTL(payload)
+	return lotl, nil
 }
 
 // resolvePointer loads the target of one LoTL pointer: a nested LoTL is
@@ -1068,6 +1213,9 @@ func (r *Registry) resolvePointer(ptr etsi119602.OtherLoTEPointer, opts *etsi119
 			lote, err = r.fetchVerifiedLoTE(ptr.LoTELocation, roots)
 		} else {
 			lote, err = etsi119602.FetchLoTE(ptr.LoTELocation, opts)
+		}
+		if err == nil {
+			err = r.checkFresh(ptr.LoTELocation, lote.ListAndSchemeInformation)
 		}
 		if err == nil {
 			out = []*etsi119602.ListOfTrustedEntities{lote}
