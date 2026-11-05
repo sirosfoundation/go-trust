@@ -1,0 +1,15 @@
+{
+ "idunion-eaa.xml": "https://tl-api.dev.idunion.info/api/v1/TwJYLuh0/etsi/tl.xml",
+ "credimi-eaa.xml": "https://lote.credimi.io/lists/it_credimi_eaa_trust_registry_infrastructur/latest/trusted-list.xml",
+ "nxd-eaa.xml": "https://trustlist.nxd.foundation/trust-lists/NXD-TL-EAA.xml",
+ "wallet-providers.xml": "https://tl-api.dev.idunion.info/api/v1/8djrdSZa/etsi/tl.xml",
+ "registrars.xml": "https://tl-api.dev.idunion.info/api/v1/by5Cbf5O/etsi/tl.xml",
+ "wrprc-providers.xml": "https://tl-api.dev.idunion.info/api/v1/DblnEVuf/etsi/tl.xml",
+ "pid-providers.xml": "https://tl-api.dev.idunion.info/api/v1/xPnOSuTc/etsi/tl.xml",
+ "pub-eaa-providers.xml": "https://tl-api.dev.idunion.info/api/v1/OsVKoh6j/etsi/tl.xml",
+ "wrpac-providers.xml": "https://tl-api.dev.idunion.info/api/v1/JZbSJAnT/etsi/tl.xml",
+ "wrpac-providers-raidiam.json": "https://raw.githubusercontent.com/webuild-consortium/wp4-trust-group/main/lotl/wrpac-providers-lote.json",
+ "idunion-qeaa.xml": "https://tl-api.dev.idunion.info/api/v1/4wdwrdSO/etsi/tl.xml",
+ "credimi-qeaa.xml": "https://lote.credimi.io/lists/it_credimi_qeaa_trust_registry_infrastructu/latest/trusted-list.xml",
+ "nxd-qeaa.xml": "https://trustlist.nxd.foundation/trust-lists/NXD-TL-QEAA.xml"
+}

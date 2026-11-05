@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TrustServiceStatusList xmlns="http://uri.etsi.org/02231/v2#" xmlns:tslx="http://uri.etsi.org/02231/v2/additionaltypes#" TSLTag="http://uri.etsi.org/19612/TSLTag" Id="TrustServiceStatusList">
+  <SchemeInformation>
+    <TSLVersionIdentifier>6</TSLVersionIdentifier>
+    <TSLSequenceNumber>2</TSLSequenceNumber>
+    <TSLType>http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUgeneric</TSLType>
+    <SchemeOperatorName>
+      <Name xml:lang="en">Credimi QEAA Trust Registry Infrastructure</Name>
+    </SchemeOperatorName>
+    <SchemeOperatorAddress>
+      <PostalAddresses>
+        <PostalAddress xml:lang="en">
+          <StreetAddress>Corso Buenos Aires 53</StreetAddress>
+          <Locality>Lombardia</Locality>
+          <PostalCode>20124</PostalCode>
+          <CountryName>IT</CountryName>
+        </PostalAddress>
+      </PostalAddresses>
+      <ElectronicAddress>
+        <URI xml:lang="en">mailto:info@forkbomb.eu</URI>
+        <URI xml:lang="en">https://lote.credimi.io/lists/it_credimi_qeaa_trust_registry_infrastructu</URI>
+      </ElectronicAddress>
+    </SchemeOperatorAddress>
+    <SchemeName>
+      <Name xml:lang="en">IT:CREDIMI - QEAA Providers</Name>
+    </SchemeName>
+    <SchemeInformationURI>
+      <URI xml:lang="en">https://lote.credimi.io/lists/it_credimi_qeaa_trust_registry_infrastructu/info</URI>
+    </SchemeInformationURI>
+    <StatusDeterminationApproach>http://uri.etsi.org/TrstSvc/TrustedList/StatusDetn/EUappropriate</StatusDeterminationApproach>
+    <SchemeTypeCommunityRules>
+      <URI xml:lang="en">http://uri.etsi.org/TrstSvc/TrustedList/schemerules/EUcommon</URI>
+      <URI xml:lang="en">http://uri.etsi.org/TrstSvc/TrustedList/schemerules/IT</URI>
+      <URI xml:lang="en">http://uri.etsi.org/TrstSvc/TrustedList</URI>
+    </SchemeTypeCommunityRules>
+    <SchemeTerritory>IT</SchemeTerritory>
+    <PolicyOrLegalNotice>
+      <TSLPolicy xml:lang="en">https://lote.credimi.io/lists/it_credimi_qeaa_trust_registry_infrastructu/policy</TSLPolicy>
+    </PolicyOrLegalNotice>
+    <HistoricalInformationPeriod>65535</HistoricalInformationPeriod>
+    <PointersToOtherTSL>
+      <OtherTSLPointer>
+        <ServiceDigitalIdentities>
+          <ServiceDigitalIdentity>
+            <DigitalId>
+              <X509Certificate>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</X509Certificate>
+            </DigitalId>
+          </ServiceDigitalIdentity>
+          <ServiceDigitalIdentity>
+            <DigitalId>
+              <X509Certificate>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</X509Certificate>
+            </DigitalId>
+          </ServiceDigitalIdentity>
+        </ServiceDigitalIdentities>
+        <TSLLocation>https://ec.europa.eu/tools/lotl/eu-lotl.xml</TSLLocation>
+        <AdditionalInformation>
+          <OtherInformation>
+            <SchemeOperatorName>
+              <Name xml:lang="en">European Commission</Name>
+            </SchemeOperatorName>
+          </OtherInformation>
+          <OtherInformation>
+            <SchemeTypeCommunityRules>
+              <URI xml:lang="en">http://uri.etsi.org/TrstSvc/TrustedList/schemerules/EUlistofthelists</URI>
+            </SchemeTypeCommunityRules>
+          </OtherInformation>
+          <OtherInformation>
+            <SchemeTerritory>EU</SchemeTerritory>
+          </OtherInformation>
+          <OtherInformation>
+            <tslx:MimeType>application/vnd.etsi.tsl+xml</tslx:MimeType>
+          </OtherInformation>
+          <OtherInformation>
+            <TSLType>http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUlistofthelists</TSLType>
+          </OtherInformation>
+        </AdditionalInformation>
+      </OtherTSLPointer>
+    </PointersToOtherTSL>
+    <ListIssueDateTime>2026-09-18T14:12:07Z</ListIssueDateTime>
+    <NextUpdate>
+      <dateTime>2027-03-18T14:12:07Z</dateTime>
+    </NextUpdate>
+    <DistributionPoints>
+      <URI>https://lote.credimi.io/lists/it_credimi_qeaa_trust_registry_infrastructu/latest/trusted-list.xml</URI>
+    </DistributionPoints>
+  </SchemeInformation>
+  <TrustServiceProviderList>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Qualified Attributes Italia S.r.l.</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">VATIT-99999999990</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Via della Fiducia Digitale 24</StreetAddress>
+              <Locality>Roma</Locality>
+              <StateOrProvince>RM</StateOrProvince>
+              <PostalCode>00144</PostalCode>
+              <CountryName>Italy</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:trust@qeaa.example.org</URI>
+            <URI xml:lang="en">https://qeaa.example.org</URI>
+            <URI xml:lang="en">tel:+390612345678</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://qeaa.example.org/policies</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA/Q</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Qualified Attributes Italia QEAA Issuance Service</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICGzCCAcGgAwIBAgIUfS3C7PEQpVX2eQn14yO6GRcsKMkwCgYIKoZIzj0EAwIwbTELMAkGA1UEBhMCSVQxKzApBgNVBAoMIlF1YWxpZmllZCBBdHRyaWJ1dGVzIEl0YWxpYSBTLnIubC4xMTAvBgNVBAMMKFF1YWxpZmllZCBBdHRyaWJ1dGVzIEl0YWxpYSBRRUFBIFNlcnZpY2UwHhcNMjYwOTE4MTQwOTM4WhcNMjcwOTE4MTQwOTM4WjBtMQswCQYDVQQGEwJJVDErMCkGA1UECgwiUXVhbGlmaWVkIEF0dHJpYnV0ZXMgSXRhbGlhIFMuci5sLjExMC8GA1UEAwwoUXVhbGlmaWVkIEF0dHJpYnV0ZXMgSXRhbGlhIFFFQUEgU2VydmljZTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABLCuwcL4c7UOgRLGyANsCFad5lNH7sILvuTt5JfG6Ov+khMvWczEjWCRNNTayDby/uCoea0oCpKH4VFuPl5h1UGjPzA9MAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMB0GA1UdDgQWBBSUbqfD7nn/8fkFiaf81HCIzdzo9DAKBggqhkjOPQQDAgNIADBFAiByjtQQp4p9eiCfuNeHkW1C1QL7z9uzQa6xCuvIXjwmTgIhANXYGaWOBx5j7grFzOLWe3fPQ6KUt1e4xEUOWrL4cWD2</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-09-18T14:12:07Z</StatusStartingTime>
+            <ServiceSupplyPoints>
+              <ServiceSupplyPoint>https://qeaa.example.org/qeaa</ServiceSupplyPoint>
+            </ServiceSupplyPoints>
+            <TSPServiceDefinitionURI>
+              <URI xml:lang="en">https://qeaa.example.org/services/qeaa</URI>
+            </TSPServiceDefinitionURI>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+  </TrustServiceProviderList>
+  <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="signature">
+    <ds:SignedInfo>
+      <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+      <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"/>
+      <ds:Reference Id="signature-ref-document" URI="">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+          <ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>wbLcy8Fqx2TbzzJwm67zo26HBy0T9DWYyIZ0KRuUhfs=</ds:DigestValue>
+      </ds:Reference>
+      <ds:Reference Id="signature-ref-signed-properties" Type="http://uri.etsi.org/01903#SignedProperties" URI="#signature-signed-properties">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>Dh/Sy36eUaxL6nDsSBG32hD67xe/OcGEid5HFqYRmLg=</ds:DigestValue>
+      </ds:Reference>
+    </ds:SignedInfo>
+    <ds:SignatureValue>RouuJeWG7H0oN7LAIpIhEzn19jh29UQ9l0nqsBT49Egbo2fCLExOQqLYmO4KLLRSQaoUHr8DtUcQl3Ec7eZoMQ==</ds:SignatureValue>
+    <ds:KeyInfo>
+      <ds:X509Data>
+        <ds:X509Certificate>MIICkDCCAjagAwIBAgIUKY5Ypn2tibtBnbyWpyXX2liR7QAwCgYIKoZIzj0EAwIwgYsxCzAJBgNVBAYTAklUMTMwMQYDVQQKDCpDcmVkaW1pIFFFQUEgVHJ1c3QgUmVnaXN0cnkgSW5mcmFzdHJ1Y3R1cmUxRzBFBgNVBAMMPkNyZWRpbWkgUUVBQSBUcnVzdCBSZWdpc3RyeSBJbmZyYXN0cnVjdHVyZSBUcnVzdGVkIExpc3QgU2lnbmVyMB4XDTI2MDgwNTEwMzEzN1oXDTI3MDgwNTEwMzEzN1owgYsxCzAJBgNVBAYTAklUMTMwMQYDVQQKDCpDcmVkaW1pIFFFQUEgVHJ1c3QgUmVnaXN0cnkgSW5mcmFzdHJ1Y3R1cmUxRzBFBgNVBAMMPkNyZWRpbWkgUUVBQSBUcnVzdCBSZWdpc3RyeSBJbmZyYXN0cnVjdHVyZSBUcnVzdGVkIExpc3QgU2lnbmVyMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3sT7htkTq+Tzq1LFc95vXcaxUQhiSKE0c6oL1qZI5La8duPZWPpuOX+KuG1k1PezXxEA9IBQu3iA4WG/9HIxj6N2MHQwHwYDVR0jBBgwFoAU7/o+v+zFVJcjEDEHQALfv/q+1MMwDAYDVR0TAQH/BAIwADAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0OBBYEFO/6Pr/sxVSXIxAxB0AC37/6vtTDMBQGA1UdJQEB/wQKMAgGBgQAkTcDADAKBggqhkjOPQQDAgNIADBFAiAfipQO7pkbiyALAnCElxK5aKFHxGspUik9O5Sve8ceJgIhAPQ6d5+2fXDdUw120AKDy+YGQb8PNYwn8HmGC3838NoN</ds:X509Certificate>
+      </ds:X509Data>
+    </ds:KeyInfo>
+    <ds:Object Id="signature-object">
+        <xades:QualifyingProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Target="#signature">
+          <xades:SignedProperties Id="signature-signed-properties">
+            <xades:SignedSignatureProperties>
+              <xades:SigningTime>2026-09-18T14:12:07Z</xades:SigningTime>
+              <xades:SigningCertificateV2>
+                <xades:Cert>
+                  <xades:CertDigest>
+                    <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                    <ds:DigestValue>96oPREF46VdneIZrvRh4JcKeKV1FKRbEhts45toUsI0=</ds:DigestValue>
+                  </xades:CertDigest>
+                    <xades:IssuerSerialV2>MIGqMIGRpIGOMIGLMQswCQYDVQQGEwJJVDEzMDEGA1UECgwqQ3JlZGltaSBRRUFBIFRydXN0IFJlZ2lzdHJ5IEluZnJhc3RydWN0dXJlMUcwRQYDVQQDDD5DcmVkaW1pIFFFQUEgVHJ1c3QgUmVnaXN0cnkgSW5mcmFzdHJ1Y3R1cmUgVHJ1c3RlZCBMaXN0IFNpZ25lcgIUKY5Ypn2tibtBnbyWpyXX2liR7QA=</xades:IssuerSerialV2>
+                </xades:Cert>
+              </xades:SigningCertificateV2>
+            </xades:SignedSignatureProperties>
+            <xades:SignedDataObjectProperties>
+              <xades:DataObjectFormat ObjectReference="#signature-ref-document">
+                <xades:MimeType>application/vnd.etsi.tsl+xml</xades:MimeType>
+              </xades:DataObjectFormat>
+            </xades:SignedDataObjectProperties>
+          </xades:SignedProperties>
+        </xades:QualifyingProperties>
+    </ds:Object>
+  </ds:Signature>
+</TrustServiceStatusList>

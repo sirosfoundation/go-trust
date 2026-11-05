@@ -383,6 +383,7 @@ Evaluates trust from ETSI TS 119 602 Lists of Trusted Entities (LoTE) — the JS
 - X.509 PKIX path validation against entity certificates
 - JWK key matching via SHA-256 fingerprints
 - Optional JWS signature verification of LoTE and LoTL documents against a pinned trust anchor bundle (`trust_anchor_bundle`); applies to LoTL-resolved sources too
+- LoTL pointers to classic ETSI TS 119 612 XML TSLs (`.../TrstSvc/TrustedList/TSLType/EUgeneric`) are loaded and indexed alongside native LoTEs
 - Periodic refresh with configurable interval
 
 **Supported resource types:** `x5c`, `jwk`
@@ -413,7 +414,32 @@ a JWS whose `x5c` chain validates to the bundle; unsigned or badly signed
 documents are never used. A direct source or top-level LoTL that fails
 verification makes the registry fail to load; a LoTE or nested LoTL reached
 through a LoTL pointer that fails is logged at error level and skipped, like a
-pointer that cannot be fetched.
+pointer that cannot be fetched. The refresh log line reports the number of
+skipped pointers as `lotl_pointers_skipped`.
+
+**Classic TSL pointers.** A LoTL pointer whose scheme type is a TS 119 612 TSL
+type (e.g. `EUgeneric`) is fetched as XML, converted with `FromTSL` and indexed
+with the native LoTEs (a pointer whose `MimeType` is JSON stays a native LoTE even
+if it reuses a TSL type). With verification off it is loaded as is. With
+verification on (`verify_jws` and/or `trust_anchor_bundle`) it is never loaded
+unverified: the TSL is fetched once, its enveloped XMLDSig is verified over
+those bytes, and only the verified content is parsed. The same
+`trust_anchor_bundle` anchors the TSL signer: one of the certificates in the
+signature's `KeyInfo` must verify the signature and chain (using the other
+`KeyInfo` certificates as intermediates) to a bundle certificate, or be one
+itself, and be valid now. Signer certificates are parsed with `crypto/x509`,
+so curves that need the configured crypto extensions (e.g. brainpool) are not
+supported for TSL signers. The pointer's target must itself declare a TS 119 612
+`TSLType`.
+The TSL must carry exactly one `ds:Signature`, a direct child of the root, whose
+reference covers the whole document; SHA-1 signature and digest algorithms are
+refused. Revocation and XAdES signing time are not checked. Any failure skips
+the pointer with an error log. Notes: a classic TSL used as a top-level source
+or as the LoTL source itself is not supported here (use `registries.etsi`), and
+pointers inside a classic TSL are not followed. For classic TSL services only
+the statuses `granted`, `recognisedatnationallevel`, `accredited`,
+`undersupervision` and `setbynationallaw` confer trust; other statuses (e.g.
+`deprecatedatnationallevel`, `supervisionincessation`) are not indexed.
 
 **Programmatic usage:**
 

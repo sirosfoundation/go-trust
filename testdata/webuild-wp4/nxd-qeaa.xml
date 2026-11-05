@@ -1,0 +1,136 @@
+<?xml version='1.0' encoding='utf-8'?>
+<TrustServiceStatusList xmlns="http://uri.etsi.org/02231/v2#" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" TSLTag="http://uri.etsi.org/19612/TSLTag" Id="nxd-tl-qeaa-1">
+  <SchemeInformation>
+    <TSLVersionIdentifier>5</TSLVersionIdentifier>
+    <TSLSequenceNumber>216</TSLSequenceNumber>
+    <TSLType>http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUgeneric</TSLType>
+    <SchemeOperatorName>
+      <Name xml:lang="en">NXD Foundation</Name>
+    </SchemeOperatorName>
+    <SchemeOperatorAddress>
+      <PostalAddresses>
+        <PostalAddress xml:lang="en">
+          <StreetAddress>Bössvägen 28</StreetAddress>
+          <Locality>Sollentuna, Stockholm</Locality>
+          <PostalCode>19255</PostalCode>
+          <CountryName>SE</CountryName>
+        </PostalAddress>
+      </PostalAddresses>
+      <ElectronicAddress>
+        <URI xml:lang="en">mailto:info@nxd.foundation</URI>
+      </ElectronicAddress>
+    </SchemeOperatorAddress>
+    <SchemeName>
+      <Name xml:lang="en">SE:EN_NXD Foundation - QEAA Providers</Name>
+    </SchemeName>
+    <SchemeInformationURI>
+      <URI xml:lang="en">https://trustlist.nxd.foundation/</URI>
+    </SchemeInformationURI>
+    <StatusDeterminationApproach>http://uri.etsi.org/TrstSvc/TrustedList/StatusDetn/EUappropriate</StatusDeterminationApproach>
+    <SchemeTypeCommunityRules>
+      <URI xml:lang="en">http://uri.etsi.org/TrstSvc/TrustedList/schemerules/EU</URI>
+    </SchemeTypeCommunityRules>
+    <SchemeTerritory>SE</SchemeTerritory>
+    <HistoricalInformationPeriod>65535</HistoricalInformationPeriod>
+    <ListIssueDateTime>2026-11-04T12:45:18Z</ListIssueDateTime>
+    <NextUpdate>
+      <dateTime>2027-05-04T12:45:18Z</dateTime>
+    </NextUpdate>
+  </SchemeInformation>
+  <TrustServiceProviderList>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">University of the Aegean</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">UAegean WE BUILD Issuer</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>University Hill</StreetAddress>
+              <Locality>Mytilene</Locality>
+              <PostalCode>81100</PostalCode>
+              <CountryName>EL</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:triantafyllou.ni@aegean.gr</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.aegean.gr/</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA/Q</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">UAegean WE BUILD Pilot Credential Issuance</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICODCCAd6gAwIBAgIUQQ6ztvGqElaTS911qhFVZmy6qkAwCgYIKoZIzj0EAwIwUzELMAkGA1UEBhMCR1IxCzAJBgNVBAgMAkdSMRAwDgYDVQQKDAdVQWVnZWFuMRAwDgYDVQQLDAdVQWVnZWFuMRMwEQYDVQQDDAp1YWVnZWFuLmdyMB4XDTI2MDQwMTEyNTMzNFoXDTI4MDcwNDEyNTMzNFowUzELMAkGA1UEBhMCR1IxCzAJBgNVBAgMAkdSMRAwDgYDVQQKDAdVQWVnZWFuMRAwDgYDVQQLDAdVQWVnZWFuMRMwEQYDVQQDDAp1YWVnZWFuLmdyMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdMLtMHM+bYdiJRHJmfA7ypihS8JDAmci4q3FOeLy6mDxleHd06wugkVPVjoX74eBHq4GOw6J+dMiKJWdB+Cha6OBjzCBjDBbBgNVHREEVDBSghRkZXYtaTRtbGFiLmFlZ2Vhbi5ncoIYd3d3LmRldi1pNG1sYWIuYWVnZWFuLmdygg1kc3MuYWVnZWFuLmdyghF3d3cuZHNzLmFlZ2Vhbi5ncjAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0OBBYEFFSKW9UeWwZQqehF+I2VS8J9pSfLMAoGCCqGSM49BAMCA0gAMEUCIEBqB6x0noFHCsnML22JtU0d4tTc8U+TPxGqE+cFKg+YAiEAg974781vxiiLz+JC9MPgRTy961k8xLfHeaNOk8is770=</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-07-28T00:00:00Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Developer Org</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">Developer Org</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Demo Street 1</StreetAddress>
+              <Locality>Stockholm</Locality>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://docs.igrant.io</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA/Q</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">Developer Org (QEAA Issuer, iGrant.io docs)</Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICaDCCAg6gAwIBAgIUIBRJOjkiai35TZBV1HIcAp1Sgz4wCgYIKoZIzj0EAwIwSjELMAkGA1UEBhMCU0UxEjAQBgNVBAoMCWlHcmFudC5pbzEnMCUGA1UEAwweaUdyYW50LmlvIExhbmRpbmcgUGFnZSBEZW1vIENBMB4XDTI2MTAwNjExNTA0NloXDTI4MTAwNTExNTU0NlowSTEiMCAGA1UEAwwZRGV2ZWxvcGVyIE9yZyBRRUFBIElzc3VlcjEWMBQGA1UECgwNRGV2ZWxvcGVyIE9yZzELMAkGA1UEBhMCU0UwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATr7RD9PegihhJ/GyvNbqk6LGsaq9AL9MqAx/QiINIUzQ5E8rxA8m+ziRfquzV184ItEjOaVxdHGqlTCe60hJ3/o4HSMIHPMAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMG8GA1UdEQRoMGaCEG9pZDR2Yy5pZ3JhbnQuaW+GUmh0dHBzOi8vb2lkNHZjLmlncmFudC5pby9vcmdhbmlzYXRpb24vY2M4ZjYzMDMtYzQ5Zi00NjhjLWFkM2MtY2U5M2E4NjVmOTYzL3NlcnZpY2UwHQYDVR0OBBYEFNw3qjVvG1w2kYkAH/UifdFknIwpMB8GA1UdIwQYMBaAFOjEPPMaX/0Fm91Ps/grLvk3QgPYMAoGCCqGSM49BAMCA0gAMEUCIBptSyJnfx3TrewmY4841jLiFVTx3sYUDga/T3AFkOO+AiEA4Ud9nYvoZF0ulJpiqf0lTnNrgS2zlT+4QOAwrN0nXhw=</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-11-04T12:45:18Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+  </TrustServiceProviderList>
+<ds:Signature xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Id="SignXMLSignature1375E6A0"><ds:SignedInfo><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/><ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"/><ds:Reference URI="#nxd-tl-qeaa-1" Id="SignXMLReferenceD023ECBA"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>w5PD8igevKFhdhnHYC2BVQNZCtbm7oBywYpsVTmGcjQ=</ds:DigestValue></ds:Reference><ds:Reference URI="#SignXMLSignature1375E6A0-SignedProperties2E74F57E" Type="http://uri.etsi.org/01903#SignedProperties"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>/SbLoGDlYZdtLO/gJQIzCrovJVhFqc86Df15FIXylbw=</ds:DigestValue></ds:Reference><ds:Reference URI="#SignXMLCertificateFC53D8E1"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>xKTGsFutmbZim6h8+oeMjnED1MWjHsgJXGzv/XGzupo=</ds:DigestValue></ds:Reference></ds:SignedInfo><ds:SignatureValue>QwMRgxLoTC48w8eQMj8rc4mcfxik6OoNbw3ngm8mx5Q/pjN8CAGMUcYJDhP0ocQy0cAZeAO6w5lYylChY+nAjA==</ds:SignatureValue><ds:KeyInfo Id="SignXMLCertificateFC53D8E1"><ds:X509Data><ds:X509Certificate>MIIBoDCCAUagAwIBAgIUeQPc75dyOVwCJVf0X5gtsJ8tkbMwCgYIKoZIzj0EAwIw
+JjELMAkGA1UEBhMCU0UxFzAVBgNVBAoMDk5YRCBGb3VuZGF0aW9uMB4XDTI2MDky
+MTA5NDgzOVoXDTI5MDkyMDA5NTMzOVowJjELMAkGA1UEBhMCU0UxFzAVBgNVBAoM
+Dk5YRCBGb3VuZGF0aW9uMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQVTqk6oG
+WN4G15IcOeW27Pp4Akfu54kGaoT1JNNAJbnB7v3zZu1o/9/gHoyrN6Yyu9ww0dAU
+xsWPQFcq2/+U56NSMFAwDgYDVR0PAQH/BAQDAgbAMBEGA1UdJQQKMAgGBgQAkTcD
+ADAMBgNVHRMBAf8EAjAAMB0GA1UdDgQWBBQVww37whbwN3DMilF8pSAtQRgIsTAK
+BggqhkjOPQQDAgNIADBFAiBR4C7Tiv94JRayfJ19gggyj68PjdfOfHuCe0Y6B9Gg
+JgIhAKIw81dJK5lGBZXM2d3FSfKAmYH1TpK3TEAjxeZenO4S
+</ds:X509Certificate></ds:X509Data></ds:KeyInfo><ds:Object><xades:QualifyingProperties Target="#SignXMLSignature1375E6A0"><xades:SignedProperties Id="SignXMLSignature1375E6A0-SignedProperties2E74F57E"><xades:SignedSignatureProperties><xades:SigningTime>2026-11-04T12:45:18Z</xades:SigningTime><xades:SigningCertificateV2><xades:Cert><xades:CertDigest><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>STLO7Yo9dVxGADJo2Yb+/SmWC8sUQVWcclRcmtVLFXk=</ds:DigestValue></xades:CertDigest></xades:Cert></xades:SigningCertificateV2></xades:SignedSignatureProperties><xades:SignedDataObjectProperties><xades:DataObjectFormat ObjectReference="#SignXMLReferenceD023ECBA"><xades:Description>NXD Foundation trust list</xades:Description><xades:MimeType>application/vnd.etsi.tsl+xml</xades:MimeType></xades:DataObjectFormat></xades:SignedDataObjectProperties></xades:SignedProperties></xades:QualifyingProperties></ds:Object></ds:Signature></TrustServiceStatusList>

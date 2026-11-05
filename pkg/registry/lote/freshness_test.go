@@ -67,20 +67,21 @@ func TestFreshness_IncludesFollowedLoTLs(t *testing.T) {
 		return writeLoTL(t, dir, "top-"+nextUpdate+".json", lotlWithPointers(nextUpdate,
 			lotlPointer(nested, etsi119602.LoTLTypeEU, "EU")))
 	}
+	now := func() time.Time { return time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC) }
 
 	t.Run("earliest of parent, nested and LoTE", func(t *testing.T) {
-		r, err := New(Config{LoTLSources: []string{top("2026-11-01T00:00:00Z")}})
+		r, err := New(Config{LoTLSources: []string{top("2026-11-01T00:00:00Z")}, Now: now})
 		require.NoError(t, err)
 		assert.True(t, r.Freshness().NextUpdate.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)),
 			"parent due before the child must not be hidden by the child's later date")
 	})
 	t.Run("nested LoTL earlier than parent", func(t *testing.T) {
-		r, err := New(Config{LoTLSources: []string{top("2027-03-01T00:00:00Z")}})
+		r, err := New(Config{LoTLSources: []string{top("2027-03-01T00:00:00Z")}, Now: now})
 		require.NoError(t, err)
 		assert.True(t, r.Freshness().NextUpdate.Equal(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)))
 	})
 	t.Run("undated parent is unknown", func(t *testing.T) {
-		r, err := New(Config{LoTLSources: []string{top("")}})
+		r, err := New(Config{LoTLSources: []string{top("")}, Now: now})
 		require.NoError(t, err)
 		assert.True(t, r.Freshness().NextUpdate.IsZero())
 	})

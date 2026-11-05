@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TrustServiceStatusList xmlns="http://uri.etsi.org/02231/v2#" xmlns:ns2="http://www.w3.org/2000/09/xmldsig#" xmlns:ns3="http://uri.etsi.org/01903/v1.3.2#" xmlns:ns4="http://uri.etsi.org/02231/v2/additionaltypes#" xmlns:ns5="http://uri.etsi.org/TrstSvc/SvcInfoExt/eSigDir-1999-93-EC-TrustedList/#" xmlns:ns6="http://uri.etsi.org/01903/v1.4.1#" Id="TrustServiceStatusList" TSLTag="http://uri.etsi.org/19612/TSLTag">
+  <SchemeInformation>
+    <TSLVersionIdentifier>6</TSLVersionIdentifier>
+    <TSLSequenceNumber>1</TSLSequenceNumber>
+    <TSLType>http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUgeneric</TSLType>
+    <SchemeOperatorName>
+      <Name xml:lang="en">IDunion SCE</Name>
+    </SchemeOperatorName>
+    <SchemeOperatorAddress>
+      <PostalAddresses>
+        <PostalAddress xml:lang="en">
+          <StreetAddress>Rheinstrasse 5</StreetAddress>
+          <Locality>Langen</Locality>
+          <PostalCode>63225</PostalCode>
+          <CountryName>Langen</CountryName>
+        </PostalAddress>
+      </PostalAddresses>
+      <ElectronicAddress>
+        <URI xml:lang="en">mailto:info@idunion.eu</URI>
+        <URI xml:lang="en">https://www.idunion.eu</URI>
+      </ElectronicAddress>
+    </SchemeOperatorAddress>
+    <SchemeName>
+      <Name xml:lang="en">EU:EN_WEBUILD - SCA attestation issuers</Name>
+    </SchemeName>
+    <SchemeInformationURI>
+      <URI xml:lang="en">http://uri.etsi.org/02231/v2#</URI>
+    </SchemeInformationURI>
+    <StatusDeterminationApproach>http://uri.etsi.org/TrstSvc/TrustedList/StatusDetn/EUappropriate</StatusDeterminationApproach>
+    <SchemeTypeCommunityRules>
+      <URI xml:lang="en">http://uri.etsi.org/TrstSvc/TrustedList/schemerules/EU</URI>
+    </SchemeTypeCommunityRules>
+    <SchemeTerritory>EU</SchemeTerritory>
+    <HistoricalInformationPeriod>65535</HistoricalInformationPeriod>
+    <ListIssueDateTime>2026-10-06T13:54:08Z</ListIssueDateTime>
+    <NextUpdate>
+      <dateTime>2027-04-06T13:54:08Z</dateTime>
+    </NextUpdate>
+  </SchemeInformation>
+  <TrustServiceProviderList>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Docaposte</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">NTRFR-493376008</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress/>
+              <Locality>FRANCE</Locality>
+              <StateOrProvince>Nice</StateOrProvince>
+              <CountryName>FRANCE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:</URI>
+            <URI xml:lang="en">https://issuer.dev.minitalk.eu</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://issuer.dev.minitalk.eu</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en"/>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICpzCCAk2gAwIBAgIRANb+ypnxpq+5W7f7bfpmUYQwCgYIKoZIzj0EAwIwgY8xCzAJBgNVBAYTAkRFMQ8wDQYDVQQIEwZIZXNzZW4xDzANBgNVBAcTBkxhbmdlbjEXMBUGA1UECRMOUmhlaW5zdHJhc3NlIDUxDjAMBgNVBBETBTYzMjI1MRQwEgYDVQQKEwtJRHVuaW9uIFNDRTEfMB0GA1UEAxMWaHR0cHM6Ly93d3cuaWR1bmlvbi5ldTAeFw0yNjA5MTcxMzA1MTZaFw0yODA5MTcxMzA1MTZaMIGEMQswCQYDVQQGEwJGUjENMAsGA1UECBMETmljZTEPMA0GA1UEBxMGRlJBTkNFMRIwEAYDVQQKEwlEb2NhcG9zdGUxGDAWBgNVBAsTD0lzc3Vlci1WZXJpZmllcjEnMCUGA1UEAxMeaHR0cHM6Ly9pc3N1ZXIuZGV2Lm1pbml0YWxrLmV1MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaieINmE/MnF1ON0Avd9ZhlblK2K8e48sKapBacf64t2sNSejdG+Ku4REKfv+CSfzBCV+cG6BqFzqeDawgnyST6OBkjCBjzAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0OBBYEFHQqhRetXLE6fp28kCVTjc7k+tNYMB8GA1UdIwQYMBaAFLFU/XGHZMemiOgE70uYxpi1JnaeMD0GA1UdEQQ2MDSCEmlzc3Vlci5leGFtcGxlLmNvbYYeaHR0cHM6Ly9pc3N1ZXIuZGV2Lm1pbml0YWxrLmV1MAoGCCqGSM49BAMCA0gAMEUCIQCvzK5gMd7RzLY6Rz6HLCkSD+robqw/iuAlAv8+ixaIcQIgTPxCK/nKLHyU8GbLPnjML94pAg2M5ET9fe5XETeAIcM=</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-09-17T13:05:16Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Robert Bosch</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">EUID DEB8534.HRB14000</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress/>
+              <Locality>Stuttgart</Locality>
+              <StateOrProvince>Stuttgart</StateOrProvince>
+              <CountryName>DE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">https://bos.ch</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://bos.ch</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en"/>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICDzCCAbWgAwIBAgIRAOS4Niqe1qkSwN9zvQV8SfwwCgYIKoZIzj0EAwIwgY8xCzAJBgNVBAYTAkRFMQ8wDQYDVQQIEwZIZXNzZW4xDzANBgNVBAcTBkxhbmdlbjEXMBUGA1UECRMOUmhlaW5zdHJhc3NlIDUxDjAMBgNVBBETBTYzMjI1MRQwEgYDVQQKEwtJRHVuaW9uIFNDRTEfMB0GA1UEAxMWaHR0cHM6Ly93d3cuaWR1bmlvbi5ldTAeFw0yNjA5MjQxMTQ4NDNaFw0yODA5MjQxMTQ4NDNaMF0xCzAJBgNVBAYTAkRFMRIwEAYDVQQIEwlTdHV0dGdhcnQxEjAQBgNVBAcTCVN0dXR0Z2FydDEVMBMGA1UEChMMUm9iZXJ0IEJvc2NoMQ8wDQYDVQQDEwZib3MuY2gwKjAFBgMrZXADIQC0ES8RIFWRuAhMB5mLP+1DLsC2v8HDNbmKwNhAvUDEuqNSMFAwDgYDVR0PAQH/BAQDAgeAMB0GA1UdDgQWBBSJTan/qaa5iVU79+Rwgppc6O782DAfBgNVHSMEGDAWgBSxVP1xh2THpojoBO9LmMaYtSZ2njAKBggqhkjOPQQDAgNIADBFAiEAi06/ZW/wqUaO8oG10lhuMi7qZk/Vn1r/eyF3fB03OFQCIE9lFcAipVEVX1ykE97fhiiwz/i2CX0hxxbAlucyfdKV</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-09-24T11:48:43Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Bankovní identita, a.s.</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">VAT CZ09513817</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Smrčkova 2485/4</StreetAddress>
+              <Locality>Praha</Locality>
+              <StateOrProvince>Praha</StateOrProvince>
+              <PostalCode>18000</PostalCode>
+              <CountryName>CZ</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:filip.hladky@bankid.cz</URI>
+            <URI xml:lang="en">https://wallet.stage.bankid.cz</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://wallet.stage.bankid.cz</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en"/>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICUjCCAfigAwIBAgIRAMdzHfbEZ4tyYONHsy7ci1wwCgYIKoZIzj0EAwIwgY8xCzAJBgNVBAYTAkRFMQ8wDQYDVQQIEwZIZXNzZW4xDzANBgNVBAcTBkxhbmdlbjEXMBUGA1UECRMOUmhlaW5zdHJhc3NlIDUxDjAMBgNVBBETBTYzMjI1MRQwEgYDVQQKEwtJRHVuaW9uIFNDRTEfMB0GA1UEAxMWaHR0cHM6Ly93d3cuaWR1bmlvbi5ldTAeFw0yNjEwMDIwOTExMjZaFw0yODEwMDIwOTExMjZaMHExCzAJBgNVBAYTAkNaMQ4wDAYDVQQIEwVQcmFoYTEOMAwGA1UEBxMFUHJhaGExITAfBgNVBAoMGEJhbmtvdm7DrSBpZGVudGl0YSwgYS5zLjEfMB0GA1UEAxMWd2FsbGV0LnN0YWdlLmJhbmtpZC5jejBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABCCuGy/THyJCnzvfSiU/UxB3BI2Vwhe1qEbUQrwciuPeJXMmlYv7vlyhalD6s+HKzQnRWRPVqAOL02XLzVO1WwSjUjBQMA4GA1UdDwEB/wQEAwIHgDAdBgNVHQ4EFgQUUhLve5ZBEOrbX/B3n3OlNCAfulIwHwYDVR0jBBgwFoAUsVT9cYdkx6aI6ATvS5jGmLUmdp4wCgYIKoZIzj0EAwIDSAAwRQIgX5NSNwpj5DGTgtFNQdQF+kBt95ci/fg7lBOZfhnLv2oCIQDGkHkE69tZA1ifc+s0STaPUXVz/6o5Eau1guk2qTO9HQ==</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-10-02T09:11:26Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">Piggy Bank</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">VAT SE559133272001</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Bössvägen 28</StreetAddress>
+              <Locality>Sollentuna</Locality>
+              <StateOrProvince>Stockholm</StateOrProvince>
+              <PostalCode>192 55</PostalCode>
+              <CountryName>SE</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@igrant.io</URI>
+            <URI xml:lang="en">https://piggybank-demo.igrant.io/private</URI>
+            <URI xml:lang="en">tel:+46725082200</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://piggybank-demo.igrant.io/private</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en"/>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIByjCCAXCgAwIBAgIUO4I870PaulS5BTYMAoqlom2ErowwCgYIKoZIzj0EAwIwSzELMAkGA1UEBhMCU0UxEjAQBgNVBAgMCVN0b2NraG9sbTETMBEGA1UECgwKUGlnZ3kgQmFuazETMBEGA1UEAwwKUGlnZ3kgQmFuazAeFw0yNjEwMDYwODQ5NDZaFw0zNjEwMDMwODQ5NDZaMEsxCzAJBgNVBAYTAlNFMRIwEAYDVQQIDAlTdG9ja2hvbG0xEzARBgNVBAoMClBpZ2d5IEJhbmsxEzARBgNVBAMMClBpZ2d5IEJhbmswWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATrT1BW7AZhnfRpeT83FElbbuAevOhHMqUGH4dvbB5k1sFr6uFsxm9daABHEr3EagHaVslR5x3XDtlB4yAr15H0ozIwMDAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBSyrcijj4/mtSS+eLArdyfZNoH2iDAKBggqhkjOPQQDAgNIADBFAiAeSmDtLT9YBxQPV4DKGXEGQ6soqWAmMJ8kY/3884EZzgIhAPVoYqyv3fOPBUZzkES7seUrrBhgS8/9rneRCxvZvY8s</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-10-06T13:54:08Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+    <TrustServiceProvider>
+      <TSPInformation>
+        <TSPName>
+          <Name xml:lang="en">OneSpan NV</Name>
+        </TSPName>
+        <TSPTradeName>
+          <Name xml:lang="en">BE 0446.822.877</Name>
+        </TSPTradeName>
+        <TSPAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>De Kleetlaan 12A</StreetAddress>
+              <Locality>Diegem</Locality>
+              <StateOrProvince>Vlaams-Brabant</StateOrProvince>
+              <PostalCode>1831</PostalCode>
+              <CountryName>Diegem</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:</URI>
+            <URI xml:lang="en">https://www.onespan.com</URI>
+          </ElectronicAddress>
+        </TSPAddress>
+        <TSPInformationURI>
+          <URI xml:lang="en">https://www.onespan.com</URI>
+        </TSPInformationURI>
+      </TSPInformation>
+      <TSPServices>
+        <TSPService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/EAA</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en"/>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIIDFzCCAr2gAwIBAgIRAOH7NvSduAC1vLZcrUKH8dowCgYIKoZIzj0EAwIwgY8xCzAJBgNVBAYTAkRFMQ8wDQYDVQQIEwZIZXNzZW4xDzANBgNVBAcTBkxhbmdlbjEXMBUGA1UECRMOUmhlaW5zdHJhc3NlIDUxDjAMBgNVBBETBTYzMjI1MRQwEgYDVQQKEwtJRHVuaW9uIFNDRTEfMB0GA1UEAxMWaHR0cHM6Ly93d3cuaWR1bmlvbi5ldTAeFw0yNjA5MTcxMzAxMjhaFw0yODA5MTcxMzAxMjhaMGsxCzAJBgNVBAYTAkJFMRMwEQYDVQQKEwpPbmVTcGFuIE5WMS0wKwYDVQQLEyQ0OTk4YTNkMy1hZDE1LTRiYjAtYmZmZi1iZmQwNTM1NzU4N2IxGDAWBgNVBAMTD3d3dy5vbmVzcGFuLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJVtTN4ttvgcCnU959j/pMcO1TS5Nm9GtuDZNIlGOZSSMigUNbBTNGLgttGgw4pD26Z/FBV4GMkCYxc7yVerlUuqYQD/R2rApXJoRE8dKtWa5I8qRMyFhrYjqAbAOJ1/6/rmlxXYe1EIT2PFBXswByCLcV5DKtE2kc9R2lrgvR/BwboKFTowL7XcCt8Izm07Stnh1n1p9dYqmIbdHwoeQiMabVrpc/8ClzJfCgFAyJXZr1HcUzrysr1O+eWlQOkIepk0z9lVGr8H1LP0+8iQXP4mzC4oTAILmjZX7JkbbHfAf1ra6+V2ap06EJNlDcu/zKeO5K4LVmdbWkB9VaRUIpECAwEAAaNSMFAwDgYDVR0PAQH/BAQDAgeAMB0GA1UdDgQWBBQEzybeAB799EjAYmiTqq+9nPicJTAfBgNVHSMEGDAWgBSxVP1xh2THpojoBO9LmMaYtSZ2njAKBggqhkjOPQQDAgNIADBFAiAEXZkZVIrtGEwBJD4lssVeQj3dFmZhnz5vQVTOyIIxVgIhANKwyZM9LX9YeX34uDldnjPBle85lsu5a5+Kx/NsrG/z</X509Certificate>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</ServiceStatus>
+            <StatusStartingTime>2026-09-17T13:01:28Z</StatusStartingTime>
+          </ServiceInformation>
+        </TSPService>
+      </TSPServices>
+    </TrustServiceProvider>
+  </TrustServiceProviderList>
+<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="id-2668bdb45f6d617913bed0be041b4c22"><ds:SignedInfo><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/><ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"/><ds:Reference Id="ref-enveloped-signature" URI="#TrustServiceStatusList"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"/><ds:DigestValue>iogr9R/nyzsP5Y4n/g/arHHh65sLbo52JVmnMPuj08FiUvowBwnr8g/zBO2vmtHL2C/njlBRzsHLqz6UO7RS2g==</ds:DigestValue></ds:Reference><ds:Reference Type="http://uri.etsi.org/01903#SignedProperties" URI="#xades-id-2668bdb45f6d617913bed0be041b4c22"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>9J7d92ESgIToHGFQHSbg8MmhU48wA/J5qjmWz/XjutA=</ds:DigestValue></ds:Reference></ds:SignedInfo><ds:SignatureValue Id="value-id-2668bdb45f6d617913bed0be041b4c22">FKqWnHmN6mUJGOPQx77I5qGugjqomAf0xkToEmIdcmnlbaJSixMiBth2IB2An2q+jbUy4X75R20sDHnjLNReew==</ds:SignatureValue><ds:KeyInfo><ds:X509Data><ds:X509Certificate>MIIDBTCCAqygAwIBAgIQXNhGXiWDDb5VT/1T8qoPCzAKBggqhkjOPQQDAjCBjzELMAkGA1UEBhMCREUxDzANBgNVBAgTBkhlc3NlbjEPMA0GA1UEBxMGTGFuZ2VuMRcwFQYDVQQJEw5SaGVpbnN0cmFzc2UgNTEOMAwGA1UEERMFNjMyMjUxFDASBgNVBAoTC0lEdW5pb24gU0NFMR8wHQYDVQQDExZodHRwczovL3d3dy5pZHVuaW9uLmV1MB4XDTI2MDkxNDE0MTExOFoXDTI5MDMxOTIzNTk1OVowgY8xCzAJBgNVBAYTAkRFMQ8wDQYDVQQIEwZIZXNzZW4xDzANBgNVBAcTBkxhbmdlbjEXMBUGA1UECRMOUmhlaW5zdHJhc3NlIDUxDjAMBgNVBBETBTYzMjI1MRQwEgYDVQQKEwtJRHVuaW9uIFNDRTEfMB0GA1UEAxMWaHR0cHM6Ly93d3cuaWR1bmlvbi5ldTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABD3W+51YUMeoLo88SalHGnNj2o94Rj/vM/Sk8umWK1T2T0IVgCSZdvKYNE8tHiYExr0ylf8HfcSsIM2WeYHwt42jgecwgeQwDgYDVR0PAQH/BAQDAgGGMBEGA1UdJQQKMAgGBgQAkTcDADAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBSxVP1xh2THpojoBO9LmMaYtSZ2njAfBgNVHSMEGDAWgBSxVP1xh2THpojoBO9LmMaYtSZ2njBuBgNVHREEZzBlgQ9pbmZvQGlkdW5pb24uZXWGUmh0dHBzOi8vYXBpLndhbGxldC5pZHVuaW9uLmluZm8vYXBpL3YxL2lzc3Vlci8wMWEwYTA0MS05ZGIwLTdmMzgtOGE5Zi05ZmUxNzE4ODE0ZTAwCgYIKoZIzj0EAwIDRwAwRAIgem5RdsfHvA4gTPBoP3XzOuFy2Ee08ZdKV0tcqcsUHf8CIHdjt0nIlAB/RXLjK14u0vFjvkRGdjBexFJJgY1lZvUN</ds:X509Certificate></ds:X509Data></ds:KeyInfo><ds:Object><xades:QualifyingProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Target="#id-2668bdb45f6d617913bed0be041b4c22"><xades:SignedProperties Id="xades-id-2668bdb45f6d617913bed0be041b4c22"><xades:SignedSignatureProperties><xades:SigningTime>2026-10-06T13:54:08Z</xades:SigningTime><xades:SigningCertificateV2><xades:Cert><xades:CertDigest><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"/><ds:DigestValue>dnGTL4gbLS2jGqN6Q/VffAmGyVhwoCBW8yC2SDV8tpQYobDISeo6M91q6PSL0SzvK+B3+t1DnHT1o76YMgcz7Q==</ds:DigestValue></xades:CertDigest><xades:IssuerSerialV2>MIGqMIGVpIGSMIGPMQswCQYDVQQGEwJERTEPMA0GA1UECBMGSGVzc2VuMQ8wDQYDVQQHEwZMYW5nZW4xFzAVBgNVBAkTDlJoZWluc3RyYXNzZSA1MQ4wDAYDVQQREwU2MzIyNTEUMBIGA1UEChMLSUR1bmlvbiBTQ0UxHzAdBgNVBAMTFmh0dHBzOi8vd3d3LmlkdW5pb24uZXUCEFzYRl4lgw2+VU/9U/KqDws=</xades:IssuerSerialV2></xades:Cert></xades:SigningCertificateV2></xades:SignedSignatureProperties><xades:SignedDataObjectProperties><xades:DataObjectFormat ObjectReference="#ref-enveloped-signature"><xades:MimeType>application/octet-stream</xades:MimeType></xades:DataObjectFormat></xades:SignedDataObjectProperties></xades:SignedProperties></xades:QualifyingProperties></ds:Object></ds:Signature></TrustServiceStatusList>

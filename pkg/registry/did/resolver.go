@@ -17,6 +17,7 @@ import (
 	"crypto/elliptic"
 	"encoding/base64"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
@@ -701,6 +702,13 @@ func decodeMultibaseKey(multibaseKey string) (string, map[string]interface{}, er
 	}
 }
 
+// DecodeMultibaseKeyJWK decodes a multibase-encoded multicodec public key (the publicKeyMultibase of a
+// Multikey or Ed25519VerificationKey2020 verification method) into its public JWK.
+func DecodeMultibaseKeyJWK(multibaseKey string) (map[string]interface{}, error) {
+	_, jwk, err := decodeMultibaseKey(multibaseKey)
+	return jwk, err
+}
+
 // Base58btc alphabet
 const base58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
@@ -746,25 +754,34 @@ func base58Decode(input string) ([]byte, error) {
 	return result, nil
 }
 
-// decompressSecp256k1 decompresses a compressed secp256k1 public key.
+// secp256k1 domain parameters (SEC 2): y^2 = x^3 + 7 over the field of order p.
+var secp256k1P, _ = new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16)
+
+// decompressSecp256k1 decompresses a compressed secp256k1 public key into fixed-width x and y.
+// The standard library has no secp256k1, so y is recovered from the curve equation: p = 3 (mod 4), hence
+// y = (x^3 + 7)^((p+1)/4) mod p, taken with the parity the prefix byte names.
 func decompressSecp256k1(compressed []byte) ([]byte, []byte, error) {
 	if len(compressed) != 33 {
 		return nil, nil, fmt.Errorf("invalid compressed key length: expected 33, got %d", len(compressed))
 	}
-
-	// For simplicity, we'll just return the x coordinate
-	// A full implementation would compute y from the curve equation
-	// secp256k1 decompression requires BigInt arithmetic
-	x := compressed[1:33]
-
-	// Placeholder: return compressed form indication in y
-	// In production, this should properly decompress the key
-	y := make([]byte, 32)
-	if compressed[0] == 0x03 {
-		y[31] = 0x01 // Odd y
+	if compressed[0] != 0x02 && compressed[0] != 0x03 {
+		return nil, nil, fmt.Errorf("invalid compressed key prefix 0x%02x", compressed[0])
 	}
-
-	return x, y, nil
+	p := secp256k1P
+	x := new(big.Int).SetBytes(compressed[1:])
+	if x.Cmp(p) >= 0 {
+		return nil, nil, fmt.Errorf("x coordinate is not a field element")
+	}
+	rhs := new(big.Int).Exp(x, big.NewInt(3), p)
+	rhs.Add(rhs, big.NewInt(7)).Mod(rhs, p)
+	y := new(big.Int).Exp(rhs, new(big.Int).Rsh(new(big.Int).Add(p, big.NewInt(1)), 2), p)
+	if new(big.Int).Exp(y, big.NewInt(2), p).Cmp(rhs) != 0 {
+		return nil, nil, fmt.Errorf("x coordinate is not on the secp256k1 curve")
+	}
+	if y.Bit(0) != uint(compressed[0]&1) {
+		y.Sub(p, y)
+	}
+	return x.FillBytes(make([]byte, 32)), y.FillBytes(make([]byte, 32)), nil
 }
 
 // decompressP256 decompresses a compressed P-256 public key.
@@ -780,7 +797,8 @@ func decompressP256(compressed []byte) ([]byte, []byte, error) {
 		return nil, nil, fmt.Errorf("failed to decompress P-256 key")
 	}
 
-	return x.Bytes(), y.Bytes(), nil
+	// Fixed-width, as a JWK carries them: Bytes() would drop a leading zero byte.
+	return x.FillBytes(make([]byte, 32)), y.FillBytes(make([]byte, 32)), nil
 }
 
 // decompressP384 decompresses a compressed P-384 public key.
@@ -796,7 +814,7 @@ func decompressP384(compressed []byte) ([]byte, []byte, error) {
 		return nil, nil, fmt.Errorf("failed to decompress P-384 key")
 	}
 
-	return x.Bytes(), y.Bytes(), nil
+	return x.FillBytes(make([]byte, 48)), y.FillBytes(make([]byte, 48)), nil
 }
 
 // NewGenericDIDRegistryWithKeyMethod creates a GenericDIDRegistry with the did:key resolver registered.
