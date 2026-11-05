@@ -21,7 +21,7 @@ require (
 	github.com/lestrrat-go/jwx/v4 v4.6.0
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/sirosfoundation/g119612 v0.7.0
+	github.com/sirosfoundation/g119612 v0.8.0
 	github.com/sirosfoundation/go-cryptoutil v0.7.2
 	github.com/sirosfoundation/go-cryptoutil/brainpool v0.7.2
 	github.com/sirosfoundation/go-cryptoutil/ecparams v0.7.2
@@ -130,7 +130,7 @@ require (
 	golang.org/x/arch v0.31.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
