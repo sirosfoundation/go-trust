@@ -1,0 +1,539 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TrustedEntitiesList xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:lote="http://uri.etsi.org/019602/v1#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="TrustedEntitiesList" LOTETag="">
+  <ListAndSchemeInformation xmlns="http://uri.etsi.org/019602/v1#">
+    <LoTEVersionIdentifier>1</LoTEVersionIdentifier>
+    <LoTESequenceNumber>1</LoTESequenceNumber>
+    <LoTEType>http://uri.etsi.org/19602/LoTEType/EUWRPACProvidersList</LoTEType>
+    <SchemeOperatorName>
+      <Name xml:lang="en">
+        <NonEmptyNormalizedString>WEBUILD - WP 4 - Group 5 - Trust Registry Infrastructure</NonEmptyNormalizedString>
+      </Name>
+    </SchemeOperatorName>
+    <SchemeOperatorAddress>
+      <PostalAddresses>
+        <PostalAddress xml:lang="en">
+          <StreetAddress>Rheinstrasse 5</StreetAddress>
+          <Locality>Langen</Locality>
+          <PostalCode>63225</PostalCode>
+          <CountryName>Langen</CountryName>
+        </PostalAddress>
+      </PostalAddresses>
+      <ElectronicAddress>
+        <URI xml:lang="en">mailto:info@idunion.eu</URI>
+        <URI xml:lang="en">https://webuild-consortium.github.io/</URI>
+        <URI xml:lang="en"/>
+      </ElectronicAddress>
+    </SchemeOperatorAddress>
+    <SchemeName>
+      <Name xml:lang="en">
+        <NonEmptyNormalizedString>EU:EN_WEBUILD - Access Certificate Authorities</NonEmptyNormalizedString>
+      </Name>
+    </SchemeName>
+    <SchemeInformationURI>
+      <URI xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</URI>
+    </SchemeInformationURI>
+    <StatusDeterminationApproach>http://uri.etsi.org/19602/WRPACProvidersList/StatusDetn/EU</StatusDeterminationApproach>
+    <SchemeTypeCommunityRules>
+      <URI xml:lang="en">http://uri.etsi.org/19602/WRPACProvidersList/schemerules/EU</URI>
+    </SchemeTypeCommunityRules>
+    <SchemeTerritory>EU</SchemeTerritory>
+    <PolicyOrLegalNotice>
+      <LoTEPolicy xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</LoTEPolicy>
+    </PolicyOrLegalNotice>
+    <ListIssueDateTime>2026-10-26T12:35:39Z</ListIssueDateTime>
+    <NextUpdate>
+      <dateTime>2027-04-26T12:35:39Z</dateTime>
+    </NextUpdate>
+  </ListAndSchemeInformation>
+  <TrustedEntitiesList xmlns="http://uri.etsi.org/019602/v1#">
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Gataca</NonEmptyNormalizedString>
+          </Name>
+        </TEName>
+        <TETradeName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Gataca</NonEmptyNormalizedString>
+          </Name>
+        </TETradeName>
+        <TEAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress/>
+              <Locality/>
+              <CountryName/>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:</URI>
+            <URI xml:lang="en">https://gataca.io</URI>
+            <URI xml:lang="en"/>
+          </ElectronicAddress>
+        </TEAddress>
+        <TEInformationURI>
+          <URI xml:lang="en">http://uri.etsi.org/19602/ListOfTrustedEntities/WRPACProvider/ES</URI>
+          <URI xml:lang="en">https://gataca.io</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/19602/SvcType/WRPAC/Issuance</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">
+                <NonEmptyNormalizedString/>
+              </Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICQTCCAeegAwIBAgIQSyp3tXWfofyhWUOatosejzAKBggqhkjOPQQDAjCByzELMAkGA1UEBhMCTkwxDzANBgNVBAgTBkhlc3NlbjEPMA0GA1UEBxMGTGFuZ2VuMRcwFQYDVQQJEw5SaGVpbnN0cmFzc2UgNTEOMAwGA1UEERMFNjMyMjUxQTA/BgNVBAoTOFdFQlVJTEQgLSBXUCA0IC0gR3JvdXAgNSAtIFRydXN0IFJlZ2lzdHJ5IEluZnJhc3RydWN0dXJlMS4wLAYDVQQDEyVodHRwczovL3dlYnVpbGQtY29uc29ydGl1bS5naXRodWIuaW8vMB4XDTI2MDkxODEwMTMxOFoXDTI4MDkxODEwMTMxN1owJTEPMA0GA1UEChMGR2F0YWNhMRIwEAYDVQQDEwlnYXRhY2EuaW8wWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATLXauSguY8DUN02FQU8VvhLWDOnq1v/f+uJZUp6XsxtoIb9sE5rElRtLmf8iJMj3FMBvy/yk/+uheH5pUrs/dto1IwUDAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0OBBYEFD9OQsucU83/pss5Qa1PQdcCDOkmMB8GA1UdIwQYMBaAFFMP7f+m2NUPVAN8QQUiLlLfVYhBMAoGCCqGSM49BAMCA0gAMEUCIQCa68IhjfXeSI5jlGHGxQg8xtZnTF0JwT+8Mcjw7WlEowIgU0RKFYz1ZAWbwgmq4IJanE81HybxlGSQbDeogIA2y+4=</X509Certificate>
+                <X509SubjectName/>
+                <X509SKI/>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <SchemeServiceDefinitionURI>
+              <URI xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</URI>
+            </SchemeServiceDefinitionURI>
+            <ServiceSupplyPoints>
+              <ServiceSupplyPoint/>
+            </ServiceSupplyPoints>
+            <TEServiceDefinitionURI>
+              <URI xml:lang="en"/>
+            </TEServiceDefinitionURI>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Kamer van Koophandel</NonEmptyNormalizedString>
+          </Name>
+        </TEName>
+        <TETradeName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Kamer van Koophandel</NonEmptyNormalizedString>
+          </Name>
+        </TETradeName>
+        <TEAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress/>
+              <Locality>Utrecht</Locality>
+              <StateOrProvince>Utrecht</StateOrProvince>
+              <CountryName>NL</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:erwin.nieuwlaar@kvk.nl</URI>
+            <URI xml:lang="en">https://wallet-connect.eu</URI>
+          </ElectronicAddress>
+        </TEAddress>
+        <TEInformationURI>
+          <URI xml:lang="en">http://uri.etsi.org/19602/ListOfTrustedEntities/WRPACProvider/NL</URI>
+          <URI xml:lang="en">https://wallet-connect.eu</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/19602/SvcType/WRPAC/Issuance</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">
+                <NonEmptyNormalizedString/>
+              </Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICiDCCAi6gAwIBAgIQEVi/85F22TqXNgJU0Ltl2TAKBggqhkjOPQQDAjCByzELMAkGA1UEBhMCTkwxDzANBgNVBAgTBkhlc3NlbjEPMA0GA1UEBxMGTGFuZ2VuMRcwFQYDVQQJEw5SaGVpbnN0cmFzc2UgNTEOMAwGA1UEERMFNjMyMjUxQTA/BgNVBAoTOFdFQlVJTEQgLSBXUCA0IC0gR3JvdXAgNSAtIFRydXN0IFJlZ2lzdHJ5IEluZnJhc3RydWN0dXJlMS4wLAYDVQQDEyVodHRwczovL3dlYnVpbGQtY29uc29ydGl1bS5naXRodWIuaW8vMB4XDTI2MDkyMjA2MTgzNFoXDTI4MDkyMjA2MTgzNFowbDELMAkGA1UEBhMCTkwxEDAOBgNVBAgTB1V0cmVjaHQxEDAOBgNVBAcTB1V0cmVjaHQxHTAbBgNVBAoTFEthbWVyIHZhbiBLb29waGFuZGVsMRowGAYDVQQDExF3YWxsZXQtY29ubmVjdC5ldTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABATA8jAmFMTMsCzriZ+HA8LVQXUNOZ1PKKNUVbopcpxi6gw/ntG1Ho3KlKq8KMmysduYxPhKtYF2H8WhnXLnQ2SjUjBQMA4GA1UdDwEB/wQEAwIHgDAdBgNVHQ4EFgQUah2/c4IfKLV+eLzsbH0FaW3PJaAwHwYDVR0jBBgwFoAUUw/t/6bY1Q9UA3xBBSIuUt9ViEEwCgYIKoZIzj0EAwIDSAAwRQIhANzkpHG+O07Y5lPEdPapvjBhbsReobVDVaSXbMuIHNi6AiBtSwN+LxYOuAeUKwx1qxOyFL1HJSUiJtHdRQZ5MP9TzA==</X509Certificate>
+                <X509SubjectName/>
+                <X509SKI/>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <SchemeServiceDefinitionURI>
+              <URI xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</URI>
+            </SchemeServiceDefinitionURI>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>UAegean</NonEmptyNormalizedString>
+          </Name>
+        </TEName>
+        <TETradeName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>WE-Build</NonEmptyNormalizedString>
+          </Name>
+        </TETradeName>
+        <TEAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>Kallistratous 50</StreetAddress>
+              <Locality>Zografou Athens</Locality>
+              <PostalCode>15771</PostalCode>
+              <CountryName>GR</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:triantafyllou.ni@gmail.com</URI>
+            <URI xml:lang="en">https://dev-i4mlab.aegean.gr</URI>
+            <URI xml:lang="en">tel:+306943808730</URI>
+          </ElectronicAddress>
+        </TEAddress>
+        <TEInformationURI>
+          <URI xml:lang="en">http://uri.etsi.org/19602/ListOfTrustedEntities/WRPACProvider/GR</URI>
+          <URI xml:lang="en">https://dev-i4mlab.aegean.gr</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/19602/SvcType/WRPAC/Issuance</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">
+                <NonEmptyNormalizedString/>
+              </Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICfDCCAiKgAwIBAgIRAO9X4kFZfWpEU+GCnS+WwP4wCgYIKoZIzj0EAwIwgcsxCzAJBgNVBAYTAk5MMQ8wDQYDVQQIEwZIZXNzZW4xDzANBgNVBAcTBkxhbmdlbjEXMBUGA1UECRMOUmhlaW5zdHJhc3NlIDUxDjAMBgNVBBETBTYzMjI1MUEwPwYDVQQKEzhXRUJVSUxEIC0gV1AgNCAtIEdyb3VwIDUgLSBUcnVzdCBSZWdpc3RyeSBJbmZyYXN0cnVjdHVyZTEuMCwGA1UEAxMlaHR0cHM6Ly93ZWJ1aWxkLWNvbnNvcnRpdW0uZ2l0aHViLmlvLzAeFw0yNjA5MjQxODIzMDBaFw0yODA5MjQxODIzMDBaMD4xCzAJBgNVBAYTAkdSMRAwDgYDVQQKEwdVQWVnZWFuMR0wGwYDVQQDExRkZXYtaTRtbGFiLmFlZ2Vhbi5ncjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABHtpSuQ7NhtCL+7dacXr8FeG3RTz4qwnVg2sPDTLF3oOTPvR8X20LfisN6T0N8DeJcHD23836BORSSHJ0RzJynSjczBxMA4GA1UdDwEB/wQEAwIHgDAdBgNVHQ4EFgQU/fKW+BXKvkp6MPxvecbLBPkqgKUwHwYDVR0jBBgwFoAUUw/t/6bY1Q9UA3xBBSIuUt9ViEEwHwYDVR0RBBgwFoIUZGV2LWk0bWxhYi5hZWdlYW4uZ3IwCgYIKoZIzj0EAwIDSAAwRQIgGrrK9NUpaw/romm99/KvWqMna3o3QRBhcxP/6TG6ziwCIQDx7p9OS+POesSsLOPkTZR+QUWpvBpjYWO1+qI2fF7T3g==</X509Certificate>
+                <X509SubjectName/>
+                <X509SKI/>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <SchemeServiceDefinitionURI>
+              <URI xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</URI>
+            </SchemeServiceDefinitionURI>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>EUDI</NonEmptyNormalizedString>
+          </Name>
+        </TEName>
+        <TETradeName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>VAT GB 272742788</NonEmptyNormalizedString>
+          </Name>
+        </TETradeName>
+        <TEAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress>35 New Broad Street</StreetAddress>
+              <Locality>London</Locality>
+              <StateOrProvince>England</StateOrProvince>
+              <PostalCode>EC2M 1NH</PostalCode>
+              <CountryName>GB</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:info@raidiam.com</URI>
+            <URI xml:lang="en">https://www.raidiam.com/</URI>
+            <URI xml:lang="en">tel:+442045836770</URI>
+          </ElectronicAddress>
+        </TEAddress>
+        <TEInformationURI>
+          <URI xml:lang="en">http://uri.etsi.org/19602/ListOfTrustedEntities/WRPACProvider/GB</URI>
+          <URI xml:lang="en">https://www.raidiam.com/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/19602/SvcType/WRPAC/Issuance</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">
+                <NonEmptyNormalizedString/>
+              </Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>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</X509Certificate>
+                <X509SubjectName/>
+                <X509SKI/>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <SchemeServiceDefinitionURI>
+              <URI xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</URI>
+            </SchemeServiceDefinitionURI>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Digitel on Trusted Services</NonEmptyNormalizedString>
+          </Name>
+        </TEName>
+        <TETradeName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Digitel on Trusted Services</NonEmptyNormalizedString>
+          </Name>
+        </TETradeName>
+        <TEAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress/>
+              <Locality>Valladolid</Locality>
+              <StateOrProvince>Valladolid</StateOrProvince>
+              <CountryName>ES</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">https://digitelts.com</URI>
+          </ElectronicAddress>
+        </TEAddress>
+        <TEInformationURI>
+          <URI xml:lang="en">http://uri.etsi.org/19602/ListOfTrustedEntities/WRPACProvider/ES</URI>
+          <URI xml:lang="en">https://digitelts.com</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/19602/SvcType/WRPAC/Issuance</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">
+                <NonEmptyNormalizedString/>
+              </Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICkjCCAjegAwIBAgIQdivH0AbQV0OetCDbmEL5czAKBggqhkjOPQQDAjCByzELMAkGA1UEBhMCTkwxDzANBgNVBAgTBkhlc3NlbjEPMA0GA1UEBxMGTGFuZ2VuMRcwFQYDVQQJEw5SaGVpbnN0cmFzc2UgNTEOMAwGA1UEERMFNjMyMjUxQTA/BgNVBAoTOFdFQlVJTEQgLSBXUCA0IC0gR3JvdXAgNSAtIFRydXN0IFJlZ2lzdHJ5IEluZnJhc3RydWN0dXJlMS4wLAYDVQQDEyVodHRwczovL3dlYnVpbGQtY29uc29ydGl1bS5naXRodWIuaW8vMB4XDTI2MTAwNTA5NTQyOFoXDTI4MTAwNTA5NTQyOFowdTELMAkGA1UEBhMCRVMxEzARBgNVBAgTClZhbGxhZG9saWQxEzARBgNVBAcTClZhbGxhZG9saWQxJDAiBgNVBAoTG0RpZ2l0ZWwgb24gVHJ1c3RlZCBTZXJ2aWNlczEWMBQGA1UEAxMNZGlnaXRlbHRzLmNvbTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJ5jQgtNL9JoqCY3XWYKY82ny2vThL2tK16KiP1v/G4fDL+nqW5Pk0REwLbs49h6+68fDf9xwQF1Is0XowqRUvqjUjBQMA4GA1UdDwEB/wQEAwIHgDAdBgNVHQ4EFgQUwzbZ3Bq3ya2v4o2ZeIhysDFnJEAwHwYDVR0jBBgwFoAUUw/t/6bY1Q9UA3xBBSIuUt9ViEEwCgYIKoZIzj0EAwIDSQAwRgIhAMiPasHRMjZp2Fspa2qsTIa3OoUOh2ojIvS2EQkUCyTjAiEA0lRmpXlnNq2roi9Zdl/COdNh85u7tse7P/bPKVJPWug=</X509Certificate>
+                <X509SubjectName/>
+                <X509SKI/>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <SchemeServiceDefinitionURI>
+              <URI xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</URI>
+            </SchemeServiceDefinitionURI>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Digidentity B.V. (Spade)</NonEmptyNormalizedString>
+          </Name>
+        </TEName>
+        <TETradeName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>NTRNL-27322631</NonEmptyNormalizedString>
+          </Name>
+        </TETradeName>
+        <TEAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress/>
+              <Locality/>
+              <CountryName>NL</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:support@digidentity.eu</URI>
+            <URI xml:lang="en">https://auth.spade.dmtw.nl/</URI>
+          </ElectronicAddress>
+        </TEAddress>
+        <TEInformationURI>
+          <URI xml:lang="en">http://uri.etsi.org/19602/ListOfTrustedEntities/WRPACProvider/NL</URI>
+          <URI xml:lang="en">https://auth.spade.dmtw.nl/</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/19602/SvcType/WRPAC/Issuance</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">
+                <NonEmptyNormalizedString/>
+              </Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICxTCCAmqgAwIBAgIIVQuChWbczbMwCgYIKoZIzj0EAwIwTDEkMCIGA1UEAxMbTW9jayBFVURJIEFjY2VzcyBJc3N1aW5nIENBMRcwFQYDVQQKEw5Nb2NrIEFjY2VzcyBDQTELMAkGA1UEBhMCTkwwHhcNMjYwOTA5MDcwMjQ5WhcNMjgwOTA4MDcwMjQ5WjBgMR0wGwYDVQQDDBREaWdpZGVudGl0eSBWZXJpZmllcjEZMBcGA1UECgwQRGlnaWRlbnRpdHkgQi5WLjEXMBUGA1UEYQwOTlRSTkwtMjczMjI2MzExCzAJBgNVBAYTAk5MMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETX8VEKOaMoooiOdqmCfFjVGMrgWox7xzr5W5t6cyyHch5+Up+LS6pwAQQrxaDYB+nFQ0HbSD6+YQauke6YJNGKOCASAwggEcMAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMCMBQGA1UdIAQNMAswCQYHBACL7EYBAjAdBgNVHQ4EFgQUjc0I7Po1zCcQyH5CGA+MOTmsFp0wHwYDVR0jBBgwFoAU+o0RT8JAsDK8f5A2dGuHnhsC94IwPgYDVR0fBDcwNTAzoDGgL4YtaHR0cHM6Ly9tb2NrLWFjY2Vzcy1jYS52ZXJjZWwuYXBwL2NybC9pc3N1aW5nMFEGA1UdEQRKMEiBFnN1cHBvcnRAZGlnaWRlbnRpdHkuZXWCEmF1dGguc3BhZGUuZG10dy5ubIYaaHR0cHM6Ly9hdXRoLnNwYWRlLmRtdHcubmwwCgYIKoZIzj0EAwIDSQAwRgIhAI56MFXC4h9jhPDok4M4b4MWk/K1ImhF6OADo7otTp8aAiEA2fZ0xTCQUA7VewwxeytX8x1G1f6Jv3Qkw4OAokNDgAE=</X509Certificate>
+                <X509SubjectName/>
+                <X509SKI/>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <SchemeServiceDefinitionURI>
+              <URI xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</URI>
+            </SchemeServiceDefinitionURI>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Aricoma Digital s.r.o.</NonEmptyNormalizedString>
+          </Name>
+        </TEName>
+        <TETradeName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Aricoma Digital s.r.o.</NonEmptyNormalizedString>
+          </Name>
+        </TETradeName>
+        <TEAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress/>
+              <Locality>Brno</Locality>
+              <StateOrProvince>South Moravia</StateOrProvince>
+              <CountryName>CZ</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">https://lsps.demo.eudiw.cz</URI>
+          </ElectronicAddress>
+        </TEAddress>
+        <TEInformationURI>
+          <URI xml:lang="en">http://uri.etsi.org/19602/ListOfTrustedEntities/WRPACProvider/CZ</URI>
+          <URI xml:lang="en">https://lsps.demo.eudiw.cz</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/19602/SvcType/WRPAC/Issuance</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">
+                <NonEmptyNormalizedString/>
+              </Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICyjCCAm+gAwIBAgIQXvBLzPSbxyXdrwfRZFnErzAKBggqhkjOPQQDAjCByzELMAkGA1UEBhMCTkwxDzANBgNVBAgTBkhlc3NlbjEPMA0GA1UEBxMGTGFuZ2VuMRcwFQYDVQQJEw5SaGVpbnN0cmFzc2UgNTEOMAwGA1UEERMFNjMyMjUxQTA/BgNVBAoTOFdFQlVJTEQgLSBXUCA0IC0gR3JvdXAgNSAtIFRydXN0IFJlZ2lzdHJ5IEluZnJhc3RydWN0dXJlMS4wLAYDVQQDEyVodHRwczovL3dlYnVpbGQtY29uc29ydGl1bS5naXRodWIuaW8vMB4XDTI2MTAyNjEyMzUzOVoXDTI4MTAyNjEyMzUzOVowgY0xCzAJBgNVBAYTAkNaMRYwFAYDVQQIEw1Tb3V0aCBNb3JhdmlhMQ0wCwYDVQQHEwRCcm5vMR8wHQYDVQQKExZBcmljb21hIERpZ2l0YWwgcy5yLm8uMRkwFwYDVQQLExBlV2FsbGV0IFZlcmlmaWVyMRswGQYDVQQDExJsc3BzLmRlbW8uZXVkaXcuY3owWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASxHas4osF+juh8AbohFJhPq2m/Hopxf974j+GLxKY8xddmuXZGNNAaUA8VA76ArGpLd1NAEZKHPo2JJQ0PjPFoo3EwbzAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0OBBYEFNfrcXQxMdQFHIhRDGvVO5dtpGygMB8GA1UdIwQYMBaAFFMP7f+m2NUPVAN8QQUiLlLfVYhBMB0GA1UdEQQWMBSCEmxzcHMuZGVtby5ldWRpdy5jejAKBggqhkjOPQQDAgNJADBGAiEAmctV1yr3a7EalGNg9AMfV1BmLAAj3X2i3WRT9AqgnjsCIQCMnOKF4FpOiGL2VRrxvE/3InHBHqUcWhDz3B09K7nQdg==</X509Certificate>
+                <X509SubjectName/>
+                <X509SKI/>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <SchemeServiceDefinitionURI>
+              <URI xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</URI>
+            </SchemeServiceDefinitionURI>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Raidiam</NonEmptyNormalizedString>
+          </Name>
+        </TEName>
+        <TETradeName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Raidiam</NonEmptyNormalizedString>
+          </Name>
+        </TETradeName>
+        <TEAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress/>
+              <Locality/>
+              <CountryName>GB</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">https://raidiam.com</URI>
+          </ElectronicAddress>
+        </TEAddress>
+        <TEInformationURI>
+          <URI xml:lang="en">http://uri.etsi.org/19602/ListOfTrustedEntities/WRPACProvider/GB</URI>
+          <URI xml:lang="en">https://raidiam.com</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/19602/SvcType/WRPAC/Issuance</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">
+                <NonEmptyNormalizedString/>
+              </Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>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</X509Certificate>
+                <X509SubjectName/>
+                <X509SKI/>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <SchemeServiceDefinitionURI>
+              <URI xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</URI>
+            </SchemeServiceDefinitionURI>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+    <TrustedEntity>
+      <TrustedEntityInformation>
+        <TEName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Kamer van Koophandel</NonEmptyNormalizedString>
+          </Name>
+        </TEName>
+        <TETradeName>
+          <Name xml:lang="en">
+            <NonEmptyNormalizedString>Kamer van Koophandel</NonEmptyNormalizedString>
+          </Name>
+        </TETradeName>
+        <TEAddress>
+          <PostalAddresses>
+            <PostalAddress xml:lang="en">
+              <StreetAddress/>
+              <Locality>Utrecht</Locality>
+              <CountryName>NL</CountryName>
+            </PostalAddress>
+          </PostalAddresses>
+          <ElectronicAddress>
+            <URI xml:lang="en">mailto:erwin.nieuwlaar@kvk.nl</URI>
+            <URI xml:lang="en">https://itb.verification.wallet-connect.eu</URI>
+          </ElectronicAddress>
+        </TEAddress>
+        <TEInformationURI>
+          <URI xml:lang="en">http://uri.etsi.org/19602/ListOfTrustedEntities/WRPACProvider/NL</URI>
+          <URI xml:lang="en">https://itb.verification.wallet-connect.eu</URI>
+        </TEInformationURI>
+      </TrustedEntityInformation>
+      <TrustedEntityServices>
+        <TrustedEntityService>
+          <ServiceInformation>
+            <ServiceTypeIdentifier>http://uri.etsi.org/19602/SvcType/WRPAC/Issuance</ServiceTypeIdentifier>
+            <ServiceName>
+              <Name xml:lang="en">
+                <NonEmptyNormalizedString/>
+              </Name>
+            </ServiceName>
+            <ServiceDigitalIdentity>
+              <DigitalId>
+                <X509Certificate>MIICpjCCAkygAwIBAgIRAMBhgjTxEtn4LwJB9uONklQwCgYIKoZIzj0EAwIwgcsxCzAJBgNVBAYTAk5MMQ8wDQYDVQQIEwZIZXNzZW4xDzANBgNVBAcTBkxhbmdlbjEXMBUGA1UECRMOUmhlaW5zdHJhc3NlIDUxDjAMBgNVBBETBTYzMjI1MUEwPwYDVQQKEzhXRUJVSUxEIC0gV1AgNCAtIEdyb3VwIDUgLSBUcnVzdCBSZWdpc3RyeSBJbmZyYXN0cnVjdHVyZTEuMCwGA1UEAxMlaHR0cHM6Ly93ZWJ1aWxkLWNvbnNvcnRpdW0uZ2l0aHViLmlvLzAeFw0yNjEwMjAxMzEzMzFaFw0yODEwMjAxMzEzMzFaMFkxCzAJBgNVBAYTAk5MMR0wGwYDVQQKExRLYW1lciB2YW4gS29vcGhhbmRlbDErMCkGA1UEAxMiaXRiLnZlcmlmaWNhdGlvbi53YWxsZXQtY29ubmVjdC5ldTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABAskyUPdaGW3hjXYGu3ub66n7ldQutoySIEOEj94TJvCORelgwjKw2Zlof85MS9ZCtDbmCBEAKtGqD3w0oSkbBmjgYEwfzAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0OBBYEFGMrP3ZsYrYe9S5PDmrHDJmFRDpsMB8GA1UdIwQYMBaAFFMP7f+m2NUPVAN8QQUiLlLfVYhBMC0GA1UdEQQmMCSCIml0Yi52ZXJpZmljYXRpb24ud2FsbGV0LWNvbm5lY3QuZXUwCgYIKoZIzj0EAwIDSAAwRQIgXtKzzfq73aAcGtYExXp/EDAkUsr1QR0ZRcGVHzfdqx8CIQDYLT40NSSD6IjzK1+y7iuqW0/2xwPvqqg8AzBNnla0Iw==</X509Certificate>
+                <X509SubjectName/>
+                <X509SKI/>
+              </DigitalId>
+            </ServiceDigitalIdentity>
+            <SchemeServiceDefinitionURI>
+              <URI xml:lang="en">https://github.com/webuild-consortium/wp4-trust-group/tree/main/task1-use-cases/subtask1-1-onboarding</URI>
+            </SchemeServiceDefinitionURI>
+          </ServiceInformation>
+        </TrustedEntityService>
+      </TrustedEntityServices>
+    </TrustedEntity>
+  </TrustedEntitiesList>
+<ds:Signature Id="id-b1c91b01637a0e89bf5aff73b1b846d9"><ds:SignedInfo><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/><ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"/><ds:Reference Id="ref-enveloped-signature" URI="#TrustedEntitiesList"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"/><ds:DigestValue>1QoOpcoZW57jPacsTbpljrx9Rm5bDHpkUPElpRAq1PVGUP/ebxOFUy+joSW2qcUB8toBmKeKK9TJpeieXbqqvw==</ds:DigestValue></ds:Reference><ds:Reference Type="http://uri.etsi.org/01903#SignedProperties" URI="#xades-id-b1c91b01637a0e89bf5aff73b1b846d9"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>n4PQ22jp5R+0SULPirGWzxnt1/kUpNOcKaoj4yA/kD0=</ds:DigestValue></ds:Reference></ds:SignedInfo><ds:SignatureValue Id="value-id-b1c91b01637a0e89bf5aff73b1b846d9">gAZug477yFnueuoM/aejR4K9gTjOFj6pw9RjlCWy5UG0Wx0liINTRGlsFa697WeruteP/XHoEdGFjoMhrRgtyQ==</ds:SignatureValue><ds:KeyInfo><ds:X509Data><ds:X509Certificate>MIIDfzCCAySgAwIBAgIQODgnLOgtVKlwCmQ4XVbfSTAKBggqhkjOPQQDAjCByzELMAkGA1UEBhMCTkwxDzANBgNVBAgTBkhlc3NlbjEPMA0GA1UEBxMGTGFuZ2VuMRcwFQYDVQQJEw5SaGVpbnN0cmFzc2UgNTEOMAwGA1UEERMFNjMyMjUxQTA/BgNVBAoTOFdFQlVJTEQgLSBXUCA0IC0gR3JvdXAgNSAtIFRydXN0IFJlZ2lzdHJ5IEluZnJhc3RydWN0dXJlMS4wLAYDVQQDEyVodHRwczovL3dlYnVpbGQtY29uc29ydGl1bS5naXRodWIuaW8vMB4XDTI2MDkxNDE0MDU1OFoXDTI5MDMxOTIzNTk1OVowgcsxCzAJBgNVBAYTAk5MMQ8wDQYDVQQIEwZIZXNzZW4xDzANBgNVBAcTBkxhbmdlbjEXMBUGA1UECRMOUmhlaW5zdHJhc3NlIDUxDjAMBgNVBBETBTYzMjI1MUEwPwYDVQQKEzhXRUJVSUxEIC0gV1AgNCAtIEdyb3VwIDUgLSBUcnVzdCBSZWdpc3RyeSBJbmZyYXN0cnVjdHVyZTEuMCwGA1UEAxMlaHR0cHM6Ly93ZWJ1aWxkLWNvbnNvcnRpdW0uZ2l0aHViLmlvLzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABNDCTBZpKWrPgcnRHjXZ2lrM2CSQxdc36/TUPAhAR5kzKZMKGuPqMPgFvaZ2hRVqQCk6mgodxNs4UHy9Y40HrD+jgecwgeQwDgYDVR0PAQH/BAQDAgGGMBEGA1UdJQQKMAgGBgQAkTcDADAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBRTD+3/ptjVD1QDfEEFIi5S31WIQTAfBgNVHSMEGDAWgBRTD+3/ptjVD1QDfEEFIi5S31WIQTBuBgNVHREEZzBlgQ9pbmZvQGlkdW5pb24uZXWGUmh0dHBzOi8vYXBpLndhbGxldC5pZHVuaW9uLmluZm8vYXBpL3YxL2lzc3Vlci8wMWEwYTAzYy1kMDU0LTdlNGMtOTk2OS00NzNhOWYyODdhNzYwCgYIKoZIzj0EAwIDSQAwRgIhALQYYUfs4oF13kKUh2wLq0PVvp1yDQs7XegFp2/B9h5dAiEA5l3GFqovw7XF6IS1ckJvzulZNJuoYxpJBEF71qd60Bo=</ds:X509Certificate></ds:X509Data></ds:KeyInfo><ds:Object><xades:QualifyingProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Target="#id-b1c91b01637a0e89bf5aff73b1b846d9"><xades:SignedProperties Id="xades-id-b1c91b01637a0e89bf5aff73b1b846d9"><xades:SignedSignatureProperties><xades:SigningTime>2026-10-26T12:35:40Z</xades:SigningTime><xades:SigningCertificateV2><xades:Cert><xades:CertDigest><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"/><ds:DigestValue>W3k2sXnd+7n0A4lVvBCx2qx3+cntb3VTmSO7TAUOwdkSOkrUN52fSTHh9a/CU6CqiU9g2cse/Ep/KVQgAoOsMw==</ds:DigestValue></xades:CertDigest><xades:IssuerSerialV2>MIHmMIHRpIHOMIHLMQswCQYDVQQGEwJOTDEPMA0GA1UECBMGSGVzc2VuMQ8wDQYDVQQHEwZMYW5nZW4xFzAVBgNVBAkTDlJoZWluc3RyYXNzZSA1MQ4wDAYDVQQREwU2MzIyNTFBMD8GA1UEChM4V0VCVUlMRCAtIFdQIDQgLSBHcm91cCA1IC0gVHJ1c3QgUmVnaXN0cnkgSW5mcmFzdHJ1Y3R1cmUxLjAsBgNVBAMTJWh0dHBzOi8vd2VidWlsZC1jb25zb3J0aXVtLmdpdGh1Yi5pby8CEDg4JyzoLVSpcApkOF1W30k=</xades:IssuerSerialV2></xades:Cert></xades:SigningCertificateV2></xades:SignedSignatureProperties><xades:SignedDataObjectProperties><xades:DataObjectFormat ObjectReference="#ref-enveloped-signature"><xades:MimeType>application/octet-stream</xades:MimeType></xades:DataObjectFormat></xades:SignedDataObjectProperties></xades:SignedProperties></xades:QualifyingProperties></ds:Object></ds:Signature></TrustedEntitiesList>

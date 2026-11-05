@@ -1032,6 +1032,7 @@ func TestNewTSLRegistry_WithLocalTSLFile(t *testing.T) {
 		Name:       "EU-LOTL-Test",
 		CertBundle: certPath,
 		TSLFiles:   []string{tslPath},
+		AllowStale: true, // real-world national TSL snapshot, past its NextUpdate
 	})
 	if err != nil {
 		t.Fatalf("failed to create registry from TSL file: %v", err)
@@ -1086,6 +1087,7 @@ func TestNewTSLRegistry_WithFileURLTSL(t *testing.T) {
 		Name:       "EU-LOTL-FileURL-Test",
 		CertBundle: certPath,
 		TSLURLs:    []string{"file://" + absPath},
+		AllowStale: true, // real-world national TSL snapshot, past its NextUpdate
 	})
 	if err != nil {
 		t.Fatalf("failed to create registry from file:// URL: %v", err)
@@ -1130,6 +1132,7 @@ func TestTSLRegistry_TSLs_WithRealTSL(t *testing.T) {
 		Name:       "TSLs-accessor-test",
 		CertBundle: certPath,
 		TSLFiles:   []string{tslPath},
+		AllowStale: true, // real-world national TSL snapshot, past its NextUpdate
 	})
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
@@ -1174,6 +1177,7 @@ func TestTSLRegistry_Refresh_WithRealTSL(t *testing.T) {
 		Name:       "Refresh-TSL-test",
 		CertBundle: certPath,
 		TSLFiles:   []string{tslPath},
+		AllowStale: true, // real-world national TSL snapshot, past its NextUpdate
 	})
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
@@ -1255,6 +1259,7 @@ func TestTSLRegistry_SignatureValidation(t *testing.T) {
 		Name:       "Tampered-TSL-test",
 		CertBundle: certPath,
 		TSLFiles:   []string{tamperedPath},
+		AllowStale: true, // real-world national TSL snapshot, past its NextUpdate
 	})
 
 	// The registry creation should fail because signature validation should reject tampered content
@@ -1289,6 +1294,7 @@ func TestTSLRegistry_CombinedSources(t *testing.T) {
 		Name:       "Combined-sources-test",
 		CertBundle: certPath,
 		TSLFiles:   []string{tslPath},
+		AllowStale: true, // real-world national TSL snapshot, past its NextUpdate
 	})
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
@@ -1329,6 +1335,7 @@ func TestTSLRegistry_LocalPathConversion(t *testing.T) {
 		Name:       "LocalPath-conversion-test",
 		CertBundle: certPath,
 		TSLURLs:    []string{tslPath}, // Local path, not URL
+		AllowStale: true,              // real-world national TSL snapshot, past its NextUpdate
 	})
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
@@ -1362,6 +1369,7 @@ func TestTSLRegistry_TSLCount_WithMultipleFiles(t *testing.T) {
 		Name:       "TSLCount-multiple-test",
 		CertBundle: certPath,
 		TSLFiles:   []string{tslPath},
+		AllowStale: true, // real-world national TSL snapshot, past its NextUpdate
 		TSLURLs:    []string{tslPath},
 	})
 	if err != nil {

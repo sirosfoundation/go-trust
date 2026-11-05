@@ -43,7 +43,7 @@ func testLoTE() *etsi119602.ListOfTrustedEntities {
 				{Lang: "en", Value: "Test Operator"},
 			},
 			ListIssueDateTime: "2026-01-01T00:00:00Z",
-			NextUpdate:        "2027-01-01T00:00:00Z",
+			NextUpdate:        "2099-01-01T00:00:00Z",
 		},
 		TrustedEntitiesList: []etsi119602.TrustedEntity{
 			{
@@ -140,7 +140,7 @@ func TestEvaluate_WithdrawnService(t *testing.T) {
 			SchemeTerritory:       "SE",
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "Op"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 		},
 		TrustedEntitiesList: []etsi119602.TrustedEntity{
 			{
@@ -432,7 +432,7 @@ func minimalLoTE(territory string, entities ...etsi119602.TrustedEntity) *etsi11
 			SchemeTerritory:       territory,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: territory + " Op"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 		},
 		TrustedEntitiesList: entities,
 	}
@@ -765,7 +765,7 @@ func TestNew_LoTLSource(t *testing.T) {
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "EU Commission"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE: []etsi119602.OtherLoTEPointer{
 				lotlPointer(path1, etsi119602.LoTETypePIDProviders, "SE"),
 				lotlPointer(path2, etsi119602.LoTETypePIDProviders, "DE"),
@@ -804,7 +804,7 @@ func TestNew_LoTLAndDirectSources(t *testing.T) {
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "EU"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE: []etsi119602.OtherLoTEPointer{
 				lotlPointer(lotlLotePath, etsi119602.LoTETypePIDProviders, "DE"),
 			},
@@ -841,7 +841,7 @@ func TestNew_NestedLoTL(t *testing.T) {
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "SE"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE: []etsi119602.OtherLoTEPointer{
 				lotlPointer(lotePath, etsi119602.LoTETypePIDProviders, "SE"),
 			},
@@ -856,7 +856,7 @@ func TestNew_NestedLoTL(t *testing.T) {
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "EU"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE: []etsi119602.OtherLoTEPointer{
 				lotlPointer(innerPath, etsi119602.LoTLTypeEU, "SE"),
 			},
@@ -888,7 +888,7 @@ func TestNew_LoTLDepthLimit(t *testing.T) {
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "SE"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE: []etsi119602.OtherLoTEPointer{
 				lotlPointer(lotePath, etsi119602.LoTETypePIDProviders, "SE"),
 			},
@@ -903,7 +903,7 @@ func TestNew_LoTLDepthLimit(t *testing.T) {
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "EU"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE: []etsi119602.OtherLoTEPointer{
 				lotlPointer(depth1Path, etsi119602.LoTLTypeEU, "SE"),
 			},
@@ -935,7 +935,7 @@ func TestNew_LoTLWithEmptyPointer(t *testing.T) {
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "EU"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE: []etsi119602.OtherLoTEPointer{
 				{LoTELocation: ""},                  // empty location — should be skipped
 				{LoTELocation: "/nonexistent.json"}, // bad path — should warn and continue
@@ -962,7 +962,7 @@ func TestNew_LoTLOnlyNoDirectSources(t *testing.T) {
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "EU"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE: []etsi119602.OtherLoTEPointer{
 				lotlPointer(lotePath, etsi119602.LoTETypePIDProviders, "SE"),
 			},
@@ -998,7 +998,7 @@ func TestNew_LoTLCycleDetection(t *testing.T) {
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "EU"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE: []etsi119602.OtherLoTEPointer{
 				lotlPointer(lotePath, etsi119602.LoTETypePIDProviders, "SE"),
 				lotlPointer(lotlBPath, etsi119602.LoTLTypeEU, "EU"),
@@ -1012,7 +1012,7 @@ func TestNew_LoTLCycleDetection(t *testing.T) {
 			LoTEType:              etsi119602.LoTLTypeEU,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "EU B"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 			PointersToOtherLoTE: []etsi119602.OtherLoTEPointer{
 				lotlPointer(lotlAPath, etsi119602.LoTLTypeEU, "EU"),
 			},
@@ -1083,7 +1083,7 @@ func TestBuildIndex_ImplicitTrust(t *testing.T) {
 			SchemeTerritory:       "SE",
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "Test"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 		},
 		TrustedEntitiesList: []etsi119602.TrustedEntity{
 			{
@@ -1326,7 +1326,7 @@ func TestEvaluate_PubEAA_NotifiedService(t *testing.T) {
 			SchemeTerritory:       "SE",
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "Test"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 		},
 		TrustedEntitiesList: []etsi119602.TrustedEntity{
 			{
@@ -1376,7 +1376,7 @@ func TestEvaluate_PubEAA_NoNotifiedService(t *testing.T) {
 			SchemeTerritory:       "SE",
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "Test"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 		},
 		TrustedEntitiesList: []etsi119602.TrustedEntity{
 			{
@@ -1429,7 +1429,7 @@ func TestEvaluate_PubEAA_WithdrawnOnlyService(t *testing.T) {
 			SchemeTerritory:       "SE",
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "Test"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 		},
 		TrustedEntitiesList: []etsi119602.TrustedEntity{
 			{
@@ -1520,7 +1520,7 @@ func minimalPubEAALoTE(territory string, entities ...etsi119602.TrustedEntity) *
 			SchemeTerritory:       territory,
 			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: territory + " PubEAA Op"}},
 			ListIssueDateTime:     "2026-01-01T00:00:00Z",
-			NextUpdate:            "2027-01-01T00:00:00Z",
+			NextUpdate:            "2099-01-01T00:00:00Z",
 		},
 		TrustedEntitiesList: entities,
 	}
