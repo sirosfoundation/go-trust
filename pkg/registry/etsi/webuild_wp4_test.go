@@ -142,3 +142,30 @@ func TestWebuildWP4_StaleTSL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 5, reg.CertificateCount())
 }
+
+// A TSL loaded before its NextUpdate stops being trusted once the deadline
+// passes, without waiting for a refresh.
+func TestWebuildWP4_TSLLapsesAfterLoad(t *testing.T) {
+	now := webuildNow()
+	reg, err := etsi.NewTSLRegistry(etsi.TSLConfig{
+		Now:      func() time.Time { return now },
+		TSLFiles: []string{webuildPath("idunion-eaa.xml")},
+	})
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(webuildPath("idunion-eaa.xml"))
+	require.NoError(t, err)
+	cert := x509Val.FindStringSubmatch(sdiCert.FindString(string(raw)))[1]
+	ask := func() bool {
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{Type: "key", ID: "x"},
+			Resource: authzen.Resource{Type: "x5c", ID: "x", Key: []interface{}{cert}},
+		})
+		require.NoError(t, err)
+		return resp.Decision
+	}
+	assert.True(t, ask())
+
+	now = time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC) // idunion-eaa runs to 2027-03-18
+	assert.False(t, ask(), "a lapsed TSL must not keep granting")
+}

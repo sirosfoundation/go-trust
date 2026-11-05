@@ -2,8 +2,10 @@ package lote
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,4 +100,101 @@ func TestRoleScope_ListedEntityOfWrongType(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, resp.Decision)
+}
+
+// A role naming a LoTE type that is not loaded matches nothing; it must not
+// fall back to unscoped trust.
+func TestRoleScope_UnloadedTypeMatchesNothing(t *testing.T) {
+	reg, leaf := roleScopedRegistry(t, Config{})
+	resp, err := reg.Evaluate(context.Background(), roleRequest(leaf, etsi119602.LoTETypeWRPACProviders))
+	require.NoError(t, err)
+	assert.False(t, resp.Decision)
+}
+
+// The same identifier under two LoTE types keeps separate keys: a key listed
+// only for one type does not satisfy the other.
+func TestRoleScope_SameIdentifierKeysStaySeparate(t *testing.T) {
+	walletCA, _ := generateTestCA(t)
+	pidCA, _ := generateTestCA(t)
+	wallets := minimalLoTE("NL", x509Entity("urn:provider:nl", walletCA))
+	wallets.ListAndSchemeInformation.LoTEType = etsi119602.LoTETypeWalletProviders
+	pid := minimalLoTE("NL", x509Entity("urn:provider:nl", pidCA))
+	pid.ListAndSchemeInformation.LoTEType = etsi119602.LoTETypePIDProviders
+	dir := t.TempDir()
+	reg, err := New(Config{Sources: []string{writeLoTE(t, dir, "w.json", wallets), writeLoTE(t, dir, "p.json", pid)}})
+	require.NoError(t, err)
+
+	ask := func(ca *x509.Certificate, role string) bool {
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{Type: "key", ID: "urn:provider:nl"},
+			Resource: authzen.Resource{Type: "x5c", ID: "urn:provider:nl", Key: []interface{}{base64.StdEncoding.EncodeToString(ca.Raw)}},
+			Action:   &authzen.Action{Name: role},
+		})
+		require.NoError(t, err)
+		return resp.Decision
+	}
+	assert.True(t, ask(walletCA, etsi119602.LoTETypeWalletProviders))
+	assert.True(t, ask(pidCA, etsi119602.LoTETypePIDProviders))
+	assert.False(t, ask(pidCA, etsi119602.LoTETypeWalletProviders), "a PID key must not pass as a wallet provider")
+	assert.False(t, ask(walletCA, etsi119602.LoTETypePIDProviders), "a wallet key must not pass as a PID provider")
+}
+
+// A list loaded before its NextUpdate stops being trusted once the deadline
+// passes, without waiting for a refresh.
+func TestFreshness_ListLapsesAfterLoad(t *testing.T) {
+	now := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	caCert, _ := generateTestCA(t)
+	l := minimalLoTE("SE", x509Entity("urn:e", caCert))
+	l.ListAndSchemeInformation.NextUpdate = "2026-12-02T00:00:00Z"
+	path := writeLoTE(t, t.TempDir(), "l.json", l)
+
+	reg, err := New(Config{Sources: []string{path}, Now: func() time.Time { return now }})
+	require.NoError(t, err)
+	req := &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "urn:e"},
+		Resource: authzen.Resource{ID: "urn:e"},
+	}
+	resp, err := reg.Evaluate(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+
+	now = now.Add(48 * time.Hour)
+	resp, err = reg.Evaluate(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, resp.Decision, "lapsed list must not keep granting")
+
+	regStale, err := New(Config{Sources: []string{path}, AllowStale: true, Now: func() time.Time { return now }})
+	require.NoError(t, err)
+	resp, err = regStale.Evaluate(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, resp.Decision)
+}
+
+func TestFreshness_LoTLLapseInvalidatesResolvedLists(t *testing.T) {
+	now := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	l := minimalLoTE("SE", simpleEntity("urn:e"))
+	l.ListAndSchemeInformation.LoTEType = etsi119602.LoTETypePIDProviders
+	lotePath := writeLoTE(t, dir, "l.json", l)
+	lotl := &etsi119602.ListOfTrustedLists{
+		ListAndSchemeInformation: etsi119602.ListAndSchemeInformation{
+			LoTEVersionIdentifier: 1,
+			LoTEType:              etsi119602.LoTLTypeEU,
+			SchemeOperatorName:    etsi119602.NameSet{{Lang: "en", Value: "Op"}},
+			ListIssueDateTime:     "2026-01-01T00:00:00Z",
+			NextUpdate:            "2026-12-02T00:00:00Z",
+			PointersToOtherLoTE:   []etsi119602.OtherLoTEPointer{{LoTELocation: lotePath}},
+		},
+	}
+	lotlPath := writeLoTL(t, dir, "lotl.json", lotl)
+
+	reg, err := New(Config{LoTLSources: []string{lotlPath}, Now: func() time.Time { return now }})
+	require.NoError(t, err)
+	req := &authzen.EvaluationRequest{Subject: authzen.Subject{Type: "key", ID: "urn:e"}, Resource: authzen.Resource{ID: "urn:e"}}
+	resp, _ := reg.Evaluate(context.Background(), req)
+	require.True(t, resp.Decision)
+
+	now = now.Add(48 * time.Hour)
+	resp, _ = reg.Evaluate(context.Background(), req)
+	assert.False(t, resp.Decision)
 }
