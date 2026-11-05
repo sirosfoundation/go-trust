@@ -4,6 +4,16 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.26.2:start -->
+## [v0.26.2] - 2026-11-05
+
+### Fixed
+
+- Fixed `did:web` verification to correctly match presented JWK credentials against `publicKeyMultibase` verification methods in DID documents, enabling proper key binding when keys are encoded in multibase format (#230)
+- Fixed multibase key coordinate encoding to use fixed-width representation, preventing validation failures with keys that have leading zero bytes
+- Fixed secp256k1 public key decompression to properly reconstruct the full point from compressed coordinates, resolving signature verification errors with compressed secp256k1 keys
+<!-- release-notes:v0.26.2:end -->
+
 <!-- release-notes:v0.26.0:start -->
 ## [v0.26.0] - 2026-10-21
 
