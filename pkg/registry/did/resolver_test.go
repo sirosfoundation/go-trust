@@ -2,6 +2,7 @@ package did
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
@@ -447,14 +448,17 @@ func TestDecompressSecp256k1(t *testing.T) {
 			errorMsg:    "invalid compressed key length",
 		},
 		{
-			name:        "valid even y (0x02 prefix)",
-			compressed:  append([]byte{0x02}, make([]byte, 32)...),
-			expectError: false,
+			name:        "bad prefix",
+			compressed:  append([]byte{0x04}, make([]byte, 32)...),
+			expectError: true,
+			errorMsg:    "invalid compressed key prefix",
 		},
 		{
-			name:        "valid odd y (0x03 prefix)",
-			compressed:  append([]byte{0x03}, make([]byte, 32)...),
-			expectError: false,
+			// x = 0 gives y^2 = 7, which has no square root modulo p.
+			name:        "x not on the curve",
+			compressed:  append([]byte{0x02}, make([]byte, 32)...),
+			expectError: true,
+			errorMsg:    "not on the secp256k1 curve",
 		},
 	}
 
@@ -558,5 +562,25 @@ func TestDecompressP384(t *testing.T) {
 				assert.NotNil(t, y)
 			}
 		})
+	}
+}
+
+// Real secp256k1 points (generated with Python's cryptography package, independent of this decoder): the compressed
+// form must decompress to exactly the uncompressed coordinates, for both y parities.
+func TestDecompressSecp256k1RealPoints(t *testing.T) {
+	for _, tc := range []struct{ x, y string }{
+		{"LAxTHydqU13NjFrgTfXB7h9TlSuoB-cxCtOlEJpJIB4", "RwT44IEftOfZ9s1af4lOiah4QrAIeiPW30cGVhKRDQE"},
+		{"yMmTu6V5UrICVyBFnq3SgPKuvwfLOodOo-0zjUWpsj0", "RQueaCTANVe-biye2RoCrc19_uMdYBQPsdQDNzQi4go"},
+	} {
+		wantX, err := base64.RawURLEncoding.DecodeString(tc.x)
+		require.NoError(t, err)
+		wantY, err := base64.RawURLEncoding.DecodeString(tc.y)
+		require.NoError(t, err)
+		compressed := append([]byte{0x02 | wantY[31]&1}, wantX...)
+
+		x, y, err := decompressSecp256k1(compressed)
+		require.NoError(t, err)
+		assert.Equal(t, wantX, x)
+		assert.Equal(t, wantY, y)
 	}
 }
