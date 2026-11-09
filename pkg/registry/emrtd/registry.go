@@ -651,7 +651,9 @@ func isIndirectCRL(crl *x509.RevocationList) (bool, error) {
 }
 
 // isScopedCRL reports whether the issuingDistributionPoint extension restricts
-// the CRL's coverage: onlyContainsUserCerts [1], onlyContainsCACerts [2],
+// the CRL's coverage: distributionPoint [0] (matching it against the
+// certificate's cRLDistributionPoints is not implemented, so a CRL for one
+// partition must not vouch for another), onlyContainsUserCerts [1], onlyContainsCACerts [2],
 // onlySomeReasons [3] or onlyContainsAttributeCerts [5]. An extension that
 // cannot be read counts as scoped, so the caller does not rely on it.
 func isScopedCRL(crl *x509.RevocationList) bool {
@@ -671,7 +673,7 @@ func isScopedCRL(crl *x509.RevocationList) bool {
 				return true
 			}
 			body = rest
-			if el.Class == asn1.ClassContextSpecific && (el.Tag == 1 || el.Tag == 2 || el.Tag == 3 || el.Tag == 5) {
+			if el.Class == asn1.ClassContextSpecific && (el.Tag == 0 || el.Tag == 1 || el.Tag == 2 || el.Tag == 3 || el.Tag == 5) {
 				return true
 			}
 		}

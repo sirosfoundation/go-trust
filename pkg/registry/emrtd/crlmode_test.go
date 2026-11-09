@@ -106,8 +106,8 @@ func TestEvaluate_CRLRequireCurrent(t *testing.T) {
 }
 
 // scopedCRL is a fresh CRL signed by signer whose issuingDistributionPoint
-// carries the given context-specific BOOLEAN element (tag 1, 2, 3 or 5 value).
-func scopedCRL(t *testing.T, signer *node, tag byte, revoked ...*node) []byte {
+// carries the given DER value.
+func scopedCRL(t *testing.T, signer *node, idp []byte, revoked ...*node) []byte {
 	t.Helper()
 	var entries []x509.RevocationListEntry
 	for _, n := range revoked {
@@ -117,12 +117,18 @@ func scopedCRL(t *testing.T, signer *node, tag byte, revoked ...*node) []byte {
 		Number: big.NewInt(1), ThisUpdate: tNow.Add(-time.Hour), NextUpdate: tNow.Add(time.Hour),
 		RevokedCertificateEntries: entries,
 		ExtraExtensions: []pkix.Extension{{
-			Id: oidIssuingDistPoint, Critical: true, Value: []byte{0x30, 0x03, 0x80 | tag, 0x01, 0xff},
+			Id: oidIssuingDistPoint, Critical: true, Value: idp,
 		}},
 	}, signer.cert, signer.key.ec)
 	require.NoError(t, err)
 	return der
 }
+
+func idpBool(tag byte) []byte { return []byte{0x30, 0x03, 0x80 | tag, 0x01, 0xff} }
+
+// idpDistributionPoint is an issuingDistributionPoint naming one
+// distributionPoint [0] (fullName URI "x").
+var idpDistributionPoint = []byte{0x30, 0x07, 0xa0, 0x05, 0xa0, 0x03, 0x86, 0x01, 'x'}
 
 func TestEvaluate_CRLRequireCurrent_ScopedCRLIsNotCoverage(t *testing.T) {
 	csca := newCSCA(t, kindP256, "CSCA", "SE")
@@ -132,20 +138,28 @@ func TestEvaluate_CRLRequireCurrent_ScopedCRLIsNotCoverage(t *testing.T) {
 	// onlyContainsAttributeCerts [5]: none vouches for a DSC being unrevoked.
 	for _, tag := range []byte{1, 2, 3, 5} {
 		t.Run("tag "+string(rune('0'+tag)), func(t *testing.T) {
-			r := regWithCRLs(t, anchors, map[string][][]byte{"SWE": {scopedCRL(t, csca, tag)}})
+			r := regWithCRLs(t, anchors, map[string][][]byte{"SWE": {scopedCRL(t, csca, idpBool(tag))}})
 			requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, crlCtx(nil))), CodeCRLUnavailable)
 			// Best effort is unchanged: the scoped CRL loads and nothing is denied.
 			require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
 		})
 	}
+	t.Run("a CRL for another distribution point is not coverage", func(t *testing.T) {
+		// A fresh CRL for partition "x" says nothing about a DSC that may be
+		// listed in another partition; matching the DSC's cRLDistributionPoints
+		// is not implemented, so it is excluded.
+		r := regWithCRLs(t, anchors, map[string][][]byte{"SWE": {scopedCRL(t, csca, idpDistributionPoint)}})
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, crlCtx(nil))), CodeCRLUnavailable)
+		require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
+	})
 	t.Run("entries of a scoped CRL still revoke", func(t *testing.T) {
-		r := regWithCRLs(t, anchors, map[string][][]byte{"SWE": {scopedCRL(t, csca, 2, dsc)}})
+		r := regWithCRLs(t, anchors, map[string][][]byte{"SWE": {scopedCRL(t, csca, idpBool(2), dsc)}})
 		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, crlCtx(nil))), CodeRevoked)
 		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeRevoked)
 	})
 	t.Run("a complete current CRL next to a scoped one is coverage", func(t *testing.T) {
 		full := crlAt(t, csca, tNow.Add(-time.Hour), tNow.Add(time.Hour))
-		r := regWithCRLs(t, anchors, map[string][][]byte{"SWE": {scopedCRL(t, csca, 2), full}})
+		r := regWithCRLs(t, anchors, map[string][][]byte{"SWE": {scopedCRL(t, csca, idpBool(2)), full}})
 		require.True(t, eval(t, r, req("SWE", []*node{dsc}, crlCtx(nil))).Decision)
 	})
 }

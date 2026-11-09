@@ -279,7 +279,7 @@ another certificate) needs a verified, current CRL. "Verified" uses the same rul
 signature algorithm, authenticity by the issuing key or a same-name CSCA key). A CRL is **current** when its
 `nextUpdate` is present and not past, its `thisUpdate` is not in the future, and, if `crl_max_age` is set,
 `thisUpdate` is no older than that. A CRL whose `issuingDistributionPoint` restricts its scope
-(`onlyContainsUserCerts`, `onlyContainsCACerts`, `onlySomeReasons` or `onlyContainsAttributeCerts`) is not
+(`distributionPoint`, `onlyContainsUserCerts`, `onlyContainsCACerts`, `onlySomeReasons` or `onlyContainsAttributeCerts`; matching a CRL's distribution point to the certificate is not implemented) is not
 evidence of complete revocation data and never counts as coverage, current or not; its entries still revoke.
 Currency is judged against the server clock, not `signing_time`: the question
 is whether our revocation data is up to date now.
