@@ -404,9 +404,10 @@ type LoTERegistryConfig struct {
 	// a role that resolves to LoTE types.
 	RequireRole bool `yaml:"require_role,omitempty"`
 	// TrustAnchorBundle is the path to a PEM file of CA certificates that anchor
-	// the x5c chain of the JWS signer of every LoTE and LoTL, and the XMLDSig
-	// signer certificate chain of every classic TS 119 612 TSL reached through a
-	// LoTL pointer. Required when
+	// the x5c chain of the JWS signer of every JSON LoTE and LoTL (compact,
+	// flattened or embedded-signature serialisation), and the XMLDSig signer
+	// certificate chain of every XML LoTE and every classic TS 119 612 TSL.
+	// Required when
 	// verify_jws is true (startup is refused without it). When set, signatures
 	// are verified even if verify_jws is false: configured anchors are never
 	// silently ignored.

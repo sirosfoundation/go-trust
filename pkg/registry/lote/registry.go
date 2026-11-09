@@ -1175,12 +1175,12 @@ func (r *Registry) fetchVerifiedPayload(src string, roots *x509.CertPool) ([]byt
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch raw LoTE from %s: %w", src, err)
 	}
-	signer, payload, err := verifyLoTEJWS(context.Background(), raw, roots, time.Now())
+	signer, payload, err := verifyLoTEDocument(context.Background(), raw, roots, r.now())
 	if err != nil {
 		return nil, fmt.Errorf("LoTE signature verification failed for %s: %w", src, err)
 	}
 	if r.config.Logger != nil {
-		r.config.Logger.Info("LoTE JWS signature verified",
+		r.config.Logger.Info("LoTE signature verified",
 			slog.String("source", src),
 			slog.String("signer", signer.Subject.CommonName))
 	}
@@ -1193,7 +1193,7 @@ func (r *Registry) fetchVerifiedLoTE(src string, roots *x509.CertPool) (*etsi119
 	if err != nil {
 		return nil, err
 	}
-	lote, err := etsi119602.ParseLoTE(payload)
+	lote, err := parseLoTEPayload(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse verified LoTE from %s: %w", src, err)
 	}
@@ -1374,7 +1374,7 @@ func (r *Registry) loadLoTL(location string, opts *etsi119602.FetchOptions, root
 		if err != nil {
 			return nil, err
 		}
-		if lotl, err = etsi119602.ParseLoTL(payload); err != nil {
+		if lotl, err = parseLoTEPayload(payload); err != nil {
 			return nil, err
 		}
 	}
