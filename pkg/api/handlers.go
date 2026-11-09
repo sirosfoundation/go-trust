@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirosfoundation/g119612/pkg/logging"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
-	"github.com/sirosfoundation/go-trust/pkg/registry"
 )
 
 // StatusHandler godoc
@@ -58,11 +58,16 @@ func getRegistryCount(serverCtx *ServerContext) int {
 // chains included) so an oversized body cannot exhaust server memory.
 const maxEvaluationBodyBytes = 1 << 20
 
+// evaluator is what the evaluation handlers need from the registry manager.
+type evaluator interface {
+	Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error)
+}
+
 // evaluateAndRecord runs one evaluation against the registry manager and
 // logs it and records its metrics. It is shared by /evaluation and
 // /evaluations so that both behave identically per item. A non-nil error
 // means the evaluation could not be carried out.
-func evaluateAndRecord(c *gin.Context, serverCtx *ServerContext, registryMgr *registry.RegistryManager, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+func evaluateAndRecord(c *gin.Context, serverCtx *ServerContext, registryMgr evaluator, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
 	actionName := ""
 	if req.Action != nil {
 		actionName = req.Action.Name
@@ -222,41 +227,14 @@ const maxBatchBodyBytes = 8 * maxEvaluationBodyBytes
 // @Router /evaluations [post]
 func AuthZENBatchDecisionHandler(serverCtx *ServerContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req authzen.BatchEvaluationRequest
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBatchBodyBytes)
-		if err := c.ShouldBindJSON(&req); err != nil {
-			var tooLarge *http.MaxBytesError
-			if errors.As(err, &tooLarge) {
-				c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
-				return
-			}
-			serverCtx.Logger.Error("Invalid AuthZEN batch request",
-				logging.F("remote_ip", c.ClientIP()),
-				logging.F("error", err.Error()))
-			c.JSON(400, gin.H{"error": "invalid request"})
-			return
-		}
-		if len(req.Evaluations) == 0 {
-			c.JSON(400, gin.H{"error": "evaluations must contain at least one item"})
+		req, semantic, ok := bindBatchRequest(c, serverCtx)
+		if !ok {
 			return
 		}
 
 		serverCtx.RLock()
 		registryMgr := serverCtx.RegistryManager
-		limit := serverCtx.MaxBatchEvaluations
 		serverCtx.RUnlock()
-		if limit <= 0 {
-			limit = DefaultMaxBatchEvaluations
-		}
-		if len(req.Evaluations) > limit {
-			c.JSON(400, gin.H{"error": fmt.Sprintf("too many evaluations: %d, limit is %d", len(req.Evaluations), limit)})
-			return
-		}
-		semantic, err := req.Semantic()
-		if err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
-			return
-		}
 		if registryMgr == nil {
 			c.JSON(500, gin.H{"error": "server not configured: no registry manager"})
 			return
@@ -264,25 +242,75 @@ func AuthZENBatchDecisionHandler(serverCtx *ServerContext) gin.HandlerFunc {
 
 		results := make([]authzen.EvaluationResponse, 0, len(req.Evaluations))
 		for i := range req.Evaluations {
-			if c.Request.Context().Err() != nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "request cancelled"})
-				return
-			}
-			resp, evalErr := evaluateAndRecord(c, serverCtx, registryMgr, req.Item(i))
-			var result authzen.EvaluationResponse
-			if evalErr != nil {
-				result = buildResponse(false, "internal evaluation error")
-			} else {
-				result = *resp
-			}
+			result := evaluateBatchItem(c, serverCtx, registryMgr, req.Item(i))
 			results = append(results, result)
-			if (semantic == authzen.EvaluationsSemanticDenyOnFirstDeny && !result.Decision) ||
-				(semantic == authzen.EvaluationsSemanticPermitOnFirstPermit && result.Decision) {
+			if batchDecided(semantic, result.Decision) {
 				break
 			}
 		}
 		c.JSON(200, authzen.BatchEvaluationResponse{Evaluations: results})
 	}
+}
+
+// bindBatchRequest parses and checks a batch request. On a refusal it has
+// already written the response and returns ok=false.
+func bindBatchRequest(c *gin.Context, serverCtx *ServerContext) (req *authzen.BatchEvaluationRequest, semantic string, ok bool) {
+	req = &authzen.BatchEvaluationRequest{}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBatchBodyBytes)
+	if err := c.ShouldBindJSON(req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+			return nil, "", false
+		}
+		serverCtx.Logger.Error("Invalid AuthZEN batch request",
+			logging.F("remote_ip", c.ClientIP()),
+			logging.F("error", err.Error()))
+		c.JSON(400, gin.H{"error": "invalid request"})
+		return nil, "", false
+	}
+	if len(req.Evaluations) == 0 {
+		c.JSON(400, gin.H{"error": "evaluations must contain at least one item"})
+		return nil, "", false
+	}
+
+	serverCtx.RLock()
+	limit := serverCtx.MaxBatchEvaluations
+	serverCtx.RUnlock()
+	if limit <= 0 {
+		limit = DefaultMaxBatchEvaluations
+	}
+	if len(req.Evaluations) > limit {
+		c.JSON(400, gin.H{"error": fmt.Sprintf("too many evaluations: %d, limit is %d", len(req.Evaluations), limit)})
+		return nil, "", false
+	}
+	semantic, err := req.Semantic()
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return nil, "", false
+	}
+	return req, semantic, true
+}
+
+// evaluateBatchItem evaluates one item. A failure to evaluate is a denial of
+// that item with an error reason; it never fails the batch.
+func evaluateBatchItem(c *gin.Context, serverCtx *ServerContext, registryMgr evaluator, item *authzen.EvaluationRequest) authzen.EvaluationResponse {
+	resp, err := evaluateAndRecord(c, serverCtx, registryMgr, item)
+	if err != nil {
+		return buildResponse(false, "internal evaluation error")
+	}
+	return *resp
+}
+
+// batchDecided reports whether the semantic ends the batch after a decision.
+func batchDecided(semantic string, decision bool) bool {
+	switch semantic {
+	case authzen.EvaluationsSemanticDenyOnFirstDeny:
+		return !decision
+	case authzen.EvaluationsSemanticPermitOnFirstPermit:
+		return decision
+	}
+	return false
 }
 
 // InfoHandler godoc

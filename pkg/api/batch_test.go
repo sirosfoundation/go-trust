@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,8 +12,29 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/gin-gonic/gin"
+	"github.com/sirosfoundation/g119612/pkg/logging"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 )
+
+// failingEvaluator cannot carry out an evaluation.
+type failingEvaluator struct{}
+
+func (failingEvaluator) Evaluate(context.Context, *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	return nil, errors.New("backend unavailable")
+}
+
+func TestEvaluateBatchItem_ErrorIsADenialOfThatItem(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request, _ = http.NewRequest("POST", "/evaluations", nil)
+	serverCtx := &ServerContext{Logger: logging.DefaultLogger()}
+
+	res := evaluateBatchItem(c, serverCtx, failingEvaluator{}, &authzen.EvaluationRequest{})
+	assert.False(t, res.Decision)
+	require.NotNil(t, res.Context)
+	assert.Equal(t, "internal evaluation error", res.Context.Reason["error"])
+}
 
 func postBatch(t *testing.T, body string, mutate func(*ServerContext)) (*httptest.ResponseRecorder, authzen.BatchEvaluationResponse) {
 	t.Helper()
