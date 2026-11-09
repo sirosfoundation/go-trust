@@ -185,7 +185,6 @@ func TestWebuildWP4_LoTLVerifiesAfterReformatting(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "lotl.json")
 	require.NoError(t, os.WriteFile(p, compact.Bytes(), 0o600))
 
-
 	snapshotTransport(t) // pointers resolve offline to the snapshots
 	_, err = lote.New(lote.Config{
 		Now: webuildNow, LoTLSources: []string{p}, VerifyJWS: true,
