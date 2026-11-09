@@ -462,6 +462,18 @@ func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, p
 		if e.PathLenOverride != nil {
 			req.Context["emrtd_path_len_override"] = *e.PathLenOverride
 		}
+		if e.CRLMode != "" {
+			req.Context["emrtd_crl_mode"] = e.CRLMode
+		}
+		if e.CRLMaxAge != 0 {
+			req.Context["emrtd_crl_max_age"] = e.CRLMaxAge.String()
+		}
+		if len(e.CRLCountries) > 0 {
+			req.Context["emrtd_crl_countries"] = append([]string(nil), e.CRLCountries...)
+		}
+		if len(e.CRLExemptCountries) > 0 {
+			req.Context["emrtd_crl_exempt_countries"] = append([]string(nil), e.CRLExemptCountries...)
+		}
 	}
 
 	// Store policy name in context for debugging/logging

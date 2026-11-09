@@ -504,6 +504,20 @@ func TestApplyPolicyToRequest_EMRTDConstraints(t *testing.T) {
 		assert.Equal(t, "enforce", req.Context["emrtd_path_len_mode"])
 		assert.Equal(t, 0, req.Context["emrtd_path_len_override"], "an override of 0 must still be injected")
 	})
+	t.Run("crl settings", func(t *testing.T) {
+		req := &authzen.EvaluationRequest{}
+		mgr.applyPolicyToRequest(req, &PolicyContext{Policy: &Policy{
+			Name: "emrtd-test",
+			EMRTD: &EMRTDPolicyConstraints{
+				CRLMode: "require-current", CRLMaxAge: 168 * time.Hour,
+				CRLCountries: []string{"SWE"}, CRLExemptCountries: []string{"DEU"},
+			},
+		}})
+		assert.Equal(t, "require-current", req.Context["emrtd_crl_mode"])
+		assert.Equal(t, "168h0m0s", req.Context["emrtd_crl_max_age"])
+		assert.Equal(t, []string{"SWE"}, req.Context["emrtd_crl_countries"])
+		assert.Equal(t, []string{"DEU"}, req.Context["emrtd_crl_exempt_countries"])
+	})
 	t.Run("empty block injects nothing", func(t *testing.T) {
 		req := &authzen.EvaluationRequest{}
 		mgr.applyPolicyToRequest(req, &PolicyContext{Policy: &Policy{Name: "emrtd-test", EMRTD: &EMRTDPolicyConstraints{}}})
@@ -534,6 +548,15 @@ func TestEMRTDPolicyConstraints_Validate(t *testing.T) {
 		{"wrong case", &EMRTDPolicyConstraints{PathLenMode: "Enforce"}, "path_len_mode"},
 		{"negative", &EMRTDPolicyConstraints{PathLenOverride: n(-1)}, ">= 0"},
 		{"ignore+override", &EMRTDPolicyConstraints{PathLenMode: "ignore", PathLenOverride: n(1)}, "conflicts"},
+		{"crl best-effort", &EMRTDPolicyConstraints{CRLMode: "best-effort"}, ""},
+		{"crl require-current", &EMRTDPolicyConstraints{CRLMode: "require-current", CRLMaxAge: time.Hour, CRLCountries: []string{"SWE"}, CRLExemptCountries: []string{"DEU"}}, ""},
+		{"crl unknown mode", &EMRTDPolicyConstraints{CRLMode: "strict"}, "crl_mode"},
+		{"crl wrong case", &EMRTDPolicyConstraints{CRLMode: "Require-Current"}, "crl_mode"},
+		{"crl negative max age", &EMRTDPolicyConstraints{CRLMode: "require-current", CRLMaxAge: -time.Hour}, "crl_max_age"},
+		{"crl max age without require-current", &EMRTDPolicyConstraints{CRLMaxAge: time.Hour}, "need crl_mode"},
+		{"crl exemptions without require-current", &EMRTDPolicyConstraints{CRLMode: "best-effort", CRLExemptCountries: []string{"SWE"}}, "need crl_mode"},
+		{"crl lower-case country", &EMRTDPolicyConstraints{CRLMode: "require-current", CRLCountries: []string{"swe"}}, "alpha-3"},
+		{"crl overlapping lists", &EMRTDPolicyConstraints{CRLMode: "require-current", CRLCountries: []string{"SWE"}, CRLExemptCountries: []string{"SWE"}}, "both list"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

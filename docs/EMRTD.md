@@ -42,6 +42,10 @@ policies:
 
 | `policies.<name>.emrtd.path_len_mode` | no | `ignore` (default) or `enforce`. See [Path length](#path-length). Any other value fails startup. |
 | `policies.<name>.emrtd.path_len_override` | no | Integer >= 0 used instead of a certificate's own `pathLenConstraint`; implies `enforce`. See [Path length](#path-length). |
+| `policies.<name>.emrtd.crl_mode` | no | `best-effort` (default) or `require-current`. See [Requiring current CRLs](#requiring-current-crls). Any other value fails startup. |
+| `policies.<name>.emrtd.crl_max_age` | no | Go duration (for example `168h`); with `require-current`, a CRL whose `thisUpdate` is older is not current. |
+| `policies.<name>.emrtd.crl_countries` | no | With `require-current`, apply it only to these alpha-3 states (default: all). |
+| `policies.<name>.emrtd.crl_exempt_countries` | no | With `require-current`, states exempt from it, for example states that publish no CRL. |
 
 The registry only answers requests with `action.name` `emrtd-document-signer`. Any other action is denied as
 `malformed_request`. The policy block is what routes that action to the registry and requires an x5c key.
@@ -144,6 +148,8 @@ decide trust from `decision`, never from the presence of a code:
 | `expired` / `not_yet_valid` | A certificate in the chain is outside its validity at `signing_time` |
 | `bad_key_usage` | The DSC has a `keyUsage` extension without `digitalSignature` |
 | `revoked` | A verified CRL lists a certificate in the chain |
+| `crl_unavailable` | `require-current` is on and an issuer on the path has no verified CRL loaded (see [Requiring current CRLs](#requiring-current-crls)) |
+| `crl_stale` | `require-current` is on and an issuer's verified CRLs are all past `nextUpdate` or older than `crl_max_age` |
 | `malformed_request` | Wrong action, bad certificates, bad `signing_time`, unsupported key combination |
 
 A caller must treat anything other than `decision: true` as not trusted, including errors and timeouts.
@@ -162,7 +168,8 @@ A caller must treat anything other than `decision: true` as not trusted, includi
 - Validity is checked for every certificate at `signing_time`.
 - Revocation is strict: any entry on a CRL that is authentic for the certificate's issuer denies the
   certificate, regardless of revocation date and even if the CRL is past `nextUpdate`. CRLs that are not
-  authentic are ignored; with no CRL for an issuer nothing is denied.
+  authentic are ignored; with no CRL for an issuer nothing is denied, unless the policy sets
+  `crl_mode: require-current` (see [Requiring current CRLs](#requiring-current-crls)).
 - A CRL is **authentic for an issuer** when its issuer name equals the revoked certificate's issuer name and its
   signature verifies against the issuer certificate on the validated path, or against **any reviewed anchor of
   the claimed state whose subject name equals the CRL's issuer name** (every key of that CSCA name). The second
@@ -248,6 +255,58 @@ to its successor, or a rollover spanning several link certificates, will be deni
 override, even though the passports are genuine. Self-issued links (same DN) are unaffected. Before enabling
 `enforce`, test with real documents from states mid-rollover, and prefer an override sized for the longest
 legitimate chain (the 5-certificate cap still applies).
+
+
+## Requiring current CRLs
+
+By default a missing or stale CRL means "not revoked": a certificate revoked after the last CRL you loaded is
+accepted until the next refresh. A policy can opt in to failing closed instead:
+
+```yaml
+policies:
+  policies:
+    emrtd-document-signer:
+      registries: [emrtd-csca]
+      emrtd:
+        crl_mode: require-current        # best-effort (default) | require-current
+        crl_max_age: 168h                # optional
+        crl_countries: [SWE, DEU]        # optional: only these states (default: all)
+        crl_exempt_countries: [FRA]      # optional: never these states
+```
+
+With `require-current`, **every issuing CA on the accepted path** (the CSCA, and each link certificate that signs
+another certificate) needs a verified, current CRL. "Verified" uses the same rules as revocation (issuer name,
+signature algorithm, authenticity by the issuing key or a same-name CSCA key). A CRL is **current** when its
+`nextUpdate` is present and not past, its `thisUpdate` is not in the future, and, if `crl_max_age` is set,
+`thisUpdate` is no older than that. A CRL whose `issuingDistributionPoint` restricts its scope
+(`distributionPoint`, `onlyContainsUserCerts`, `onlyContainsCACerts`, `onlySomeReasons` or `onlyContainsAttributeCerts`; matching a CRL's distribution point to the certificate is not implemented) is not
+evidence of complete revocation data and never counts as coverage, current or not; its entries still revoke.
+Currency is judged against the server clock, not `signing_time`: the question
+is whether our revocation data is up to date now.
+
+| Situation | Result |
+|---|---|
+| A certificate is listed on a verified CRL (current or not) | `revoked`, as always |
+| An issuer has no verified CRL | `crl_unavailable` |
+| An issuer has verified CRLs but none is current | `crl_stale` |
+| All issuers have a current CRL and nothing is revoked | allowed |
+
+`revoked` always wins, so a stalled feed never masks a revocation. The deny reason names the issuer, a warning is
+logged, and the registry exports Prometheus gauges per country that let operators tell "our feed is stalled" from
+"certificate revoked": `go_trust_emrtd_crl_count`, `go_trust_emrtd_crl_age_seconds` (since the newest `thisUpdate`)
+and `go_trust_emrtd_crl_next_update_timestamp_seconds`, each with a `country` label (states without a loaded CRL
+have no series).
+
+**Operational risk.** A stalled CRL feed for one state denies every DSC from that state, and many states publish
+no CRL at all. Use `crl_countries` to switch the requirement on for the states you actively feed, or
+`crl_exempt_countries` to carve out the others. An unknown or lower-case code, a list that overlaps the other, or
+`crl_max_age` / country lists without `require-current` fail startup. go-trust does not fetch CRLs: keep
+`crls_dir` populated from the states' own distribution points (ICAO PKD terms forbid commercial use).
+
+Like the path-length settings these are policy controls: the manager drops client-supplied `emrtd_crl_mode`,
+`emrtd_crl_max_age`, `emrtd_crl_countries` and `emrtd_crl_exempt_countries`, and the registry denies as
+`malformed_request` when it is handed a value it cannot read (including an unknown or lower-case country code, or
+a code in both lists) rather than falling back to `best-effort`.
 
 ## Feeding the registry from the anchor repository
 

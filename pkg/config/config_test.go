@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -911,6 +912,14 @@ func TestValidateEMRTDPolicy(t *testing.T) {
 		{"unknown mode", &EMRTDPolicyConfig{PathLenMode: "strict"}, "path_len_mode"},
 		{"negative override", &EMRTDPolicyConfig{PathLenOverride: n(-2)}, "path_len_override"},
 		{"ignore with override", &EMRTDPolicyConfig{PathLenMode: "ignore", PathLenOverride: n(1)}, "conflicts"},
+		{"crl best-effort", &EMRTDPolicyConfig{CRLMode: "best-effort"}, ""},
+		{"crl require-current full", &EMRTDPolicyConfig{CRLMode: "require-current", CRLMaxAge: "168h", CRLCountries: []string{"SWE"}, CRLExemptCountries: []string{"DEU"}}, ""},
+		{"crl unknown mode", &EMRTDPolicyConfig{CRLMode: "strict"}, "crl_mode"},
+		{"crl bad duration", &EMRTDPolicyConfig{CRLMode: "require-current", CRLMaxAge: "a week"}, "crl_max_age"},
+		{"crl negative duration", &EMRTDPolicyConfig{CRLMode: "require-current", CRLMaxAge: "-1h"}, "crl_max_age"},
+		{"crl max age without require-current", &EMRTDPolicyConfig{CRLMaxAge: "1h"}, "need crl_mode"},
+		{"crl unknown country", &EMRTDPolicyConfig{CRLMode: "require-current", CRLExemptCountries: []string{"ZZZ"}}, "known ISO 3166-1"},
+		{"crl lower-case country", &EMRTDPolicyConfig{CRLMode: "require-current", CRLCountries: []string{"swe"}}, "alpha-3"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -943,6 +952,9 @@ policies:
       emrtd:
         path_len_mode: enforce
         path_len_override: 1
+        crl_mode: require-current
+        crl_max_age: 168h
+        crl_exempt_countries: [DEU]
 `
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -954,6 +966,9 @@ policies:
 	e := cfg.Policies.Policies["emrtd-document-signer"].EMRTD
 	if e == nil || e.PathLenMode != "enforce" || e.PathLenOverride == nil || *e.PathLenOverride != 1 {
 		t.Fatalf("emrtd policy = %+v, want enforce/1", e)
+	}
+	if d, err := e.CRLMaxAgeDuration(); err != nil || e.CRLMode != "require-current" || d != 168*time.Hour || len(e.CRLExemptCountries) != 1 || e.CRLExemptCountries[0] != "DEU" {
+		t.Fatalf("emrtd crl policy = %+v (%v, %v)", e, d, err)
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)

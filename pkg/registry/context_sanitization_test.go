@@ -87,6 +87,10 @@ func TestEvaluate_SanitizesClientSuppliedContext(t *testing.T) {
 		"blocked_aaguids":               []string{"injected"},
 		"emrtd_path_len_mode":           "ignore",
 		"emrtd_path_len_override":       99,
+		"emrtd_crl_mode":                "best-effort",
+		"emrtd_crl_max_age":             "8760h",
+		"emrtd_crl_countries":           []string{"XXX"},
+		"emrtd_crl_exempt_countries":    []string{"SWE"},
 		"_policy":                       "attacker-policy",
 		"totally_unknown_key":           "junk",
 	})
@@ -113,6 +117,7 @@ func TestEvaluate_SanitizesClientSuppliedContext(t *testing.T) {
 		"allowed_domains", "required_verification_methods", "required_services",
 		"require_verifiable_history", "issuer_allowlist", "require_iaca_endpoint",
 		"allowed_aaguids", "blocked_aaguids", "_policy", "totally_unknown_key",
+		"emrtd_crl_mode", "emrtd_crl_max_age", "emrtd_crl_countries", "emrtd_crl_exempt_countries",
 	} {
 		assert.NotContains(t, captured, key,
 			"client-supplied %q must not reach the registries", key)
@@ -306,6 +311,10 @@ func TestClientSuppliableKeysExcludePolicyControls(t *testing.T) {
 		"blocked_aaguids",
 		"emrtd_path_len_mode",
 		"emrtd_path_len_override",
+		"emrtd_crl_mode",
+		"emrtd_crl_max_age",
+		"emrtd_crl_countries",
+		"emrtd_crl_exempt_countries",
 		"max_chain_depth",
 		"_original_subject_id",
 		"_policy",

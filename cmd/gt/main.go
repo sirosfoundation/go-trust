@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	oidfedjwx "github.com/go-oidfed/lib/jwx"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirosfoundation/g119612/pkg/logging"
 	gocryptoutil "github.com/sirosfoundation/go-cryptoutil"
 	"github.com/sirosfoundation/go-cryptoutil/brainpool"
@@ -257,8 +258,9 @@ func main() {
 	registryMgr.SetLogger(logger)
 
 	// Configure registries from config file
+	var registryCollectors []prometheus.Collector
 	if cfg != nil {
-		configureRegistriesFromConfig(cfg, registryMgr, logger)
+		registryCollectors = configureRegistriesFromConfig(cfg, registryMgr, logger)
 	}
 
 	// CLI flags override config file - Configure ETSI TSL registry if cert bundle or TSL files provided
@@ -392,6 +394,11 @@ func main() {
 	metrics := api.NewMetrics()
 	serverCtx.Metrics = metrics
 	api.RegisterMetricsEndpoint(r, metrics)
+	for _, c := range registryCollectors {
+		if err := metrics.Register(c); err != nil {
+			logger.Warn("Failed to register registry metrics", logging.F("error", err.Error()))
+		}
+	}
 
 	// Register Swagger UI endpoint
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
@@ -419,7 +426,10 @@ func main() {
 }
 
 // configureRegistriesFromConfig configures registries from the loaded config file.
-func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) {
+// It returns the metrics collectors of the registries it created, for the
+// caller to register once the metrics endpoint exists.
+func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.RegistryManager, logger logging.Logger) []prometheus.Collector {
+	var collectors []prometheus.Collector
 	// cryptoExt extends certificate parsing/signature verification beyond
 	// what crypto/x509 supports natively - currently brainpool curves, used
 	// by real-world root CAs (e.g. the Geneva 2026 interop event's RICAL/
@@ -837,6 +847,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		}
 
 		registryMgr.Register(emrtdReg)
+		collectors = append(collectors, emrtdReg.Collector())
 		logger.Info("eMRTD registry registered from config",
 			logging.F("countries", len(emrtdReg.Countries())),
 			logging.F("watch", emrtdCfg.Watch))
@@ -978,7 +989,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 		registryMgr.Register(mdsReg)
 		logger.Info("FIDO MDS3 registry registered from config")
 	}
-
+	return collectors
 }
 
 // warnUnknownConfigKeys reports config-file keys the decoder threw away.
@@ -1366,9 +1377,18 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 
 		// Convert eMRTD constraints
 		if policyCfg.EMRTD != nil {
+			crlMaxAge, err := policyCfg.EMRTD.CRLMaxAgeDuration()
+			if err != nil {
+				logger.Fatal("Invalid emrtd policy constraints",
+					logging.F("policy", name), logging.F("error", err.Error()))
+			}
 			policy.EMRTD = &registry.EMRTDPolicyConstraints{
-				PathLenMode:     policyCfg.EMRTD.PathLenMode,
-				PathLenOverride: policyCfg.EMRTD.PathLenOverride,
+				PathLenMode:        policyCfg.EMRTD.PathLenMode,
+				PathLenOverride:    policyCfg.EMRTD.PathLenOverride,
+				CRLMode:            policyCfg.EMRTD.CRLMode,
+				CRLMaxAge:          crlMaxAge,
+				CRLCountries:       policyCfg.EMRTD.CRLCountries,
+				CRLExemptCountries: policyCfg.EMRTD.CRLExemptCountries,
 			}
 			// config.Validate rejects bad values at startup; this keeps any
 			// other caller from installing an unvalidated policy.

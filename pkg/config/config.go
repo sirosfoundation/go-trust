@@ -10,9 +10,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirosfoundation/g119612/pkg/validation"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
+	"github.com/sirosfoundation/go-trust/pkg/registry"
+	"github.com/sirosfoundation/go-trust/pkg/registry/emrtd"
 	"gopkg.in/yaml.v3"
 )
 
@@ -591,6 +594,41 @@ type EMRTDPolicyConfig struct {
 	// issuer in the chain (including certificates that have none), and
 	// implies "enforce". Must be >= 0; conflicts with path_len_mode "ignore".
 	PathLenOverride *int `yaml:"path_len_override,omitempty"`
+
+	// CRLMode is "best-effort" (default) or "require-current". With
+	// "require-current", every issuing CA on the path needs a verified CRL
+	// that is current, otherwise the document signer is denied as
+	// crl_unavailable (no verified CRL) or crl_stale (only stale ones). Best
+	// effort keeps today's behaviour: a missing or stale CRL means not
+	// revoked. Any other value fails config validation.
+	CRLMode string `yaml:"crl_mode,omitempty"`
+
+	// CRLMaxAge is a Go duration (for example 168h). With "require-current",
+	// a CRL whose thisUpdate is older than this is not current, in addition
+	// to the rule that a CRL past nextUpdate is never current. Empty means
+	// only nextUpdate applies.
+	CRLMaxAge string `yaml:"crl_max_age,omitempty"`
+
+	// CRLCountries limits "require-current" to these issuing states
+	// (ISO 3166-1 alpha-3, upper case). Empty means every state.
+	CRLCountries []string `yaml:"crl_countries,omitempty"`
+
+	// CRLExemptCountries are states for which "require-current" is not
+	// applied, for example states that publish no CRL. Must not overlap
+	// crl_countries.
+	CRLExemptCountries []string `yaml:"crl_exempt_countries,omitempty"`
+}
+
+// CRLMaxAgeDuration parses CRLMaxAge; an empty value is zero.
+func (e *EMRTDPolicyConfig) CRLMaxAgeDuration() (time.Duration, error) {
+	if e == nil || e.CRLMaxAge == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(e.CRLMaxAge)
+	if err != nil {
+		return 0, fmt.Errorf("emrtd.crl_max_age %q is not a duration: %w", e.CRLMaxAge, err)
+	}
+	return d, nil
 }
 
 // FIDOMDS3PolicyConfig contains FIDO Alliance MDS3-specific policy constraints.
@@ -857,6 +895,18 @@ func (e *EMRTDPolicyConfig) validate() error {
 		}
 		if e.PathLenMode == "ignore" {
 			return fmt.Errorf("emrtd.path_len_override implies enforcement and conflicts with path_len_mode \"ignore\"")
+		}
+	}
+	maxAge, err := e.CRLMaxAgeDuration()
+	if err != nil {
+		return err
+	}
+	if err := registry.ValidateEMRTDCRL(e.CRLMode, maxAge, e.CRLCountries, e.CRLExemptCountries); err != nil {
+		return err
+	}
+	for _, c := range append(append([]string(nil), e.CRLCountries...), e.CRLExemptCountries...) {
+		if !emrtd.IsAlpha3(c) {
+			return fmt.Errorf("emrtd.crl_countries / crl_exempt_countries: %q is not a known ISO 3166-1 alpha-3 code", c)
 		}
 	}
 	return nil
