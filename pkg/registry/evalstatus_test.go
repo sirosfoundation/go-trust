@@ -156,3 +156,12 @@ func TestEvaluate_CouldNotEvaluate_NilResponse(t *testing.T) {
 		})
 	}
 }
+
+func TestEvaluate_CouldNotEvaluate_CompositeChildPanic(t *testing.T) {
+	child := &panicRegistry{&MockRegistry{name: "panics", types: []string{"x5c"}}}
+	denies := &MockRegistry{name: "denies", decision: false, types: []string{"x5c"}}
+	resp, err := newTrustDataManager(FirstMatch, NewCompositeRegistry("comp", LogicOR, child, denies)).Evaluate(context.Background(), createTestRequest())
+	require.NoError(t, err)
+	require.False(t, resp.Decision)
+	assert.True(t, resp.CouldNotEvaluate())
+}
