@@ -43,6 +43,7 @@ A few `server` settings can also be set via CLI flag (`gt -host`, `-port`, `-ext
 | `server.tls.enabled` | `GT_TLS_ENABLED` | boolean | Enable TLS/HTTPS |
 | `server.tls.cert_file` | `GT_TLS_CERT_FILE` | string | Path to TLS certificate file |
 | `server.tls.key_file` | `GT_TLS_KEY_FILE` | string | Path to TLS private key file |
+| `server.max_batch_evaluations` | — | integer | MaxBatchEvaluations bounds the number of items in one POST /evaluations request. 0 selects the default (50). |
 
 ## logging
 
