@@ -30,10 +30,16 @@ func TestEvaluateBatchItem_ErrorIsADenialOfThatItem(t *testing.T) {
 	c.Request, _ = http.NewRequest("POST", "/evaluations", nil)
 	serverCtx := &ServerContext{Logger: logging.DefaultLogger()}
 
-	res := evaluateBatchItem(c, serverCtx, failingEvaluator{}, &authzen.EvaluationRequest{})
-	assert.False(t, res.Decision)
-	require.NotNil(t, res.Context)
-	assert.Equal(t, "internal evaluation error", res.Context.Reason["error"])
+	batch := &authzen.BatchEvaluationRequest{Evaluations: []json.RawMessage{json.RawMessage(`{}`), json.RawMessage(`{}`)}}
+	a := evaluateBatchItem(c, serverCtx, failingEvaluator{}, batch, 0)
+	b := evaluateBatchItem(c, serverCtx, failingEvaluator{}, batch, 1)
+	for _, res := range []authzen.EvaluationResponse{a, b} {
+		assert.False(t, res.Decision)
+		require.NotNil(t, res.Context)
+		assert.Equal(t, "internal evaluation error", res.Context.Reason["error"])
+		assert.NotEmpty(t, res.Context.ID, "denials carry a decision id")
+	}
+	assert.NotEqual(t, a.Context.ID, b.Context.ID)
 }
 
 func postBatch(t *testing.T, body string, mutate func(*ServerContext)) (*httptest.ResponseRecorder, authzen.BatchEvaluationResponse) {
@@ -166,17 +172,19 @@ func TestBatch_NilRegistryManager(t *testing.T) {
 
 func TestBatchItem_ContextIsolatedAndOverridden(t *testing.T) {
 	req := authzen.BatchEvaluationRequest{
-		Context: map[string]interface{}{"a": 1},
-		Evaluations: []authzen.BatchEvaluationItem{
-			{},
-			{Context: map[string]interface{}{"b": 2}},
-		},
+		Context:     map[string]interface{}{"a": 1},
+		Evaluations: []json.RawMessage{json.RawMessage(`{}`), json.RawMessage(`{"context":{"b":2}}`)},
 	}
-	first := req.Item(0)
+	first, err := req.Item(0)
+	require.NoError(t, err)
 	first.Context["injected"] = true
 	assert.NotContains(t, req.Context, "injected", "the shared default is never written through an item")
-	assert.NotContains(t, req.Item(0).Context, "injected")
-	assert.Equal(t, map[string]interface{}{"b": 2}, req.Item(1).Context, "an item context replaces the default")
+	again, err := req.Item(0)
+	require.NoError(t, err)
+	assert.NotContains(t, again.Context, "injected")
+	second, err := req.Item(1)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]interface{}{"b": float64(2)}, second.Context, "an item context replaces the default")
 }
 
 func TestWellKnown_AdvertisesEvaluationsEndpoint(t *testing.T) {
@@ -188,4 +196,23 @@ func TestWellKnown_AdvertisesEvaluationsEndpoint(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &md))
 	assert.Equal(t, "http://localhost:6001/evaluations", md.AccessEvaluationsEndpoint)
 	assert.Equal(t, "http://localhost:6001/evaluation", md.AccessEvaluationEndpoint)
+}
+
+func TestBatch_MalformedItemsFailAloneAndNeverInheritDefaults(t *testing.T) {
+	// The defaults alone would be trusted, so a null or ill-typed entry that
+	// inherited them would come back decision=true.
+	body := `{
+	  "subject": ` + batchSubject + `,
+	  "resource": ` + batchResource(testCertBase64) + `,
+	  "evaluations": [null, {"subject": {"id": 123}}, 7, {}]}`
+	w, out := postBatch(t, body, nil)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Len(t, out.Evaluations, 4)
+	for i := 0; i < 3; i++ {
+		assert.False(t, out.Evaluations[i].Decision, "item %d", i)
+		require.NotNil(t, out.Evaluations[i].Context, "item %d", i)
+		assert.NotEmpty(t, out.Evaluations[i].Context.Reason["error"], "item %d", i)
+		assert.NotEmpty(t, out.Evaluations[i].Context.ID, "item %d", i)
+	}
+	assert.True(t, out.Evaluations[3].Decision, "a valid sibling is unaffected")
 }

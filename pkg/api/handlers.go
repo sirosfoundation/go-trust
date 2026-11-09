@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/sirosfoundation/g119612/pkg/logging"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 )
@@ -242,7 +243,7 @@ func AuthZENBatchDecisionHandler(serverCtx *ServerContext) gin.HandlerFunc {
 
 		results := make([]authzen.EvaluationResponse, 0, len(req.Evaluations))
 		for i := range req.Evaluations {
-			result := evaluateBatchItem(c, serverCtx, registryMgr, req.Item(i))
+			result := evaluateBatchItem(c, serverCtx, registryMgr, req, i)
 			results = append(results, result)
 			if batchDecided(semantic, result.Decision) {
 				break
@@ -292,14 +293,26 @@ func bindBatchRequest(c *gin.Context, serverCtx *ServerContext) (req *authzen.Ba
 	return req, semantic, true
 }
 
-// evaluateBatchItem evaluates one item. A failure to evaluate is a denial of
-// that item with an error reason; it never fails the batch.
-func evaluateBatchItem(c *gin.Context, serverCtx *ServerContext, registryMgr evaluator, item *authzen.EvaluationRequest) authzen.EvaluationResponse {
+// evaluateBatchItem evaluates item i. A malformed item or a failure to
+// evaluate is a denial of that item with an error reason and a decision id; it
+// never fails the batch.
+func evaluateBatchItem(c *gin.Context, serverCtx *ServerContext, registryMgr evaluator, batch *authzen.BatchEvaluationRequest, i int) authzen.EvaluationResponse {
+	item, err := batch.Item(i)
+	if err != nil {
+		return batchDenial(err.Error())
+	}
 	resp, err := evaluateAndRecord(c, serverCtx, registryMgr, item)
 	if err != nil {
-		return buildResponse(false, "internal evaluation error")
+		return batchDenial("internal evaluation error")
 	}
 	return *resp
+}
+
+// batchDenial is the decision=false result of an item that was not evaluated.
+func batchDenial(reason string) authzen.EvaluationResponse {
+	resp := buildResponse(false, reason)
+	resp.Context.ID = uuid.NewString()
+	return resp
 }
 
 // batchDecided reports whether the semantic ends the batch after a decision.

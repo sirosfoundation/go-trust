@@ -1,6 +1,10 @@
 package authzen
 
-import "fmt"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
 
 // Evaluations semantics (AuthZEN access evaluations API, options.evaluations_semantic).
 const (
@@ -35,12 +39,14 @@ type BatchOptions struct {
 // subject, resource, action and context are defaults shared by all items.
 // @Description AuthZEN access evaluations (batch) request
 type BatchEvaluationRequest struct {
-	Subject     *Subject               `json:"subject,omitempty"`
-	Resource    *Resource              `json:"resource,omitempty"`
-	Action      *Action                `json:"action,omitempty"`
-	Context     map[string]interface{} `json:"context,omitempty" swaggertype:"object,string"`
-	Evaluations []BatchEvaluationItem  `json:"evaluations"`
-	Options     *BatchOptions          `json:"options,omitempty"`
+	Subject  *Subject               `json:"subject,omitempty"`
+	Resource *Resource              `json:"resource,omitempty"`
+	Action   *Action                `json:"action,omitempty"`
+	Context  map[string]interface{} `json:"context,omitempty" swaggertype:"object,string"`
+	// Evaluations are kept raw so that a malformed entry fails only itself
+	// (see Item) instead of the whole request.
+	Evaluations []json.RawMessage `json:"evaluations" swaggertype:"array,object"`
+	Options     *BatchOptions     `json:"options,omitempty"`
 }
 
 // BatchEvaluationResponse is the body of a POST /evaluations answer: one
@@ -68,8 +74,17 @@ func (r *BatchEvaluationRequest) Semantic() (string, error) {
 // Item returns the evaluation request for item i: the item's members over the
 // request-level defaults. The Context is a fresh map, because evaluation adds
 // server-controlled members to it and items must not see each other's.
-func (r *BatchEvaluationRequest) Item(i int) *EvaluationRequest {
-	it := r.Evaluations[i]
+// An entry that is not a JSON object, or has a member of the wrong type,
+// is an error for that item alone; it never inherits the defaults.
+func (r *BatchEvaluationRequest) Item(i int) (*EvaluationRequest, error) {
+	raw := bytes.TrimSpace(r.Evaluations[i])
+	if len(raw) == 0 || raw[0] != '{' {
+		return nil, fmt.Errorf("evaluations[%d] must be an object", i)
+	}
+	var it BatchEvaluationItem
+	if err := json.Unmarshal(raw, &it); err != nil {
+		return nil, fmt.Errorf("evaluations[%d] is malformed", i)
+	}
 	req := &EvaluationRequest{}
 	switch {
 	case it.Subject != nil:
@@ -101,5 +116,5 @@ func (r *BatchEvaluationRequest) Item(i int) *EvaluationRequest {
 			req.Context[k] = v
 		}
 	}
-	return req
+	return req, nil
 }
