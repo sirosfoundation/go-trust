@@ -171,6 +171,18 @@ func (m *RegistryManager) evaluateFirstMatch(ctx context.Context, req *authzen.E
 	}, nil
 }
 
+// evaluateRecovering calls reg.Evaluate and turns a panic into an error, as the
+// parallel strategies do per goroutine, so a panicking registry is recorded as a
+// failure instead of unwinding through the caller.
+func evaluateRecovering(ctx context.Context, reg TrustRegistry, req *authzen.EvaluationRequest) (resp *authzen.EvaluationResponse, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp, err = nil, fmt.Errorf("registry panicked: %v", r)
+		}
+	}()
+	return reg.Evaluate(ctx, req)
+}
+
 // promoteSingleDenyCode surfaces a registry's machine-readable deny "code"
 // (and its "admin" detail) at the top level of the aggregated reason when
 // exactly one registry produced a denial reason. Policies that route an
@@ -467,7 +479,7 @@ func (m *RegistryManager) evaluateSequentialFiltered(ctx context.Context, req *a
 			logging.F("registry", info.Name))
 
 		startTime := time.Now()
-		resp, err := reg.Evaluate(ctx, req)
+		resp, err := evaluateRecovering(ctx, reg, req)
 		duration := time.Since(startTime).Milliseconds()
 
 		if err != nil {

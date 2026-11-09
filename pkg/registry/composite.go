@@ -141,7 +141,7 @@ func (c *CompositeRegistry) Evaluate(ctx context.Context, req *authzen.Evaluatio
 			defer wg.Done()
 
 			startTime := time.Now()
-			resp, err := registry.Evaluate(timeoutCtx, req)
+			resp, err := evaluateRecovering(timeoutCtx, registry, req)
 			duration := time.Since(startTime)
 
 			results <- compositeResult{
