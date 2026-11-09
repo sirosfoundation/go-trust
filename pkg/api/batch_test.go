@@ -204,15 +204,16 @@ func TestBatch_MalformedItemsFailAloneAndNeverInheritDefaults(t *testing.T) {
 	body := `{
 	  "subject": ` + batchSubject + `,
 	  "resource": ` + batchResource(testCertBase64) + `,
-	  "evaluations": [null, {"subject": {"id": 123}}, 7, {}]}`
+	  "evaluations": [null, {"subject": {"id": 123}}, 7,
+	    {"subject": null}, {"resource": null}, {"action": null}, {"context": null}, {}]}`
 	w, out := postBatch(t, body, nil)
 	require.Equal(t, 200, w.Code, w.Body.String())
-	require.Len(t, out.Evaluations, 4)
-	for i := 0; i < 3; i++ {
+	require.Len(t, out.Evaluations, 8)
+	for i := 0; i < 7; i++ {
 		assert.False(t, out.Evaluations[i].Decision, "item %d", i)
 		require.NotNil(t, out.Evaluations[i].Context, "item %d", i)
 		assert.NotEmpty(t, out.Evaluations[i].Context.Reason["error"], "item %d", i)
 		assert.NotEmpty(t, out.Evaluations[i].Context.ID, "item %d", i)
 	}
-	assert.True(t, out.Evaluations[3].Decision, "a valid sibling is unaffected")
+	assert.True(t, out.Evaluations[7].Decision, "a valid sibling is unaffected")
 }

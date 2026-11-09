@@ -85,6 +85,16 @@ func (r *BatchEvaluationRequest) Item(i int) (*EvaluationRequest, error) {
 	if err := json.Unmarshal(raw, &it); err != nil {
 		return nil, fmt.Errorf("evaluations[%d] is malformed", i)
 	}
+	// An explicit null is not "absent": it must not fall back to the default.
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
+		return nil, fmt.Errorf("evaluations[%d] is malformed", i)
+	}
+	for name, v := range members {
+		if bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
+			return nil, fmt.Errorf("evaluations[%d].%s must not be null", i, name)
+		}
+	}
 	req := &EvaluationRequest{}
 	switch {
 	case it.Subject != nil:
