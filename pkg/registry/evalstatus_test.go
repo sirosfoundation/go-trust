@@ -68,7 +68,7 @@ func TestEvaluate_CouldNotEvaluate_CircuitOpen(t *testing.T) {
 }
 
 func TestEvaluate_CouldNotEvaluate_Panic(t *testing.T) {
-	for _, strategy := range []ResolutionStrategy{FirstMatch, AllRegistries, BestMatch} {
+	for _, strategy := range allStrategies {
 		t.Run(string(strategy), func(t *testing.T) {
 			resp, err := newTrustDataManager(strategy, &panicRegistry{&MockRegistry{name: "panics", types: []string{"x5c"}}}).Evaluate(context.Background(), createTestRequest())
 			require.NoError(t, err)
@@ -138,4 +138,21 @@ func TestCouldNotEvaluate_NilSafe(t *testing.T) {
 	assert.False(t, (&authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{
 		Reason: map[string]interface{}{authzen.ReasonKeyEvaluationStatus: authzen.EvaluationStatusError},
 	}}).CouldNotEvaluate(), "an allow is never a failure")
+}
+
+type nilRegistry struct{ *MockRegistry }
+
+func (n *nilRegistry) Evaluate(context.Context, *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	return nil, nil
+}
+
+func TestEvaluate_CouldNotEvaluate_NilResponse(t *testing.T) {
+	for _, strategy := range allStrategies {
+		t.Run(string(strategy), func(t *testing.T) {
+			resp, err := newTrustDataManager(strategy, &nilRegistry{&MockRegistry{name: "silent", types: []string{"x5c"}}}).Evaluate(context.Background(), createTestRequest())
+			require.NoError(t, err)
+			require.False(t, resp.Decision)
+			assert.True(t, resp.CouldNotEvaluate(), "no verdict was supplied")
+		})
+	}
 }

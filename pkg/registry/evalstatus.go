@@ -22,13 +22,20 @@ func markEvaluationFailures(resp *authzen.EvaluationResponse) {
 			name, _ := e["registry"].(string)
 			msg, isErr := e["error"].(string)
 			if !isErr {
-				// A composite whose child failed answers with a denial of its own
-				// and marks it incomplete (see CompositeRegistry).
 				inner, _ := e["reason"].(map[string]interface{})
-				if inc, _ := inner["incomplete"].(bool); !inc {
+				incomplete, _ := inner["incomplete"].(bool)
+				_, decided := e["decision"].(bool)
+				switch {
+				case incomplete:
+					// A composite whose child failed answers with a denial of its
+					// own and marks it incomplete (see CompositeRegistry).
+					msg = "a child registry failed to answer"
+				case !decided:
+					// A (nil, nil) answer supplies no verdict.
+					msg = "registry returned no decision"
+				default:
 					continue
 				}
-				msg = "a child registry failed to answer"
 			}
 			failed = append(failed, map[string]interface{}{"registry": name, "error": msg})
 		}
