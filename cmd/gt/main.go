@@ -363,6 +363,7 @@ func main() {
 		baseURL = fmt.Sprintf("http://%s:%s", *host, *port)
 	}
 	serverCtx.BaseURL = baseURL
+	serverCtx.MaxBatchEvaluations = cfg.Server.MaxBatchEvaluations
 
 	logger.Info("AuthZEN PDP base URL configured",
 		logging.F("url", baseURL))

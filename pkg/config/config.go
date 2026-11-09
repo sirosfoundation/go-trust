@@ -610,6 +610,9 @@ type ServerConfig struct {
 	Port        string    `yaml:"port"`
 	ExternalURL string    `yaml:"external_url"` // External URL for PDP discovery (e.g., https://pdp.example.com)
 	TLS         TLSConfig `yaml:"tls"`
+	// MaxBatchEvaluations bounds the number of items in one POST /evaluations
+	// request. 0 selects the default (50).
+	MaxBatchEvaluations int `yaml:"max_batch_evaluations"`
 }
 
 // TLSConfig contains TLS/HTTPS server configuration settings.
@@ -770,6 +773,10 @@ func (c *Config) Validate() error {
 	if c.Server.Port == "" {
 		return fmt.Errorf("server port cannot be empty")
 	}
+	if c.Server.MaxBatchEvaluations < 0 {
+		return fmt.Errorf("server.max_batch_evaluations must not be negative")
+	}
+
 	// Validate TLS configuration
 	if c.Server.TLS.Enabled {
 		if c.Server.TLS.CertFile == "" {
