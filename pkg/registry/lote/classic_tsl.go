@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -249,6 +250,9 @@ func verifyTSLSignature(_ context.Context, raw []byte, roots *x509.CertPool, now
 	if err := rejectSHA1(sig); err != nil {
 		return nil, nil, err
 	}
+	if err := checkReferences(sig); err != nil {
+		return nil, nil, err
+	}
 	certs, err := signatureKeyInfoCerts(sig)
 	if err != nil {
 		return nil, nil, err
@@ -299,7 +303,14 @@ func verifyWithSigner(raw []byte, cand *x509.Certificate, intermediates, roots *
 // through an attribute named "ID" only, while published TS 119 612 and
 // TS 119 602 XML carry it in "Id" on the root, so no published list verifies
 // with it, and it refuses documents of more than 1000 elements.
-func verifyEnvelopedSignature(xmlData []byte, cert *x509.Certificate) ([]byte, error) {
+func verifyEnvelopedSignature(xmlData []byte, cert *x509.Certificate) (payload []byte, err error) {
+	// signedxml builds element paths from attacker-controlled values; a panic
+	// there must be a rejected list, never a crashed refresh.
+	defer func() {
+		if r := recover(); r != nil {
+			payload, err = nil, fmt.Errorf("signature verification panicked: %v", r)
+		}
+	}()
 	doc := etree.NewDocument()
 	if err := doc.ReadFromBytes(xmlData); err != nil {
 		return nil, fmt.Errorf("failed to parse XML: %w", err)
@@ -385,6 +396,52 @@ func rejectSHA1(sig *etree.Element) error {
 			}
 			if alg := e.SelectAttrValue("Algorithm", ""); strings.Contains(strings.ToLower(alg), "sha1") {
 				return fmt.Errorf("lote: TSL signature uses SHA-1 (%s)", alg)
+			}
+		}
+	}
+	return nil
+}
+
+// allowedDigestMethods are the reference digest algorithms accepted: SHA-2
+// only. signedxml would also accept MD5, which must never vouch for content.
+var allowedDigestMethods = map[string]bool{
+	"http://www.w3.org/2001/04/xmlenc#sha256":       true,
+	"http://www.w3.org/2001/04/xmldsig-more#sha384": true,
+	"http://www.w3.org/2001/04/xmlenc#sha512":       true,
+}
+
+// xmlIDRef matches the same-document references accepted: an NCName-shaped
+// identifier. Anything else (quotes, brackets, slashes) could be spliced into
+// the element path signedxml builds from the URI, so it is refused before the
+// library sees it.
+var xmlIDRef = regexp.MustCompile(`^#[A-Za-z_][A-Za-z0-9._-]*$`)
+
+// checkReferences vets every SignedInfo reference before signedxml runs: the
+// digest must be an allowed SHA-2 method and the URI "" (whole document) or a
+// plain same-document "#id".
+func checkReferences(sig *etree.Element) error {
+	for _, si := range sig.ChildElements() {
+		if !isDSig(si, "SignedInfo") {
+			continue
+		}
+		for _, ref := range si.ChildElements() {
+			if !isDSig(ref, "Reference") {
+				continue
+			}
+			if uri := ref.SelectAttrValue("URI", ""); uri != "" && !xmlIDRef.MatchString(uri) {
+				return fmt.Errorf("lote: TSL signature reference URI %q is not a same-document #id", uri)
+			}
+			var dm *etree.Element
+			for _, c := range ref.ChildElements() {
+				if isDSig(c, "DigestMethod") {
+					dm = c
+				}
+			}
+			if dm == nil {
+				return errors.New("lote: TSL signature reference has no DigestMethod")
+			}
+			if alg := dm.SelectAttrValue("Algorithm", ""); !allowedDigestMethods[alg] {
+				return fmt.Errorf("lote: TSL signature digest method %q is not allowed (SHA-2 only)", alg)
 			}
 		}
 	}

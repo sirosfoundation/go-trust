@@ -397,6 +397,31 @@ func TestVerifyTSLSignature_Direct(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "SHA-1")
 	})
+	t.Run("md5 digest refused", func(t *testing.T) {
+		require.Contains(t, string(signed), "http://www.w3.org/2001/04/xmlenc#sha256", "fixture digest method changed")
+		weak := bytes.ReplaceAll(signed, []byte("http://www.w3.org/2001/04/xmlenc#sha256"), []byte("http://www.w3.org/2001/04/xmldsig-more#md5"))
+		_, _, err := verifyTSLSignature(ctx, weak, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not allowed")
+	})
+	t.Run("malformed reference URI refused", func(t *testing.T) {
+		bad := bytes.Replace(signed, []byte(`URI=""`), []byte(`URI="#x'"`), 1)
+		require.NotEqual(t, signed, bad, "fixture has no whole-document reference")
+		_, _, err := verifyTSLSignature(ctx, bad, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "same-document")
+	})
+	t.Run("library panic is an error", func(t *testing.T) {
+		// Bypass the pre-checks: the guard around signedxml must still turn a
+		// panic on a hostile reference into an error.
+		bad := bytes.Replace(signed, []byte(`URI=""`), []byte(`URI="#x'"`), 1)
+		require.NotEqual(t, signed, bad)
+		leaf, _ := signerLeaf(t, f.ca, f.caKey, time.Now().Add(time.Hour))
+		assert.NotPanics(t, func() {
+			_, err := verifyEnvelopedSignature(bad, leaf)
+			require.Error(t, err)
+		})
+	})
 	t.Run("exactly one signature required", func(t *testing.T) {
 		_, _, err := verifyTSLSignature(ctx, duplicateSignature(t, signed), f.roots, time.Now())
 		require.Error(t, err)
