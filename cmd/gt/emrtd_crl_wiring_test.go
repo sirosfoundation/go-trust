@@ -60,7 +60,10 @@ func TestConfigureEMRTDCRLPolicyFromConfig(t *testing.T) {
 			},
 		}
 		mgr := registry.NewRegistryManager(registry.FirstMatch, 10*time.Second)
-		configureRegistriesFromConfig(cfg, mgr, logging.SilentLogger())
+		collectors := configureRegistriesFromConfig(cfg, mgr, logging.SilentLogger())
+		if len(collectors) != 1 {
+			t.Fatalf("configureRegistriesFromConfig returned %d collectors, want the eMRTD registry's", len(collectors))
+		}
 		configurePoliciesFromConfig(cfg, mgr, logging.SilentLogger())
 		t.Cleanup(func() {
 			if c, ok := mgr.GetRegistry("emrtd-csca").(interface{ Close() error }); ok {

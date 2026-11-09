@@ -258,6 +258,9 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crl
 			if crl.isRevoked(cert.SerialNumber) {
 				return r.deny(CodeRevoked, fmt.Sprintf("%q (serial %s) is revoked by CRL", cert.Subject.String(), cert.SerialNumber))
 			}
+			if crl.scoped {
+				continue // not evidence of complete revocation data
+			}
 			cov.verified++
 			if cp.current(crl, now) {
 				cov.current = true
@@ -362,6 +365,11 @@ func crlPolicyFromContext(ctx map[string]interface{}, country string) (crlPolicy
 	if err != nil {
 		return p, err
 	}
+	for c := range exempt {
+		if only[c] {
+			return p, fmt.Errorf("context.%s and context.%s both list %q", ctxCRLCountries, ctxCRLExemptCountries, c)
+		}
+	}
 	if p.require && (len(only) > 0 && !only[country] || exempt[country]) {
 		p.require = false
 	}
@@ -391,6 +399,11 @@ func countryList(ctx map[string]interface{}, key string) (map[string]bool, error
 	}
 	set := make(map[string]bool, len(items))
 	for _, s := range items {
+		// An unknown or lower-case code would silently leave a state outside
+		// (or inside) the requirement, so it is refused instead.
+		if !IsAlpha3(s) {
+			return nil, fmt.Errorf("context.%s: %q is not an upper-case ISO 3166-1 alpha-3 code", key, s)
+		}
 		set[s] = true
 	}
 	return set, nil

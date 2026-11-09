@@ -278,7 +278,10 @@ With `require-current`, **every issuing CA on the accepted path** (the CSCA, and
 another certificate) needs a verified, current CRL. "Verified" uses the same rules as revocation (issuer name,
 signature algorithm, authenticity by the issuing key or a same-name CSCA key). A CRL is **current** when its
 `nextUpdate` is present and not past, its `thisUpdate` is not in the future, and, if `crl_max_age` is set,
-`thisUpdate` is no older than that. Currency is judged against the server clock, not `signing_time`: the question
+`thisUpdate` is no older than that. A CRL whose `issuingDistributionPoint` restricts its scope
+(`onlyContainsUserCerts`, `onlyContainsCACerts`, `onlySomeReasons` or `onlyContainsAttributeCerts`) is not
+evidence of complete revocation data and never counts as coverage, current or not; its entries still revoke.
+Currency is judged against the server clock, not `signing_time`: the question
 is whether our revocation data is up to date now.
 
 | Situation | Result |
@@ -302,7 +305,8 @@ no CRL at all. Use `crl_countries` to switch the requirement on for the states y
 
 Like the path-length settings these are policy controls: the manager drops client-supplied `emrtd_crl_mode`,
 `emrtd_crl_max_age`, `emrtd_crl_countries` and `emrtd_crl_exempt_countries`, and the registry denies as
-`malformed_request` when it is handed a value it cannot read rather than falling back to `best-effort`.
+`malformed_request` when it is handed a value it cannot read (including an unknown or lower-case country code, or
+a code in both lists) rather than falling back to `best-effort`.
 
 ## Feeding the registry from the anchor repository
 

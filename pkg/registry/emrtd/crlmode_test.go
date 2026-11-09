@@ -2,6 +2,7 @@ package emrtd
 
 import (
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -104,6 +105,51 @@ func TestEvaluate_CRLRequireCurrent(t *testing.T) {
 	}
 }
 
+// scopedCRL is a fresh CRL signed by signer whose issuingDistributionPoint
+// carries the given context-specific BOOLEAN element (tag 1, 2, 3 or 5 value).
+func scopedCRL(t *testing.T, signer *node, tag byte, revoked ...*node) []byte {
+	t.Helper()
+	var entries []x509.RevocationListEntry
+	for _, n := range revoked {
+		entries = append(entries, x509.RevocationListEntry{SerialNumber: n.cert.SerialNumber, RevocationTime: t2020})
+	}
+	der, err := x509.CreateRevocationList(testRand{}, &x509.RevocationList{
+		Number: big.NewInt(1), ThisUpdate: tNow.Add(-time.Hour), NextUpdate: tNow.Add(time.Hour),
+		RevokedCertificateEntries: entries,
+		ExtraExtensions: []pkix.Extension{{
+			Id: oidIssuingDistPoint, Critical: true, Value: []byte{0x30, 0x03, 0x80 | tag, 0x01, 0xff},
+		}},
+	}, signer.cert, signer.key.ec)
+	require.NoError(t, err)
+	return der
+}
+
+func TestEvaluate_CRLRequireCurrent_ScopedCRLIsNotCoverage(t *testing.T) {
+	csca := newCSCA(t, kindP256, "CSCA", "SE")
+	dsc := newDSC(t, kindP256, csca, "SE")
+	anchors := map[string][]*node{"SWE": {csca}}
+	// onlyContainsCACerts [2], onlyContainsUserCerts [1], onlySomeReasons [3],
+	// onlyContainsAttributeCerts [5]: none vouches for a DSC being unrevoked.
+	for _, tag := range []byte{1, 2, 3, 5} {
+		t.Run("tag "+string(rune('0'+tag)), func(t *testing.T) {
+			r := regWithCRLs(t, anchors, map[string][][]byte{"SWE": {scopedCRL(t, csca, tag)}})
+			requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, crlCtx(nil))), CodeCRLUnavailable)
+			// Best effort is unchanged: the scoped CRL loads and nothing is denied.
+			require.True(t, eval(t, r, req("SWE", []*node{dsc}, nil)).Decision)
+		})
+	}
+	t.Run("entries of a scoped CRL still revoke", func(t *testing.T) {
+		r := regWithCRLs(t, anchors, map[string][][]byte{"SWE": {scopedCRL(t, csca, 2, dsc)}})
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, crlCtx(nil))), CodeRevoked)
+		requireDeny(t, eval(t, r, req("SWE", []*node{dsc}, nil)), CodeRevoked)
+	})
+	t.Run("a complete current CRL next to a scoped one is coverage", func(t *testing.T) {
+		full := crlAt(t, csca, tNow.Add(-time.Hour), tNow.Add(time.Hour))
+		r := regWithCRLs(t, anchors, map[string][][]byte{"SWE": {scopedCRL(t, csca, 2), full}})
+		require.True(t, eval(t, r, req("SWE", []*node{dsc}, crlCtx(nil))).Decision)
+	})
+}
+
 func TestEvaluate_CRLRequireCurrent_EveryIssuerOnPath(t *testing.T) {
 	// anchor -> link -> DSC: the link's CRL covers the DSC, the anchor's CRL
 	// covers the link. Both must be current.
@@ -176,6 +222,9 @@ func TestEvaluate_CRLContextMalformed(t *testing.T) {
 		"max age negative":      crlCtx(map[string]interface{}{ctxCRLMaxAge: "-1h"}),
 		"countries not a list":  crlCtx(map[string]interface{}{ctxCRLCountries: "SWE"}),
 		"exempt not strings":    crlCtx(map[string]interface{}{ctxCRLExemptCountries: []interface{}{1}}),
+		"lower-case country":    crlCtx(map[string]interface{}{ctxCRLCountries: []string{"swe"}}),
+		"unknown country":       crlCtx(map[string]interface{}{ctxCRLExemptCountries: []string{"ZZZ"}}),
+		"overlapping lists":     crlCtx(map[string]interface{}{ctxCRLCountries: []string{"SWE"}, ctxCRLExemptCountries: []string{"SWE"}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			// A malformed control must deny, never fall back to best-effort

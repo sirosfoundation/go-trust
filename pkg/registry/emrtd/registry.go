@@ -578,6 +578,11 @@ func requireRegularFile(path string) error {
 type crlData struct {
 	*x509.RevocationList
 	revoked map[string]struct{}
+	// scoped is set when the CRL's issuingDistributionPoint restricts which
+	// certificates or reasons it covers. Its entries still count as
+	// revocations, but it is not evidence that revocation data is complete,
+	// so it never satisfies crl_mode require-current.
+	scoped bool
 }
 
 func newCRLData(l *x509.RevocationList) *crlData {
@@ -585,7 +590,7 @@ func newCRLData(l *x509.RevocationList) *crlData {
 	for _, e := range l.RevokedCertificateEntries {
 		idx[e.SerialNumber.String()] = struct{}{}
 	}
-	return &crlData{RevocationList: l, revoked: idx}
+	return &crlData{RevocationList: l, revoked: idx, scoped: isScopedCRL(l)}
 }
 
 func (c *crlData) isRevoked(serial *big.Int) bool {
@@ -643,6 +648,35 @@ func isIndirectCRL(crl *x509.RevocationList) (bool, error) {
 		}
 	}
 	return indirect, nil
+}
+
+// isScopedCRL reports whether the issuingDistributionPoint extension restricts
+// the CRL's coverage: onlyContainsUserCerts [1], onlyContainsCACerts [2],
+// onlySomeReasons [3] or onlyContainsAttributeCerts [5]. An extension that
+// cannot be read counts as scoped, so the caller does not rely on it.
+func isScopedCRL(crl *x509.RevocationList) bool {
+	for _, ext := range crl.Extensions {
+		if !ext.Id.Equal(oidIssuingDistPoint) {
+			continue
+		}
+		var seq asn1.RawValue
+		if rest, err := asn1.Unmarshal(ext.Value, &seq); err != nil || len(rest) != 0 || !seq.IsCompound {
+			return true
+		}
+		body := seq.Bytes
+		for len(body) > 0 {
+			var el asn1.RawValue
+			rest, err := asn1.Unmarshal(body, &el)
+			if err != nil {
+				return true
+			}
+			body = rest
+			if el.Class == asn1.ClassContextSpecific && (el.Tag == 1 || el.Tag == 2 || el.Tag == 3 || el.Tag == 5) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // countryDirs lists the per-country subdirectories of an anchors or CRLs root.
