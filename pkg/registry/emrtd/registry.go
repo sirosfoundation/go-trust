@@ -78,6 +78,8 @@ const (
 	CodeNotYetValid      = "not_yet_valid"
 	CodeBadKeyUsage      = "bad_key_usage"
 	CodeRevoked          = "revoked"
+	CodeCRLUnavailable   = "crl_unavailable"
+	CodeCRLStale         = "crl_stale"
 	CodeMalformedRequest = "malformed_request"
 )
 
@@ -332,12 +334,18 @@ func (r *Registry) evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		return r.deny(CodeMalformedRequest, err.Error())
 	}
 
+	cp, err := crlPolicyFromContext(req.Context, country)
+	if err != nil {
+		return r.deny(CodeMalformedRequest, err.Error())
+	}
+	now := r.cfg.Now()
+
 	s := newSearch(ctx)
 	vc := crlVerdicts{}
 	var first *authzen.EvaluationResponse
 	var accepted []*x509.Certificate
 	found, nameMatched := r.buildPaths(s, dsc, extras, snap.anchors[country], func(p []*x509.Certificate) bool {
-		if d := r.checkPath(p, at, snap.crls[country], snap.anchors[country], pl, vc); d != nil {
+		if d := r.checkPath(p, at, snap.crls[country], snap.anchors[country], pl, cp, now, vc); d != nil {
 			if first == nil {
 				first = d
 			}

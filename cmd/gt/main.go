@@ -391,6 +391,17 @@ func main() {
 	metrics := api.NewMetrics()
 	serverCtx.Metrics = metrics
 	api.RegisterMetricsEndpoint(r, metrics)
+	if cfg != nil && cfg.Registries.EMRTD != nil && cfg.Registries.EMRTD.Enabled {
+		name := cfg.Registries.EMRTD.Name
+		if name == "" {
+			name = "emrtd-csca"
+		}
+		if er, ok := registryMgr.GetRegistry(name).(*emrtd.Registry); ok {
+			if err := metrics.Register(er.Collector()); err != nil {
+				logger.Warn("Failed to register eMRTD CRL metrics", logging.F("error", err.Error()))
+			}
+		}
+	}
 
 	// Register Swagger UI endpoint
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
@@ -1365,9 +1376,18 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 
 		// Convert eMRTD constraints
 		if policyCfg.EMRTD != nil {
+			crlMaxAge, err := policyCfg.EMRTD.CRLMaxAgeDuration()
+			if err != nil {
+				logger.Fatal("Invalid emrtd policy constraints",
+					logging.F("policy", name), logging.F("error", err.Error()))
+			}
 			policy.EMRTD = &registry.EMRTDPolicyConstraints{
-				PathLenMode:     policyCfg.EMRTD.PathLenMode,
-				PathLenOverride: policyCfg.EMRTD.PathLenOverride,
+				PathLenMode:        policyCfg.EMRTD.PathLenMode,
+				PathLenOverride:    policyCfg.EMRTD.PathLenOverride,
+				CRLMode:            policyCfg.EMRTD.CRLMode,
+				CRLMaxAge:          crlMaxAge,
+				CRLCountries:       policyCfg.EMRTD.CRLCountries,
+				CRLExemptCountries: policyCfg.EMRTD.CRLExemptCountries,
 			}
 			// config.Validate rejects bad values at startup; this keeps any
 			// other caller from installing an unvalidated policy.

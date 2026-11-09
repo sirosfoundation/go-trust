@@ -114,8 +114,12 @@ func TestConfigurePoliciesFromConfigCopiesEveryField(t *testing.T) {
 				},
 			},
 			EMRTD: &config.EMRTDPolicyConfig{
-				PathLenMode:     "enforce",
-				PathLenOverride: func() *int { n := 2; return &n }(),
+				PathLenMode:        "enforce",
+				PathLenOverride:    func() *int { n := 2; return &n }(),
+				CRLMode:            "require-current",
+				CRLMaxAge:          "168h",
+				CRLCountries:       []string{"SWE"},
+				CRLExemptCountries: []string{"DEU"},
 			},
 		},
 	}
@@ -146,7 +150,7 @@ func TestConfigurePoliciesFromConfigCopiesEveryField(t *testing.T) {
 		t.Fatal("EMRTD constraints were not converted")
 	}
 	assertNoZeroFields(t, "EMRTDPolicyConstraints", reflect.ValueOf(*policy.EMRTD))
-	if policy.EMRTD.PathLenMode != "enforce" || policy.EMRTD.PathLenOverride == nil || *policy.EMRTD.PathLenOverride != 2 {
+	if policy.EMRTD.PathLenMode != "enforce" || policy.EMRTD.PathLenOverride == nil || *policy.EMRTD.PathLenOverride != 2 || policy.EMRTD.CRLMode != "require-current" || policy.EMRTD.CRLMaxAge != 168*time.Hour {
 		t.Errorf("EMRTD constraints = %+v, want enforce/2", policy.EMRTD)
 	}
 

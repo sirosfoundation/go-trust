@@ -49,3 +49,11 @@ func countryMatches(alpha3, subjectC string) bool {
 	a2, ok := alpha3ToAlpha2[alpha3]
 	return ok && strings.EqualFold(a2, subjectC)
 }
+
+// IsAlpha3 reports whether s is a known upper-case ISO 3166-1 alpha-3 code
+// (the form used for anchors_dir and crls_dir subdirectories and in policy
+// country lists).
+func IsAlpha3(s string) bool {
+	_, ok := alpha3ToAlpha2[s]
+	return ok
+}

@@ -193,7 +193,7 @@ func hasKeyUsageExt(c *x509.Certificate) bool {
 
 // checkPath applies path-length, time, key-usage and revocation checks to a
 // candidate path. It returns nil when the path is acceptable.
-func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crlData, anchors []*anchor, pl pathLenPolicy, vc crlVerdicts) *authzen.EvaluationResponse {
+func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crlData, anchors []*anchor, pl pathLenPolicy, cp crlPolicy, now time.Time, vc crlVerdicts) *authzen.EvaluationResponse {
 	if d := r.checkPathLen(path, pl); d != nil {
 		return d
 	}
@@ -235,8 +235,15 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crl
 	// not believed. A CRL past nextUpdate still counts for positive hits:
 	// staleness never un-revokes a certificate. No CRL for an issuer means
 	// no revocation information, which is not a denial.
+	//
+	// With crl_mode require-current, each issuer must in addition have a
+	// verified, current CRL. That is checked after every revocation hit, so a
+	// revoked certificate is always reported as revoked, never as a feed
+	// problem.
+	var covered []crlCoverage
 	for i := 0; i < len(path)-1; i++ {
 		cert, issuer := path[i], path[i+1]
+		cov := crlCoverage{issuer: issuer}
 		for _, crl := range crls {
 			// The CRL must be issued under the name of the certificate's issuer.
 			if !namesEqual(crl.RawIssuer, cert.RawIssuer, crl.Issuer.String(), cert.Issuer.String()) {
@@ -251,9 +258,142 @@ func (r *Registry) checkPath(path []*x509.Certificate, at time.Time, crls []*crl
 			if crl.isRevoked(cert.SerialNumber) {
 				return r.deny(CodeRevoked, fmt.Sprintf("%q (serial %s) is revoked by CRL", cert.Subject.String(), cert.SerialNumber))
 			}
+			cov.verified++
+			if cp.current(crl, now) {
+				cov.current = true
+			}
+		}
+		covered = append(covered, cov)
+	}
+	if !cp.require {
+		return nil
+	}
+	for _, cov := range covered {
+		switch {
+		case cov.current:
+		case cov.verified == 0:
+			return r.crlDeny(CodeCRLUnavailable, cov.issuer, "no verified CRL for issuer %q")
+		default:
+			return r.crlDeny(CodeCRLStale, cov.issuer, "no current CRL for issuer %q (checked against nextUpdate and crl_max_age)")
 		}
 	}
 	return nil
+}
+
+// crlCoverage is what the loaded CRLs say about one issuer on a path: how many
+// verified CRLs apply to the certificate it issued and whether one is current.
+type crlCoverage struct {
+	issuer   *x509.Certificate
+	verified int
+	current  bool
+}
+
+func (r *Registry) crlDeny(code string, issuer *x509.Certificate, format string) *authzen.EvaluationResponse {
+	detail := fmt.Sprintf(format, issuer.Subject.String())
+	r.log.Warn("emrtd: CRL requirement not met", "code", code, "issuer", issuer.Subject.String())
+	return r.deny(code, detail)
+}
+
+// Context keys through which the manager hands the policy's CRL setting to the
+// registry. Like the path-length keys they are server-controlled and written
+// only from the matching policy's `emrtd` block.
+const (
+	ctxCRLMode            = "emrtd_crl_mode"
+	ctxCRLMaxAge          = "emrtd_crl_max_age"
+	ctxCRLCountries       = "emrtd_crl_countries"
+	ctxCRLExemptCountries = "emrtd_crl_exempt_countries"
+	CRLModeBestEffort     = "best-effort"
+	CRLModeRequireCurrent = "require-current"
+)
+
+// crlPolicy is the resolved CRL requirement for one evaluation. The zero value
+// is best-effort, which is the default behaviour.
+type crlPolicy struct {
+	require bool
+	maxAge  time.Duration
+}
+
+// current reports whether a CRL is current for the policy: nextUpdate is set
+// and not past, and, with a max age, thisUpdate is not older than that.
+// A CRL without nextUpdate is never current (RFC 5280 requires the field, so
+// its absence is treated as not vouching for any period).
+func (p crlPolicy) current(crl *crlData, now time.Time) bool {
+	if crl.NextUpdate.IsZero() || now.After(crl.NextUpdate) || now.Before(crl.ThisUpdate) {
+		return false
+	}
+	return p.maxAge == 0 || now.Sub(crl.ThisUpdate) <= p.maxAge
+}
+
+// crlPolicyFromContext reads the policy-derived CRL setting for the claimed
+// state. Anything it cannot interpret is an error, so the caller denies: a
+// malformed control never silently degrades to best-effort.
+func crlPolicyFromContext(ctx map[string]interface{}, country string) (crlPolicy, error) {
+	var p crlPolicy
+	raw, ok := ctx[ctxCRLMode]
+	if !ok || raw == nil {
+		return p, nil
+	}
+	mode, isStr := raw.(string)
+	switch {
+	case !isStr:
+		return p, fmt.Errorf("context.%s must be a string", ctxCRLMode)
+	case mode == CRLModeRequireCurrent:
+		p.require = true
+	case mode == CRLModeBestEffort || mode == "":
+	default:
+		return p, fmt.Errorf("context.%s %q is not %q or %q", ctxCRLMode, mode, CRLModeBestEffort, CRLModeRequireCurrent)
+	}
+	if raw, ok := ctx[ctxCRLMaxAge]; ok && raw != nil {
+		s, isStr := raw.(string)
+		if !isStr {
+			return p, fmt.Errorf("context.%s must be a duration string", ctxCRLMaxAge)
+		}
+		d, err := time.ParseDuration(s)
+		if err != nil || d < 0 {
+			return p, fmt.Errorf("context.%s %q is not a non-negative duration", ctxCRLMaxAge, s)
+		}
+		p.maxAge = d
+	}
+	only, err := countryList(ctx, ctxCRLCountries)
+	if err != nil {
+		return p, err
+	}
+	exempt, err := countryList(ctx, ctxCRLExemptCountries)
+	if err != nil {
+		return p, err
+	}
+	if p.require && (len(only) > 0 && !only[country] || exempt[country]) {
+		p.require = false
+	}
+	return p, nil
+}
+
+// countryList reads a list of alpha-3 codes from the context as a set.
+func countryList(ctx map[string]interface{}, key string) (map[string]bool, error) {
+	raw, ok := ctx[key]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	var items []string
+	switch v := raw.(type) {
+	case []string:
+		items = v
+	case []interface{}:
+		for _, e := range v {
+			s, ok := e.(string)
+			if !ok {
+				return nil, fmt.Errorf("context.%s must be a list of strings", key)
+			}
+			items = append(items, s)
+		}
+	default:
+		return nil, fmt.Errorf("context.%s must be a list of strings", key)
+	}
+	set := make(map[string]bool, len(items))
+	for _, s := range items {
+		set[s] = true
+	}
+	return set, nil
 }
 
 // Context keys through which the manager hands the policy's path-length

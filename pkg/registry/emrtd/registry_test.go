@@ -1300,7 +1300,7 @@ func TestCRLSignatureVerdictsMemoized(t *testing.T) {
 
 	// and through checkPath: repeated calls with a shared cache still deny, adding no entries
 	for i := 0; i < 3; i++ {
-		d := r.checkPath([]*x509.Certificate{dsc.cert, csca.cert}, tNow, []*crlData{crl}, nil, pathLenPolicy{}, vc)
+		d := r.checkPath([]*x509.Certificate{dsc.cert, csca.cert}, tNow, []*crlData{crl}, nil, pathLenPolicy{}, crlPolicy{}, tNow, vc)
 		require.NotNil(t, d)
 		assert.False(t, d.Decision)
 	}

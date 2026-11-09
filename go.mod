@@ -82,6 +82,7 @@ require (
 	github.com/jwx-go/es256k/v4 v4.0.4 // indirect
 	github.com/jwx-go/mldsa/v4 v4.0.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
+	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/lestrrat-go/dsig v1.4.0 // indirect
 	github.com/lestrrat-go/dsig-circl-ed448 v1.0.0 // indirect
