@@ -195,6 +195,35 @@ CompositeRegistry returns rich context information:
 }
 ```
 
+## Distinguishing "could not evaluate" from "not trusted"
+
+Both outcomes are `decision: false`, so clients that read only `decision` are unaffected. When
+a denial is not a trust verdict, `context.reason` also carries:
+
+```json
+{
+  "decision": false,
+  "context": {
+    "reason": {
+      "evaluation_status": "error",
+      "evaluation_errors": [{"registry": "etsi", "error": "circuit breaker open"}]
+    }
+  }
+}
+```
+
+`evaluation_status: "error"` is set when at least one applicable registry failed to answer:
+the registry returned an error, timed out, panicked, was skipped because its circuit breaker
+is open, or is a composite with a failed child. A registry that failed might have trusted
+the subject, so the denial is not final even if another registry answered "no". The member is
+absent when every applicable registry answered (an *evaluated: not trusted* verdict) and on
+every allow (a positive match stands even if another registry failed). The same rule applies
+to all four strategies (`first_match`, `all`, `best_match`, `sequential`).
+
+Callers that fall back to a different policy only on failure (never on a denial) should test
+`evaluation_status == "error"`; in Go, use `EvaluationResponse.CouldNotEvaluate()`. A registry
+that reports an internal problem as an ordinary denial (rather than an error) is not covered.
+
 ## Integration with RegistryManager
 
 CompositeRegistry implements `TrustRegistry`, so it works seamlessly with RegistryManager:
