@@ -4,6 +4,22 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.29.0:start -->
+## [v0.29.0] - 2026-11-10
+
+### Added
+
+- **AuthZEN batch evaluations endpoint**: `POST /evaluations` now accepts multiple access evaluation requests in a single call, with configurable semantics (`execute_all`, `deny_on_first_deny`, `permit_on_first_permit`). Each item can override the top-level subject/resource/action/context. Batch size is configurable via `server.max_batch_evaluations` (default 50). The endpoint is advertised in `/.well-known/authzen-configuration`. (#241)
+
+- **eMRTD CRL currency enforcement**: New opt-in `require-current` mode for CRL validation in eMRTD policies. When enabled, every issuing CA in the certificate chain must have a current, verified CRL (within `crl_max_age`, not stale). Enforcement can be scoped per country via `crl_countries` and `crl_exempt_countries`. Includes new Prometheus metrics for CRL age and status per country. (#242)
+
+- **LoTE signature verification**: JSON lists with embedded signatures (WE BUILD LoTL, Raidiam LoTE) and XML lists with enveloped XMLDSig (TS 119 602 format) are now cryptographically verified against `trust_anchor_bundle` before parsing. Fixes verification failures on real-world lists that were previously skipped due to element-count limits and attribute naming issues. (#243)
+
+### Changed
+
+- **AuthZEN evaluation errors now distinguishable**: Denials due to registry failures (timeout, error, panic, circuit breaker open) now include `context.reason.evaluation_status: "error"` and `evaluation_errors` array in the response. The `decision` remains `false` for backward compatibility, but clients can now distinguish "could not evaluate" from "evaluated: not trusted". (#240)
+<!-- release-notes:v0.29.0:end -->
+
 <!-- release-notes:v0.28.0:start -->
 ## [v0.28.0] - 2026-11-05
 
