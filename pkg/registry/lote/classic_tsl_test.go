@@ -422,6 +422,55 @@ func TestVerifyTSLSignature_Direct(t *testing.T) {
 			require.Error(t, err)
 		})
 	})
+	mutateSignedInfo := func(t *testing.T, f func(si *etree.Element)) []byte {
+		t.Helper()
+		doc := etree.NewDocument()
+		require.NoError(t, doc.ReadFromBytes(signed))
+		si := doc.Root().FindElement("./Signature/SignedInfo")
+		require.NotNil(t, si)
+		f(si)
+		out, err := doc.WriteToBytes()
+		require.NoError(t, err)
+		return out
+	}
+	t.Run("reference count bounded", func(t *testing.T) {
+		many := mutateSignedInfo(t, func(si *etree.Element) {
+			ref := si.SelectElement("Reference")
+			require.NotNil(t, ref)
+			for i := 0; i <= maxSignatureReferences; i++ {
+				si.AddChild(ref.Copy())
+			}
+		})
+		_, _, err := verifyTSLSignature(ctx, many, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "more than")
+	})
+	t.Run("reference in another namespace refused", func(t *testing.T) {
+		foreign := mutateSignedInfo(t, func(si *etree.Element) {
+			ref := si.SelectElement("Reference").Copy()
+			ref.Space = "x"
+			ref.CreateAttr("xmlns:x", "urn:example:other")
+			si.AddChild(ref)
+		})
+		_, _, err := verifyTSLSignature(ctx, foreign, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "outside the XMLDSig namespace")
+	})
+	t.Run("one digest method per reference", func(t *testing.T) {
+		// The weak method is first, the allowed one last: signedxml reads the
+		// first, a guard that looked at the last would pass it.
+		dup := mutateSignedInfo(t, func(si *etree.Element) {
+			ref := si.SelectElement("Reference")
+			dm := ref.SelectElement("DigestMethod")
+			require.NotNil(t, dm)
+			weak := dm.Copy()
+			weak.CreateAttr("Algorithm", "http://www.w3.org/2001/04/xmldsig-more#md5")
+			ref.InsertChildAt(dm.Index(), weak)
+		})
+		_, _, err := verifyTSLSignature(ctx, dup, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "more than one DigestMethod")
+	})
 	t.Run("exactly one signature required", func(t *testing.T) {
 		_, _, err := verifyTSLSignature(ctx, duplicateSignature(t, signed), f.roots, time.Now())
 		require.Error(t, err)

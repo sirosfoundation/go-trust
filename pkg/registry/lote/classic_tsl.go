@@ -416,34 +416,67 @@ var allowedDigestMethods = map[string]bool{
 // library sees it.
 var xmlIDRef = regexp.MustCompile(`^#[A-Za-z_][A-Za-z0-9._-]*$`)
 
-// checkReferences vets every SignedInfo reference before signedxml runs: the
-// digest must be an allowed SHA-2 method and the URI "" (whole document) or a
-// plain same-document "#id".
+// maxSignatureReferences bounds the References in a signature. signedxml
+// copies the whole document per reference and keeps the results before the
+// signature value is checked, so an unbounded count is a resource-exhaustion
+// lever for anyone who can alter the list. Published lists carry two (the
+// document and, with XAdES, its SignedProperties).
+const maxSignatureReferences = 8
+
+// checkReferences vets the signature's SignedInfo before signedxml runs.
+// signedxml finds SignedInfo, Reference and DigestMethod by local name, so
+// this does too: an element in another namespace cannot hide from the guard.
+// There must be exactly one SignedInfo; at most maxSignatureReferences
+// References; every Reference in the XMLDSig namespace, with a URI of "" or a
+// plain same-document "#id", and exactly one DigestMethod that is an allowed
+// SHA-2 method.
 func checkReferences(sig *etree.Element) error {
-	for _, si := range sig.ChildElements() {
-		if !isDSig(si, "SignedInfo") {
+	var signedInfo *etree.Element
+	for _, c := range sig.ChildElements() {
+		if c.Tag != "SignedInfo" {
 			continue
 		}
-		for _, ref := range si.ChildElements() {
-			if !isDSig(ref, "Reference") {
+		if signedInfo != nil {
+			return errors.New("lote: TSL signature has more than one SignedInfo")
+		}
+		signedInfo = c
+	}
+	if signedInfo == nil || !isDSig(signedInfo, "SignedInfo") {
+		return errors.New("lote: TSL signature has no ds:SignedInfo")
+	}
+	refs := 0
+	for _, ref := range signedInfo.ChildElements() {
+		if ref.Tag != "Reference" {
+			continue
+		}
+		if refs++; refs > maxSignatureReferences {
+			return fmt.Errorf("lote: TSL signature has more than %d references", maxSignatureReferences)
+		}
+		if !isDSig(ref, "Reference") {
+			return errors.New("lote: TSL signature has a Reference outside the XMLDSig namespace")
+		}
+		if uri := ref.SelectAttrValue("URI", ""); uri != "" && !xmlIDRef.MatchString(uri) {
+			return fmt.Errorf("lote: TSL signature reference URI %q is not a same-document #id", uri)
+		}
+		var dm *etree.Element
+		for _, c := range ref.ChildElements() {
+			if c.Tag != "DigestMethod" {
 				continue
 			}
-			if uri := ref.SelectAttrValue("URI", ""); uri != "" && !xmlIDRef.MatchString(uri) {
-				return fmt.Errorf("lote: TSL signature reference URI %q is not a same-document #id", uri)
+			if dm != nil {
+				return errors.New("lote: TSL signature reference has more than one DigestMethod")
 			}
-			var dm *etree.Element
-			for _, c := range ref.ChildElements() {
-				if isDSig(c, "DigestMethod") {
-					dm = c
-				}
-			}
-			if dm == nil {
-				return errors.New("lote: TSL signature reference has no DigestMethod")
-			}
-			if alg := dm.SelectAttrValue("Algorithm", ""); !allowedDigestMethods[alg] {
-				return fmt.Errorf("lote: TSL signature digest method %q is not allowed (SHA-2 only)", alg)
-			}
+			dm = c
 		}
+		if dm == nil || !isDSig(dm, "DigestMethod") {
+			return errors.New("lote: TSL signature reference needs exactly one ds:DigestMethod")
+		}
+		if alg := dm.SelectAttrValue("Algorithm", ""); !allowedDigestMethods[alg] {
+			return fmt.Errorf("lote: TSL signature digest method %q is not allowed (SHA-2 only)", alg)
+		}
+	}
+	if refs == 0 {
+		return errors.New("lote: TSL signature has no references")
 	}
 	return nil
 }
