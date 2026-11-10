@@ -1,9 +1,14 @@
 // Package lote — LoTE JWS signature verification per ETSI TS 119 615.
 //
 // VerifyLoTESignature verifies the JWS envelope of a LoTE JWT document when a
-// non-nil trust anchor pool is provided. Two JWS serializations are supported:
+// non-nil trust anchor pool is provided. Three JWS serializations are supported:
 //   - Compact serialization: "<header>.<payload>.<signature>"
 //   - Flattened JSON serialization: {"protected":"…","payload":"…","signature":"…"}
+//   - Embedded signature object: {"LoTE":{…},"signature":{"protected":"…","signature":"…"}}
+//     (see jws_embedded.go)
+//
+// XML lists (TS 119 602 XML) carry an enveloped XMLDSig instead; they are
+// verified with the same entry points, see verifyLoTEDocument.
 //
 // General JSON serialization (multiple signatures array) is NOT supported.
 //
@@ -36,6 +41,8 @@ import (
 	// Import hash implementations so crypto.SHA256 etc. are available via .New().
 	_ "crypto/sha256"
 	_ "crypto/sha512"
+
+	"github.com/sirosfoundation/g119612/pkg/etsi119602"
 )
 
 // VerifyLoTESignature verifies the JWS signature of a raw LoTE payload.
@@ -50,8 +57,27 @@ func VerifyLoTESignature(ctx context.Context, raw []byte, roots *x509.CertPool, 
 	if roots == nil {
 		return nil, nil
 	}
-	leaf, _, err := verifyLoTEJWS(ctx, raw, roots, now)
+	leaf, _, err := verifyLoTEDocument(ctx, raw, roots, now)
 	return leaf, err
+}
+
+// verifyLoTEDocument verifies raw against roots, whatever its format: an XML
+// list is verified by its enveloped XMLDSig, anything else as a JWS. The
+// returned payload is the verified content in the same format as raw (XML or
+// JSON), ready for parseLoTEPayload.
+func verifyLoTEDocument(ctx context.Context, raw []byte, roots *x509.CertPool, now time.Time) (*x509.Certificate, []byte, error) {
+	if etsi119602.IsXMLContent(raw) {
+		return verifyTSLSignature(ctx, raw, roots, now)
+	}
+	return verifyLoTEJWS(ctx, raw, roots, now)
+}
+
+// parseLoTEPayload parses verified content from verifyLoTEDocument.
+func parseLoTEPayload(payload []byte) (*etsi119602.ListOfTrustedEntities, error) {
+	if etsi119602.IsXMLContent(payload) {
+		return etsi119602.ParseLoTEXML(payload)
+	}
+	return etsi119602.ParseLoTE(payload)
 }
 
 // verifyLoTEJWS verifies the JWS envelope in raw against roots (which must be
@@ -67,22 +93,33 @@ func verifyLoTEJWS(_ context.Context, raw []byte, roots *x509.CertPool, now time
 	token := strings.TrimSpace(string(raw))
 
 	var headerB64, payloadB64, sigB64 string
-	if parts := strings.Split(token, "."); len(parts) == 3 {
+	if parts := strings.Split(token, "."); len(parts) == 3 && !strings.HasPrefix(token, "{") {
 		// Compact JWS
 		headerB64, payloadB64, sigB64 = parts[0], parts[1], parts[2]
 	} else {
-		// Try JSON serialisation: {"protected":"…","payload":"…","signature":"…"}
-		var flat struct {
-			Protected string `json:"protected"`
-			Payload   string `json:"payload"`
-			Signature string `json:"signature"`
+		// Embedded signature object: {"LoTE": {...}, "signature": {"protected", "signature"}}.
+		emb, err := parseEmbeddedJWS(raw)
+		if err != nil {
+			return nil, nil, err
 		}
-		if err := json.Unmarshal(raw, &flat); err != nil {
-			return nil, nil, fmt.Errorf("lote: cannot parse as compact JWT or JSON JWS: %w", err)
+		if emb != nil {
+			headerB64 = emb.protected
+			payloadB64 = base64.RawURLEncoding.EncodeToString(emb.payload)
+			sigB64 = emb.signature
+		} else {
+			// Flattened JSON serialisation: {"protected":"…","payload":"…","signature":"…"}
+			var flat struct {
+				Protected string `json:"protected"`
+				Payload   string `json:"payload"`
+				Signature string `json:"signature"`
+			}
+			if err := json.Unmarshal(raw, &flat); err != nil {
+				return nil, nil, fmt.Errorf("lote: cannot parse as compact JWT, flattened JSON JWS or embedded-signature JSON: %w", err)
+			}
+			headerB64 = flat.Protected
+			payloadB64 = flat.Payload
+			sigB64 = flat.Signature
 		}
-		headerB64 = flat.Protected
-		payloadB64 = flat.Payload
-		sigB64 = flat.Signature
 	}
 
 	// Decode header

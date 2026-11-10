@@ -417,6 +417,17 @@ through a LoTL pointer that fails is logged at error level and skipped, like a
 pointer that cannot be fetched. The refresh log line reports the number of
 skipped pointers as `lotl_pointers_skipped`.
 
+**Signature forms.** A JSON list may be a compact JWS, a flattened JSON JWS, or
+a document with an embedded `signature` object `{protected, signature}` next to
+the signed content (the form the WE BUILD WP4 tooling publishes). For the
+embedded form the signing input is rebuilt from the parsed document (members
+sorted, compact, non-ASCII escaped as `\uXXXX`, the `signature` member removed)
+and only that rebuilt content is parsed; documents with non-integer numbers
+are refused because their serialisation cannot be reproduced exactly. An XML
+list (a TS 119 602 `TrustedEntitiesList` source or LoTL pointer target) is
+verified by its enveloped XMLDSig under the same rules as classic TSLs below,
+and is never passed to the JWS parser.
+
 **Classic TSL pointers.** A LoTL pointer whose scheme type is a TS 119 612 TSL
 type (e.g. `EUgeneric`) is fetched as XML, converted with `FromTSL` and indexed
 with the native LoTEs (a pointer whose `MimeType` is JSON stays a native LoTE even

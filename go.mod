@@ -19,6 +19,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jarcoal/httpmock v1.4.2
 	github.com/lestrrat-go/jwx/v4 v4.6.0
+	github.com/moov-io/signedxml v1.2.3
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/sirosfoundation/g119612 v0.8.1
@@ -94,7 +95,6 @@ require (
 	github.com/miekg/pkcs11 v1.1.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/moov-io/signedxml v1.2.3 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/multiformats/go-base32 v0.1.0 // indirect
 	github.com/multiformats/go-base36 v0.2.0 // indirect

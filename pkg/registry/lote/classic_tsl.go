@@ -18,12 +18,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/beevik/etree"
+	"github.com/moov-io/signedxml"
 
-	"github.com/sirosfoundation/g119612/pkg/dsig"
 	"github.com/sirosfoundation/g119612/pkg/etsi119602"
 	"github.com/sirosfoundation/g119612/pkg/etsi119612"
 )
@@ -140,7 +141,7 @@ func (r *Registry) fetchVerifiedTSL(location string, roots *x509.CertPool) (*ets
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch classic TSL from %s: %w", location, err)
 	}
-	signer, verified, err := verifyTSLSignature(context.Background(), raw, roots, time.Now())
+	signer, verified, err := verifyTSLSignature(context.Background(), raw, roots, r.now())
 	if err != nil {
 		return nil, fmt.Errorf("classic TSL signature verification failed for %s: %w", location, err)
 	}
@@ -249,6 +250,9 @@ func verifyTSLSignature(_ context.Context, raw []byte, roots *x509.CertPool, now
 	if err := rejectSHA1(sig); err != nil {
 		return nil, nil, err
 	}
+	if err := checkReferences(sig); err != nil {
+		return nil, nil, err
+	}
 	certs, err := signatureKeyInfoCerts(sig)
 	if err != nil {
 		return nil, nil, err
@@ -259,7 +263,7 @@ func verifyTSLSignature(_ context.Context, raw []byte, roots *x509.CertPool, now
 	}
 	var errs []error
 	for _, cand := range certs {
-		payload, err := verifyWithSigner(doc, cand, intermediates, roots, now)
+		payload, err := verifyWithSigner(raw, cand, intermediates, roots, now)
 		if err == nil {
 			return cand, payload, nil
 		}
@@ -272,7 +276,7 @@ func verifyTSLSignature(_ context.Context, raw []byte, roots *x509.CertPool, now
 // (intermediates holds the KeyInfo certificates, including cand itself, which
 // is harmless), then verifies the document's XMLDSig with it as the only
 // trusted certificate. It returns the serialised verified content.
-func verifyWithSigner(doc *etree.Document, cand *x509.Certificate, intermediates, roots *x509.CertPool, now time.Time) ([]byte, error) {
+func verifyWithSigner(raw []byte, cand *x509.Certificate, intermediates, roots *x509.CertPool, now time.Time) ([]byte, error) {
 	if _, err := cand.Verify(x509.VerifyOptions{
 		Roots:         roots,
 		Intermediates: intermediates,
@@ -281,47 +285,73 @@ func verifyWithSigner(doc *etree.Document, cand *x509.Certificate, intermediates
 	}); err != nil {
 		return nil, fmt.Errorf("lote: TSL signer certificate chain validation failed: %w", err)
 	}
-	only, err := withSoleKeyInfoCert(doc, cand)
-	if err != nil {
-		return nil, err
-	}
-	verified, err := dsig.VerifyXMLSignature(only, []*x509.Certificate{cand})
+	payload, err := verifyEnvelopedSignature(raw, cand)
 	if err != nil {
 		return nil, fmt.Errorf("lote: %w", err)
-	}
-	out := etree.NewDocument()
-	out.SetRoot(verified.Copy())
-	payload, err := out.WriteToBytes()
-	if err != nil {
-		return nil, fmt.Errorf("lote: serialising verified TSL: %w", err)
 	}
 	return payload, nil
 }
 
-// withSoleKeyInfoCert serialises a copy of doc whose signature KeyInfo carries
-// only cert.
-func withSoleKeyInfoCert(doc *etree.Document, cert *x509.Certificate) ([]byte, error) {
-	cp := doc.Copy()
-	sig, err := soleRootSignature(cp)
+// verifyEnvelopedSignature verifies the enveloped XMLDSig of xmlData with cert as the
+// signing key, and returns the verified content: the
+// referenced element that is the document's root, serialised after the
+// signature's transforms (so without the signature). Only that content may be
+// used; the rest of xmlData is not covered by the signature.
+//
+// signedxml is used, as by g119612 when it loads TSLs, instead of
+// dsig.VerifyXMLSignature (goxmldsig): that resolves the signed element
+// through an attribute named "ID" only, while published TS 119 612 and
+// TS 119 602 XML carry it in "Id" on the root, so no published list verifies
+// with it, and it refuses documents of more than 1000 elements.
+func verifyEnvelopedSignature(xmlData []byte, cert *x509.Certificate) (payload []byte, err error) {
+	// signedxml builds element paths from attacker-controlled values; a panic
+	// there must be a rejected list, never a crashed refresh.
+	defer func() {
+		if r := recover(); r != nil {
+			payload, err = nil, fmt.Errorf("signature verification panicked: %v", r)
+		}
+	}()
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(xmlData); err != nil {
+		return nil, fmt.Errorf("failed to parse XML: %w", err)
+	}
+	root := doc.Root()
+	if root == nil {
+		return nil, errors.New("XML document has no root element")
+	}
+	// The reference target is "Id" in published lists, "ID" in lists made by
+	// goxmldsig-based signers; the root decides, no other spelling is accepted.
+	idAttr := "Id"
+	if root.SelectAttr("ID") != nil {
+		idAttr = "ID"
+	}
+	rootID := root.SelectAttrValue(idAttr, "") // empty when the signature references the whole document (URI="")
+	v, err := signedxml.NewValidator(string(xmlData))
 	if err != nil {
 		return nil, err
 	}
-	var first *etree.Element
-	for _, e := range sig.FindElements("./KeyInfo/X509Data/X509Certificate") {
-		if !isDSig(e, "X509Certificate") {
+	v.SetReferenceIDAttribute(idAttr)
+	// Pin the signature key to the validated signer: signedxml would otherwise
+	// try every certificate found in the document. KeyInfo is left as signed,
+	// since some publishers sign it.
+	v.Certificates = []x509.Certificate{*cert}
+	refs, err := v.ValidateReferences()
+	if err != nil {
+		return nil, fmt.Errorf("signature verification failed: %w", err)
+	}
+	if signer := v.SigningCert(); !signer.Equal(cert) {
+		return nil, errors.New("signature was not made with the validated signer certificate")
+	}
+	for _, ref := range refs {
+		rd := etree.NewDocument()
+		if err := rd.ReadFromString(ref); err != nil {
 			continue
 		}
-		if first == nil {
-			first = e
-			continue
+		if r := rd.Root(); r != nil && r.Tag == root.Tag && r.Space == root.Space && r.SelectAttrValue(idAttr, "") == rootID {
+			return []byte(ref), nil
 		}
-		e.Parent().RemoveChild(e)
 	}
-	if first == nil {
-		return nil, errors.New("lote: TSL signature has no X509Certificate in KeyInfo")
-	}
-	first.SetText(base64.StdEncoding.EncodeToString(cert.Raw))
-	return cp.WriteToBytes()
+	return nil, errors.New("signature does not cover the root element")
 }
 
 func isDSig(e *etree.Element, tag string) bool {
@@ -368,6 +398,85 @@ func rejectSHA1(sig *etree.Element) error {
 				return fmt.Errorf("lote: TSL signature uses SHA-1 (%s)", alg)
 			}
 		}
+	}
+	return nil
+}
+
+// allowedDigestMethods are the reference digest algorithms accepted: SHA-2
+// only. signedxml would also accept MD5, which must never vouch for content.
+var allowedDigestMethods = map[string]bool{
+	"http://www.w3.org/2001/04/xmlenc#sha256":       true,
+	"http://www.w3.org/2001/04/xmldsig-more#sha384": true,
+	"http://www.w3.org/2001/04/xmlenc#sha512":       true,
+}
+
+// xmlIDRef matches the same-document references accepted: an NCName-shaped
+// identifier. Anything else (quotes, brackets, slashes) could be spliced into
+// the element path signedxml builds from the URI, so it is refused before the
+// library sees it.
+var xmlIDRef = regexp.MustCompile(`^#[A-Za-z_][A-Za-z0-9._-]*$`)
+
+// maxSignatureReferences bounds the References in a signature. signedxml
+// copies the whole document per reference and keeps the results before the
+// signature value is checked, so an unbounded count is a resource-exhaustion
+// lever for anyone who can alter the list. Published lists carry two (the
+// document and, with XAdES, its SignedProperties).
+const maxSignatureReferences = 8
+
+// checkReferences vets the signature's SignedInfo before signedxml runs.
+// signedxml finds SignedInfo, Reference and DigestMethod by local name, so
+// this does too: an element in another namespace cannot hide from the guard.
+// There must be exactly one SignedInfo; at most maxSignatureReferences
+// References; every Reference in the XMLDSig namespace, with a URI of "" or a
+// plain same-document "#id", and exactly one DigestMethod that is an allowed
+// SHA-2 method.
+func checkReferences(sig *etree.Element) error {
+	var signedInfo *etree.Element
+	for _, c := range sig.ChildElements() {
+		if c.Tag != "SignedInfo" {
+			continue
+		}
+		if signedInfo != nil {
+			return errors.New("lote: TSL signature has more than one SignedInfo")
+		}
+		signedInfo = c
+	}
+	if signedInfo == nil || !isDSig(signedInfo, "SignedInfo") {
+		return errors.New("lote: TSL signature has no ds:SignedInfo")
+	}
+	refs := 0
+	for _, ref := range signedInfo.ChildElements() {
+		if ref.Tag != "Reference" {
+			continue
+		}
+		if refs++; refs > maxSignatureReferences {
+			return fmt.Errorf("lote: TSL signature has more than %d references", maxSignatureReferences)
+		}
+		if !isDSig(ref, "Reference") {
+			return errors.New("lote: TSL signature has a Reference outside the XMLDSig namespace")
+		}
+		if uri := ref.SelectAttrValue("URI", ""); uri != "" && !xmlIDRef.MatchString(uri) {
+			return fmt.Errorf("lote: TSL signature reference URI %q is not a same-document #id", uri)
+		}
+		var dm *etree.Element
+		for _, c := range ref.ChildElements() {
+			if c.Tag != "DigestMethod" {
+				continue
+			}
+			if dm != nil {
+				return errors.New("lote: TSL signature reference has more than one DigestMethod")
+			}
+			dm = c
+		}
+		if dm == nil || !isDSig(dm, "DigestMethod") {
+			return errors.New("lote: TSL signature reference needs exactly one ds:DigestMethod")
+		}
+		if alg := dm.SelectAttrValue("Algorithm", ""); !allowedDigestMethods[alg] {
+			return fmt.Errorf("lote: TSL signature digest method %q is not allowed (SHA-2 only)", alg)
+		}
+	}
+	if refs == 0 {
+		return errors.New("lote: TSL signature has no references")
 	}
 	return nil
 }

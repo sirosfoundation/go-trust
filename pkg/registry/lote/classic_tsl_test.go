@@ -397,6 +397,80 @@ func TestVerifyTSLSignature_Direct(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "SHA-1")
 	})
+	t.Run("md5 digest refused", func(t *testing.T) {
+		require.Contains(t, string(signed), "http://www.w3.org/2001/04/xmlenc#sha256", "fixture digest method changed")
+		weak := bytes.ReplaceAll(signed, []byte("http://www.w3.org/2001/04/xmlenc#sha256"), []byte("http://www.w3.org/2001/04/xmldsig-more#md5"))
+		_, _, err := verifyTSLSignature(ctx, weak, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not allowed")
+	})
+	t.Run("malformed reference URI refused", func(t *testing.T) {
+		bad := bytes.Replace(signed, []byte(`URI=""`), []byte(`URI="#x'"`), 1)
+		require.NotEqual(t, signed, bad, "fixture has no whole-document reference")
+		_, _, err := verifyTSLSignature(ctx, bad, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "same-document")
+	})
+	t.Run("library panic is an error", func(t *testing.T) {
+		// Bypass the pre-checks: the guard around signedxml must still turn a
+		// panic on a hostile reference into an error.
+		bad := bytes.Replace(signed, []byte(`URI=""`), []byte(`URI="#x'"`), 1)
+		require.NotEqual(t, signed, bad)
+		leaf, _ := signerLeaf(t, f.ca, f.caKey, time.Now().Add(time.Hour))
+		assert.NotPanics(t, func() {
+			_, err := verifyEnvelopedSignature(bad, leaf)
+			require.Error(t, err)
+		})
+	})
+	mutateSignedInfo := func(t *testing.T, f func(si *etree.Element)) []byte {
+		t.Helper()
+		doc := etree.NewDocument()
+		require.NoError(t, doc.ReadFromBytes(signed))
+		si := doc.Root().FindElement("./Signature/SignedInfo")
+		require.NotNil(t, si)
+		f(si)
+		out, err := doc.WriteToBytes()
+		require.NoError(t, err)
+		return out
+	}
+	t.Run("reference count bounded", func(t *testing.T) {
+		many := mutateSignedInfo(t, func(si *etree.Element) {
+			ref := si.SelectElement("Reference")
+			require.NotNil(t, ref)
+			for i := 0; i <= maxSignatureReferences; i++ {
+				si.AddChild(ref.Copy())
+			}
+		})
+		_, _, err := verifyTSLSignature(ctx, many, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "more than")
+	})
+	t.Run("reference in another namespace refused", func(t *testing.T) {
+		foreign := mutateSignedInfo(t, func(si *etree.Element) {
+			ref := si.SelectElement("Reference").Copy()
+			ref.Space = "x"
+			ref.CreateAttr("xmlns:x", "urn:example:other")
+			si.AddChild(ref)
+		})
+		_, _, err := verifyTSLSignature(ctx, foreign, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "outside the XMLDSig namespace")
+	})
+	t.Run("one digest method per reference", func(t *testing.T) {
+		// The weak method is first, the allowed one last: signedxml reads the
+		// first, a guard that looked at the last would pass it.
+		dup := mutateSignedInfo(t, func(si *etree.Element) {
+			ref := si.SelectElement("Reference")
+			dm := ref.SelectElement("DigestMethod")
+			require.NotNil(t, dm)
+			weak := dm.Copy()
+			weak.CreateAttr("Algorithm", "http://www.w3.org/2001/04/xmldsig-more#md5")
+			ref.InsertChildAt(dm.Index(), weak)
+		})
+		_, _, err := verifyTSLSignature(ctx, dup, f.roots, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "more than one DigestMethod")
+	})
 	t.Run("exactly one signature required", func(t *testing.T) {
 		_, _, err := verifyTSLSignature(ctx, duplicateSignature(t, signed), f.roots, time.Now())
 		require.Error(t, err)
