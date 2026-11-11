@@ -7,6 +7,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -30,6 +32,25 @@ import (
 // DefaultRefreshInterval is the default JWKS refresh interval when none is configured.
 // This ensures keys are always periodically refreshed for security.
 const DefaultRefreshInterval = 5 * time.Minute
+
+const (
+	// refreshConcurrency bounds how many entities a refresh fetches at once.
+	refreshConcurrency = 8
+
+	// defaultEntityTimeout caps the time spent on one entity in a refresh, so a
+	// dead host occupies one fetch slot for a bounded time.
+	defaultEntityTimeout = 45 * time.Second
+)
+
+// defaultRetryBackoff spaces the retries of entities whose fetch failed
+// transiently, before the normal refresh interval takes over.
+var defaultRetryBackoff = []time.Duration{5 * time.Second, 15 * time.Second, 45 * time.Second}
+
+// fetchFailure records why an entity's last JWKS fetch failed.
+type fetchFailure struct {
+	msg       string
+	retryable bool
+}
 
 // WhitelistRegistry is a TrustRegistry that maintains a whitelist of trusted subjects
 // and validates name-to-key bindings by fetching and caching entity JWKS.
@@ -56,6 +77,25 @@ type WhitelistRegistry struct {
 	// keyHashes maps entity ID to a set of allowed key fingerprints.
 	// Each entity can have multiple keys (key rotation, different purposes).
 	keyHashes map[string]map[string]bool
+
+	// fetchErrs holds the entities (normalized ids) whose most recent JWKS fetch
+	// failed. An entity listed here has no verdict yet: a denial for lack of its
+	// keys means "could not evaluate", not "not trusted".
+	fetchErrs map[string]fetchFailure
+
+	// fetched holds the entities (normalized ids) whose JWKS fetch has completed
+	// successfully at least once, so an entity with no keys is either pending
+	// (not in fetched, or in fetchErrs) or settled (fetched without usable keys).
+	fetched map[string]bool
+
+	// refreshMu serializes refreshes (periodic tick and startup retry).
+	refreshMu sync.Mutex
+
+	// entityTimeout bounds the fetch of one entity; retryBackoff spaces the
+	// retries of transient failures; retrying guards a single retry sequence.
+	entityTimeout time.Duration
+	retryBackoff  []time.Duration
+	retrying      atomic.Bool
 
 	// HTTP client for fetching JWKS
 	httpClient *http.Client
@@ -297,6 +337,11 @@ func NewWhitelistRegistry(opts ...WhitelistOption) *WhitelistRegistry {
 		config:      WhitelistConfig{},
 		logger:      slog.Default(),
 		keyHashes:   make(map[string]map[string]bool),
+		fetchErrs:   make(map[string]fetchFailure),
+		fetched:     make(map[string]bool),
+
+		entityTimeout: defaultEntityTimeout,
+		retryBackoff:  defaultRetryBackoff,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -546,12 +591,14 @@ func (r *WhitelistRegistry) StartRefreshLoop(ctx context.Context) error {
 	// Always perform initial refresh to load JWKS keys on startup
 	if err := r.Refresh(ctx); err != nil {
 		r.logger.Warn("initial refresh failed", "error", err)
-		// Continue anyway - keys may be fetched later via background loop
+		// Continue anyway - failed entities are retried shortly (below) and on
+		// every tick of the background loop.
 	}
 
 	// Start background loop - capture channel reference to avoid races with Close()
 	r.refreshStopCh = make(chan struct{})
 	stopCh := r.refreshStopCh
+	r.startRetry(stopCh)
 	go r.refreshLoop(stopCh)
 
 	r.logger.Info("started JWKS refresh loop", "interval", r.refreshInterval)
@@ -573,10 +620,15 @@ func (r *WhitelistRegistry) refreshLoop(stopCh <-chan struct{}) {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			if err := r.Refresh(ctx); err != nil {
 				r.logger.Warn("scheduled refresh failed", "error", err)
+				r.startRetry(stopCh)
 			} else {
+				// Read the counts under the lock: a retry may publish at once.
+				r.mu.RLock()
+				entities, totalKeys := len(r.keyHashes), r.countTotalKeys()
+				r.mu.RUnlock()
 				r.logger.Debug("scheduled refresh completed",
-					"entities", len(r.keyHashes),
-					"total_keys", r.countTotalKeys())
+					"entities", entities,
+					"total_keys", totalKeys)
 			}
 			cancel()
 		}
@@ -654,6 +706,11 @@ func (r *WhitelistRegistry) Evaluate(ctx context.Context, req *authzen.Evaluatio
 		originalSubjectID := registry.OriginalSubjectID(req)
 		if r.config.TrustX509ViaSystemCA && isCertificateArrayResourceType(req.Resource.Type) && !isHTTPScheme(originalSubjectID) {
 			return r.evaluateViaSystemCA(subjectID, originalSubjectID, role, matchedList, req)
+		}
+		if msg, pending := r.keysPending(normSubjectID); pending {
+			// The entity's keys could not be loaded (yet): a failure to
+			// evaluate, not a verdict on the entity.
+			return r.denyUnavailable(subjectID, msg)
 		}
 		return r.deny(subjectID, "no keys cached for entity; call Refresh() to load keys")
 	}
@@ -1121,6 +1178,64 @@ func (r *WhitelistRegistry) extractCredentialTypes(req *authzen.EvaluationReques
 	return nil
 }
 
+// keysPending reports whether the absence of cached keys for the entity (a
+// normalized id) is an outstanding load rather than a settled state: its last
+// fetch failed, or it is a fetchable list entry that no refresh has fetched yet
+// (tracked per entity: an entry added after the last refresh is pending too).
+// It returns the cause. Entities that were never fetchable (other schemes,
+// wildcard entries) and entities whose fetch succeeded with no usable keys are
+// not pending: for them "no keys" is the answer. The caller holds r.mu.
+func (r *WhitelistRegistry) keysPending(norm string) (string, bool) {
+	if f, failed := r.fetchErrs[norm]; failed {
+		// The "no keys cached for entity" prefix is kept: wallet clients and the
+		// walletcompat vectors match it.
+		return "no keys cached for entity; keys could not be loaded: " + f.msg, true
+	}
+	if r.fetched[norm] {
+		return "", false
+	}
+	for _, entries := range r.resolvedLists {
+		for _, entry := range entries {
+			if r.fetchable(entry) && normalizeEntityID(entry) == norm {
+				return "no keys cached for entity; keys have not been loaded yet", true
+			}
+		}
+	}
+	return "", false
+}
+
+// fetchable reports whether a list entry is one whose JWKS can be fetched: not a
+// wildcard, and either an http(s) id or, with an explicit JWKSEndpointPattern,
+// an id that the pattern turns into an http(s) URL (so scheme-less ids keep
+// working with a pattern). Other ids (x509_hash:, did:, x509_san_dns:) never had
+// keys loaded here. The caller holds r.mu.
+func (r *WhitelistRegistry) fetchable(entry string) bool {
+	if entry == "*" || strings.HasSuffix(entry, "*") {
+		return false
+	}
+	if r.config.JWKSEndpointPattern != "" {
+		return isHTTPScheme(r.buildJWKSURL(entry))
+	}
+	return isHTTPScheme(entry)
+}
+
+// denyUnavailable is a denial that is not a trust verdict: the registry could
+// not evaluate because the entity's keys are not available. It carries the
+// machine-readable could-not-evaluate marker (see authzen.ReasonKeyEvaluationStatus)
+// and "incomplete", which RegistryManager reads to mark the aggregated denial.
+func (r *WhitelistRegistry) denyUnavailable(subject, reason string) (*authzen.EvaluationResponse, error) {
+	resp, err := r.deny(subject, reason)
+	if err != nil {
+		return nil, err
+	}
+	resp.Context.Reason["incomplete"] = true
+	resp.Context.Reason[authzen.ReasonKeyEvaluationStatus] = authzen.EvaluationStatusError
+	resp.Context.Reason[authzen.ReasonKeyEvaluationErrors] = []map[string]interface{}{
+		{"registry": r.name, "error": reason},
+	}
+	return resp, nil
+}
+
 func (r *WhitelistRegistry) deny(subject, reason string) (*authzen.EvaluationResponse, error) {
 	// The detailed reason is only ever returned in the AuthZEN response
 	// body's Context.Reason today - callers (go-wallet-backend included)
@@ -1193,114 +1308,241 @@ func (r *WhitelistRegistry) Healthy() bool {
 
 // Refresh fetches JWKS for all whitelisted entities and caches their key fingerprints.
 //
+// Entities are fetched concurrently (bounded by refreshConcurrency), each under
+// its own timeout, and each entity's keys are published as soon as they arrive,
+// so one slow or dead entity never delays the keys of the others. Only entities
+// that can be fetched at all (see fetchable) are attempted; ids with other
+// schemes (x509_hash:..., did:..., x509_san_dns:...) never had keys loaded here.
+//
 // On partial failure, previously cached keys for entities that failed to refresh
 // are preserved (stale-cache fallback). The registry remains healthy as long as
 // at least some keys were loaded, allowing continued operation during transient
 // outages of individual issuers.
 func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
-	// Snapshot the inputs to this refresh under a brief read lock.
-	// resolvedLists/config are only ever set at construction time (never
-	// mutated afterward), and oldKeyHashes is only used to preserve stale
-	// entries for entities whose fetch fails this round - neither needs to
-	// stay locked for the network I/O below.
+	entities := make(map[string]string) // normalized id -> id as configured
 	r.mu.RLock()
-	resolvedLists := r.resolvedLists
-	oldKeyHashes := r.keyHashes
+	for _, entries := range r.resolvedLists {
+		for _, entry := range entries {
+			if r.fetchable(entry) {
+				entities[normalizeEntityID(entry)] = entry
+			}
+		}
+	}
 	r.mu.RUnlock()
 
-	// Collect all unique entities from all resolved lists
-	entities := make(map[string]bool)
-	for _, entries := range resolvedLists {
-		for _, entry := range entries {
-			if entry != "*" && !strings.HasSuffix(entry, "*") {
-				entities[entry] = true
-			}
-		}
+	failed := r.refreshEntities(ctx, entities, true)
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to fetch keys for %d entities", len(failed))
 	}
+	return nil
+}
 
-	// Build new key hashes map, preserving stale entries for failed fetches.
-	//
-	// Deliberately NOT holding r.mu across this loop: fetchEntityKeys does
+// refreshEntities fetches the given entities (normalized id -> configured id)
+// and publishes the result per entity. With prune set, cached entries for
+// entities no longer configured are dropped (the full-refresh case). It returns
+// the entities whose fetch failed, with the error.
+func (r *WhitelistRegistry) refreshEntities(ctx context.Context, entities map[string]string, prune bool) map[string]error {
+	// Serialize refreshes: the periodic tick and the startup retry must not
+	// interleave their publishes.
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+
+	// Deliberately NOT holding r.mu across the fetches: fetchEntityKeys does
 	// real network I/O (JWKS discovery across several well-known endpoint
-	// patterns, each with its own retries/timeouts) that can take minutes
-	// per entity when an entity is slow or unreachable - e.g. an mdoc-only
-	// issuer with no JWKS endpoint at all. Evaluate() only needs a read lock,
-	// so holding the write lock for this whole loop (as this used to)
-	// blocked every concurrent evaluation - including fast resolution-only
-	// requests that don't even need the data being refreshed - for as long
-	// as the slowest entity's fetch took. Building the new map here and only
-	// taking the write lock afterward to swap it in lets concurrent
-	// Evaluate() calls keep using the still-valid old state while a refresh
-	// is in progress.
-	newKeyHashes := make(map[string]map[string]bool)
-
-	var fetchErrors []string
-	for entity := range entities {
-		normEntity := normalizeEntityID(entity)
-		keys, stale, err := r.fetchEntityKeys(ctx, entity)
-		if err != nil {
-			r.logger.Warn("failed to fetch keys for entity",
-				"entity", entity,
-				"error", err)
-			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %s", entity, err))
-			// Preserve stale keys for this entity if available
-			if old, ok := oldKeyHashes[normEntity]; ok && len(old) > 0 {
-				newKeyHashes[normEntity] = old
-				r.logger.Info("preserving stale keys for entity",
-					"entity", entity,
-					"stale_key_count", len(old))
+	// patterns, each with its own retries/timeouts) that can take a long time
+	// when an entity is slow or unreachable, e.g. an mdoc-only issuer with no
+	// JWKS endpoint at all. Evaluate() only needs a read lock, so each entity's
+	// result is swapped in under a brief write lock after its fetch.
+	var (
+		wg     sync.WaitGroup
+		failMu sync.Mutex
+		failed = make(map[string]error)
+		sem    = make(chan struct{}, refreshConcurrency)
+	)
+	for norm, entity := range entities {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := r.refreshEntity(ctx, norm, entity); err != nil {
+				failMu.Lock()
+				failed[norm] = err
+				failMu.Unlock()
 			}
-			continue
-		}
-
-		keySet := make(map[string]bool)
-		for _, key := range keys {
-			fingerprint, err := KeyFingerprint(key)
-			if err != nil {
-				r.logger.Warn("failed to compute key fingerprint",
-					"entity", entity,
-					"error", err)
-				continue
-			}
-			keySet[fingerprint] = true
-		}
-
-		if len(keySet) > 0 {
-			newKeyHashes[normEntity] = keySet
-			if stale {
-				r.logger.Info("using stale-cached keys for entity",
-					"entity", entity,
-					"key_count", len(keySet))
-			} else {
-				r.logger.Info("loaded fresh keys for entity",
-					"entity", entity,
-					"key_count", len(keySet))
-			}
-		}
+		}()
 	}
+	wg.Wait()
 
-	// Swap in the new state - brief write lock, no I/O.
 	r.mu.Lock()
-	r.keyHashes = newKeyHashes
-	r.lastRefresh = time.Now()
-	if len(fetchErrors) > 0 {
-		// Still consider loaded if at least some entities have keys.
-		r.keysLoaded = len(newKeyHashes) > 0
-	} else {
-		r.keysLoaded = true
+	if prune {
+		for norm := range r.keyHashes {
+			if _, configured := entities[norm]; !configured {
+				delete(r.keyHashes, norm)
+			}
+		}
+		for norm := range r.fetchErrs {
+			if _, configured := entities[norm]; !configured {
+				delete(r.fetchErrs, norm)
+			}
+		}
+		for norm := range r.fetched {
+			if _, configured := entities[norm]; !configured {
+				delete(r.fetched, norm)
+			}
+		}
 	}
+	r.lastRefresh = time.Now()
+	// Healthy when nothing is outstanding, or at least some keys are loaded.
+	r.keysLoaded = len(r.fetchErrs) == 0 || len(r.keyHashes) > 0
 	entityCount := len(r.keyHashes)
 	totalKeys := r.countTotalKeys()
 	r.mu.Unlock()
 
-	if len(fetchErrors) > 0 {
-		return fmt.Errorf("failed to fetch keys for %d entities", len(fetchErrors))
+	if len(failed) == 0 {
+		r.logger.Info("whitelist keys refreshed",
+			"entities", entityCount,
+			"total_keys", totalKeys)
+	}
+	return failed
+}
+
+// refreshEntity fetches one entity under its own timeout and publishes the
+// outcome: fresh keys replace the cached set, a failure keeps whatever was
+// cached (stale fallback) and records the error so Evaluate can tell "could
+// not load keys" from "not trusted".
+func (r *WhitelistRegistry) refreshEntity(ctx context.Context, norm, entity string) error {
+	fctx, cancel := context.WithTimeout(ctx, r.entityTimeout)
+	defer cancel()
+
+	keys, stale, err := r.fetchEntityKeys(fctx, entity)
+	if err != nil {
+		r.logger.Warn("failed to fetch keys for entity",
+			"entity", entity,
+			"error", err)
+		r.mu.Lock()
+		r.fetchErrs[norm] = fetchFailure{msg: err.Error(), retryable: retryableFetchError(err)}
+		old := len(r.keyHashes[norm])
+		r.mu.Unlock()
+		if old > 0 {
+			r.logger.Info("preserving stale keys for entity",
+				"entity", entity,
+				"stale_key_count", old)
+		}
+		return err
 	}
 
-	r.logger.Info("whitelist keys refreshed",
-		"entities", entityCount,
-		"total_keys", totalKeys)
+	keySet := make(map[string]bool)
+	for _, key := range keys {
+		fingerprint, err := KeyFingerprint(key)
+		if err != nil {
+			r.logger.Warn("failed to compute key fingerprint",
+				"entity", entity,
+				"error", err)
+			continue
+		}
+		keySet[fingerprint] = true
+	}
+
+	r.mu.Lock()
+	delete(r.fetchErrs, norm)
+	r.fetched[norm] = true
+	if len(keySet) > 0 {
+		r.keyHashes[norm] = keySet
+	} else {
+		delete(r.keyHashes, norm)
+	}
+	r.mu.Unlock()
+
+	if len(keySet) > 0 {
+		if stale {
+			r.logger.Info("using stale-cached keys for entity",
+				"entity", entity,
+				"key_count", len(keySet))
+		} else {
+			r.logger.Info("loaded fresh keys for entity",
+				"entity", entity,
+				"key_count", len(keySet))
+		}
+	}
 	return nil
+}
+
+// retryableFetchError reports whether a failed fetch is worth retrying soon:
+// a transport error, a 5xx response or a timeout can clear on its own (the
+// issuer is restarting, DNS is not warm yet); a 4xx response or an unparsable
+// body will not.
+func retryableFetchError(err error) bool {
+	var tf *transientFailure
+	return errors.As(err, &tf) || resilience.IsRetryable(err) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// transientFailure marks an error as transient inside an error chain whose
+// first match for the usual typed errors (a later 404) would say otherwise.
+type transientFailure struct{ err error }
+
+func (t *transientFailure) Error() string { return t.err.Error() }
+func (t *transientFailure) Unwrap() error { return t.err }
+
+// retryTargets returns the entities whose last fetch failed in a way that may
+// clear by itself (normalized id -> configured id).
+func (r *WhitelistRegistry) retryTargets() map[string]string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	targets := make(map[string]string)
+	for norm, f := range r.fetchErrs {
+		if !f.retryable {
+			continue
+		}
+		for _, entries := range r.resolvedLists {
+			for _, entry := range entries {
+				if r.fetchable(entry) && normalizeEntityID(entry) == norm {
+					targets[norm] = entry
+				}
+			}
+		}
+	}
+	return targets
+}
+
+// startRetry re-fetches the entities that failed transiently, on a short
+// backoff (retryBackoff), instead of leaving them closed until the next
+// periodic refresh. At most one retry sequence runs at a time; it stops when
+// nothing is left to retry, the backoff is exhausted, or Close is called.
+func (r *WhitelistRegistry) startRetry(stopCh <-chan struct{}) {
+	if len(r.retryBackoff) == 0 || len(r.retryTargets()) == 0 {
+		return
+	}
+	if !r.retrying.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer r.retrying.Store(false)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			select {
+			case <-stopCh:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		for _, delay := range r.retryBackoff {
+			timer := time.NewTimer(delay)
+			select {
+			case <-stopCh:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			targets := r.retryTargets()
+			if len(targets) == 0 {
+				return
+			}
+			r.logger.Info("retrying failed JWKS fetches", "entities", len(targets))
+			r.refreshEntities(ctx, targets, false)
+		}
+	}()
 }
 
 // countTotalKeys returns the total number of cached key fingerprints.
@@ -1338,17 +1580,31 @@ func (r *WhitelistRegistry) fetchEntityKeys(ctx context.Context, entity string) 
 	}
 	r.logger.Debug("jwt-vc-issuer discovery failed", "entity", entity, "error", err)
 
+	// A discovery step that failed transiently (transport error, 5xx) must not
+	// be hidden by a later step's 404: the entity may simply not be up yet.
+	var transient error
+	if retryableFetchError(err) {
+		transient = err
+	}
+
 	// 2-4. Try metadata endpoints that expose jwks_uri
-	discovered := r.discoverJWKSURI(ctx, entity)
+	discovered, dErr := r.discoverJWKSURI(ctx, entity)
 	if discovered != "" {
 		return r.fetchJWKSFromURL(ctx, discovered)
+	}
+	if transient == nil {
+		transient = dErr
 	}
 
 	// 5. Fallback to default well-known endpoint
 	fallbackURL := r.buildJWKSURL(entity)
 	r.logger.Debug("metadata discovery failed, falling back to default",
 		"entity", entity, "fallback_url", fallbackURL)
-	return r.fetchJWKSFromURL(ctx, fallbackURL)
+	keys, stale, err = r.fetchJWKSFromURL(ctx, fallbackURL)
+	if err != nil && transient != nil && !retryableFetchError(err) {
+		err = fmt.Errorf("%w; an earlier discovery step failed transiently: %w", err, &transientFailure{transient})
+	}
+	return keys, stale, err
 }
 
 // parseJWKSPublicKeys parses a JWKS JSON body into public keys.
@@ -1376,6 +1632,17 @@ func (r *WhitelistRegistry) fetchJWKSFromURL(ctx context.Context, jwksURL string
 	return result, stale, nil
 }
 
+// statusError describes a non-200 discovery response. A 5xx is returned as a
+// resilience.HTTPStatusError (wrapped, keeping the message) so a transient
+// failure is recognisable later; other statuses stay plain errors.
+func statusError(what, url string, code int) error {
+	msg := fmt.Errorf("%s returned status %d", what, code)
+	if code >= http.StatusInternalServerError {
+		return fmt.Errorf("%w: %w", msg, &resilience.HTTPStatusError{StatusCode: code, URL: url})
+	}
+	return msg
+}
+
 // tryJWTVCIssuerMetadata attempts SD-JWT VC §5.3 JWT VC Issuer Metadata discovery.
 // The well-known URL is constructed per RFC 8615: the well-known string is inserted
 // between the host component and the path component of the entity URL.
@@ -1391,12 +1658,12 @@ func (r *WhitelistRegistry) tryJWTVCIssuerMetadata(ctx context.Context, entity s
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("fetching jwt-vc-issuer metadata: %w", err)
+		return nil, false, &resilience.TransportError{Err: fmt.Errorf("fetching jwt-vc-issuer metadata: %w", err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("jwt-vc-issuer metadata returned status %d", resp.StatusCode)
+		return nil, false, statusError("jwt-vc-issuer metadata", metadataURL, resp.StatusCode)
 	}
 
 	body, err := registry.ReadLimitedBody(resp.Body)
@@ -1437,7 +1704,7 @@ func (r *WhitelistRegistry) tryJWTVCIssuerMetadata(ctx context.Context, entity s
 //  3. OpenID4VCI Credential Issuer Metadata (.well-known/openid-credential-issuer)
 //
 // Returns the discovered jwks_uri, or empty string if all attempts fail.
-func (r *WhitelistRegistry) discoverJWKSURI(ctx context.Context, entity string) string {
+func (r *WhitelistRegistry) discoverJWKSURI(ctx context.Context, entity string) (string, error) {
 	entity = strings.TrimSuffix(entity, "/")
 
 	discoveryEndpoints := []string{
@@ -1446,12 +1713,18 @@ func (r *WhitelistRegistry) discoverJWKSURI(ctx context.Context, entity string) 
 		entity + "/.well-known/openid-credential-issuer",
 	}
 
+	// transient is the first failure that may clear by itself, so the caller can
+	// tell "not there" (404) from "not up yet" (transport error, 5xx).
+	var transient error
 	for _, endpoint := range discoveryEndpoints {
 		jwksURI, err := r.fetchMetadataJWKSURI(ctx, endpoint)
 		if err != nil {
 			r.logger.Debug("metadata discovery attempt failed",
 				"endpoint", endpoint,
 				"error", err)
+			if transient == nil && retryableFetchError(err) {
+				transient = err
+			}
 			continue
 		}
 		if jwksURI != "" {
@@ -1459,11 +1732,11 @@ func (r *WhitelistRegistry) discoverJWKSURI(ctx context.Context, entity string) 
 				"entity", entity,
 				"discovery_endpoint", endpoint,
 				"jwks_uri", jwksURI)
-			return jwksURI
+			return jwksURI, nil
 		}
 	}
 
-	return ""
+	return "", transient
 }
 
 // fetchMetadataJWKSURI fetches a metadata document and extracts the jwks_uri field.
@@ -1476,12 +1749,12 @@ func (r *WhitelistRegistry) fetchMetadataJWKSURI(ctx context.Context, metadataUR
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("fetching metadata: %w", err)
+		return "", &resilience.TransportError{Err: fmt.Errorf("fetching metadata: %w", err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("metadata fetch returned status %d", resp.StatusCode)
+		return "", statusError("metadata fetch", metadataURL, resp.StatusCode)
 	}
 
 	body, err := registry.ReadLimitedBody(resp.Body)

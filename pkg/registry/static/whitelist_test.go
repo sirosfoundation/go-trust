@@ -2494,6 +2494,7 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 			Actions:              map[string]string{"credential-verifier": "verifiers"},
 			TrustX509ViaSystemCA: true,
 		}))
+		reg.entityTimeout = 2 * time.Second
 		_ = reg.Refresh(context.Background())
 
 		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
@@ -2511,8 +2512,11 @@ func TestWhitelistRegistry_TrustX509ViaSystemCA(t *testing.T) {
 			t.Error("expected decision=false for an unreachable https entity")
 		}
 		errReason, _ := resp.Context.Reason["error"].(string)
-		if !strings.Contains(errReason, "no keys cached") {
+		if !strings.Contains(errReason, "could not be loaded") {
 			t.Errorf("expected the JWKS-missing deny reason (not the system-CA fallback), got: %v", errReason)
+		}
+		if !resp.CouldNotEvaluate() {
+			t.Error("a denial for keys that could not be fetched must be marked could-not-evaluate")
 		}
 	})
 
