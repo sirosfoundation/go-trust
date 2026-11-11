@@ -220,6 +220,15 @@ absent when every applicable registry answered (an *evaluated: not trusted* verd
 every allow (a positive match stands even if another registry failed). The same rule applies
 to all four strategies (`first_match`, `all`, `best_match`, `sequential`).
 
+A registry can also report on its own response that its data is not available yet, by setting
+`context.reason.incomplete` (the composite registry does this for a failed child). The
+whitelist registry does so when an explicitly listed `https://` entity has no cached keys
+because its JWKS fetch failed or has not run yet; after startup it fetches entities
+concurrently, retries transient failures (transport errors, timeouts, 5xx) after 5s, 15s and
+45s, and only then waits for the next periodic refresh. Ids that cannot be fetched at all
+(`x509_hash:`, `did:`, wildcard entries) are not attempted, and for them an absence of keys is
+an ordinary denial.
+
 Callers that fall back to a different policy only on failure (never on a denial) should test
 `evaluation_status == "error"`; in Go, use `EvaluationResponse.CouldNotEvaluate()`. A registry
 that reports an internal problem as an ordinary denial (rather than an error) is not covered.
