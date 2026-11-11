@@ -83,6 +83,11 @@ type WhitelistRegistry struct {
 	// keys means "could not evaluate", not "not trusted".
 	fetchErrs map[string]fetchFailure
 
+	// fetched holds the entities (normalized ids) whose JWKS fetch has completed
+	// successfully at least once, so an entity with no keys is either pending
+	// (not in fetched, or in fetchErrs) or settled (fetched without usable keys).
+	fetched map[string]bool
+
 	// refreshMu serializes refreshes (periodic tick and startup retry).
 	refreshMu sync.Mutex
 
@@ -333,6 +338,7 @@ func NewWhitelistRegistry(opts ...WhitelistOption) *WhitelistRegistry {
 		logger:      slog.Default(),
 		keyHashes:   make(map[string]map[string]bool),
 		fetchErrs:   make(map[string]fetchFailure),
+		fetched:     make(map[string]bool),
 
 		entityTimeout: defaultEntityTimeout,
 		retryBackoff:  defaultRetryBackoff,
@@ -616,9 +622,13 @@ func (r *WhitelistRegistry) refreshLoop(stopCh <-chan struct{}) {
 				r.logger.Warn("scheduled refresh failed", "error", err)
 				r.startRetry(stopCh)
 			} else {
+				// Read the counts under the lock: a retry may publish at once.
+				r.mu.RLock()
+				entities, totalKeys := len(r.keyHashes), r.countTotalKeys()
+				r.mu.RUnlock()
 				r.logger.Debug("scheduled refresh completed",
-					"entities", len(r.keyHashes),
-					"total_keys", r.countTotalKeys())
+					"entities", entities,
+					"total_keys", totalKeys)
 			}
 			cancel()
 		}
@@ -1170,25 +1180,43 @@ func (r *WhitelistRegistry) extractCredentialTypes(req *authzen.EvaluationReques
 
 // keysPending reports whether the absence of cached keys for the entity (a
 // normalized id) is an outstanding load rather than a settled state: its last
-// fetch failed, or no refresh has run yet and it is a fetchable list entry. It
-// returns the cause. Entities that were never fetchable (other schemes,
+// fetch failed, or it is a fetchable list entry that no refresh has fetched yet
+// (tracked per entity: an entry added after the last refresh is pending too).
+// It returns the cause. Entities that were never fetchable (other schemes,
 // wildcard entries) and entities whose fetch succeeded with no usable keys are
 // not pending: for them "no keys" is the answer. The caller holds r.mu.
 func (r *WhitelistRegistry) keysPending(norm string) (string, bool) {
 	if f, failed := r.fetchErrs[norm]; failed {
-		return "keys for entity could not be loaded: " + f.msg, true
+		// The "no keys cached for entity" prefix is kept: wallet clients and the
+		// walletcompat vectors match it.
+		return "no keys cached for entity; keys could not be loaded: " + f.msg, true
 	}
-	if !r.lastRefresh.IsZero() {
+	if r.fetched[norm] {
 		return "", false
 	}
 	for _, entries := range r.resolvedLists {
 		for _, entry := range entries {
-			if isHTTPScheme(entry) && normalizeEntityID(entry) == norm {
-				return "keys for entity have not been loaded yet", true
+			if r.fetchable(entry) && normalizeEntityID(entry) == norm {
+				return "no keys cached for entity; keys have not been loaded yet", true
 			}
 		}
 	}
 	return "", false
+}
+
+// fetchable reports whether a list entry is one whose JWKS can be fetched: not a
+// wildcard, and either an http(s) id or, with an explicit JWKSEndpointPattern,
+// an id that the pattern turns into an http(s) URL (so scheme-less ids keep
+// working with a pattern). Other ids (x509_hash:, did:, x509_san_dns:) never had
+// keys loaded here. The caller holds r.mu.
+func (r *WhitelistRegistry) fetchable(entry string) bool {
+	if entry == "*" || strings.HasSuffix(entry, "*") {
+		return false
+	}
+	if r.config.JWKSEndpointPattern != "" {
+		return isHTTPScheme(r.buildJWKSURL(entry))
+	}
+	return isHTTPScheme(entry)
 }
 
 // denyUnavailable is a denial that is not a trust verdict: the registry could
@@ -1283,7 +1311,7 @@ func (r *WhitelistRegistry) Healthy() bool {
 // Entities are fetched concurrently (bounded by refreshConcurrency), each under
 // its own timeout, and each entity's keys are published as soon as they arrive,
 // so one slow or dead entity never delays the keys of the others. Only entities
-// that can be fetched at all (http/https ids) are attempted; ids with other
+// that can be fetched at all (see fetchable) are attempted; ids with other
 // schemes (x509_hash:..., did:..., x509_san_dns:...) never had keys loaded here.
 //
 // On partial failure, previously cached keys for entities that failed to refresh
@@ -1291,18 +1319,16 @@ func (r *WhitelistRegistry) Healthy() bool {
 // at least some keys were loaded, allowing continued operation during transient
 // outages of individual issuers.
 func (r *WhitelistRegistry) Refresh(ctx context.Context) error {
-	r.mu.RLock()
-	resolvedLists := r.resolvedLists
-	r.mu.RUnlock()
-
 	entities := make(map[string]string) // normalized id -> id as configured
-	for _, entries := range resolvedLists {
+	r.mu.RLock()
+	for _, entries := range r.resolvedLists {
 		for _, entry := range entries {
-			if entry != "*" && !strings.HasSuffix(entry, "*") && isHTTPScheme(entry) {
+			if r.fetchable(entry) {
 				entities[normalizeEntityID(entry)] = entry
 			}
 		}
 	}
+	r.mu.RUnlock()
 
 	failed := r.refreshEntities(ctx, entities, true)
 	if len(failed) > 0 {
@@ -1360,6 +1386,11 @@ func (r *WhitelistRegistry) refreshEntities(ctx context.Context, entities map[st
 				delete(r.fetchErrs, norm)
 			}
 		}
+		for norm := range r.fetched {
+			if _, configured := entities[norm]; !configured {
+				delete(r.fetched, norm)
+			}
+		}
 	}
 	r.lastRefresh = time.Now()
 	// Healthy when nothing is outstanding, or at least some keys are loaded.
@@ -1415,6 +1446,7 @@ func (r *WhitelistRegistry) refreshEntity(ctx context.Context, norm, entity stri
 
 	r.mu.Lock()
 	delete(r.fetchErrs, norm)
+	r.fetched[norm] = true
 	if len(keySet) > 0 {
 		r.keyHashes[norm] = keySet
 	} else {
@@ -1441,8 +1473,16 @@ func (r *WhitelistRegistry) refreshEntity(ctx context.Context, norm, entity stri
 // issuer is restarting, DNS is not warm yet); a 4xx response or an unparsable
 // body will not.
 func retryableFetchError(err error) bool {
-	return resilience.IsRetryable(err) || errors.Is(err, context.DeadlineExceeded)
+	var tf *transientFailure
+	return errors.As(err, &tf) || resilience.IsRetryable(err) || errors.Is(err, context.DeadlineExceeded)
 }
+
+// transientFailure marks an error as transient inside an error chain whose
+// first match for the usual typed errors (a later 404) would say otherwise.
+type transientFailure struct{ err error }
+
+func (t *transientFailure) Error() string { return t.err.Error() }
+func (t *transientFailure) Unwrap() error { return t.err }
 
 // retryTargets returns the entities whose last fetch failed in a way that may
 // clear by itself (normalized id -> configured id).
@@ -1456,7 +1496,7 @@ func (r *WhitelistRegistry) retryTargets() map[string]string {
 		}
 		for _, entries := range r.resolvedLists {
 			for _, entry := range entries {
-				if isHTTPScheme(entry) && normalizeEntityID(entry) == norm {
+				if r.fetchable(entry) && normalizeEntityID(entry) == norm {
 					targets[norm] = entry
 				}
 			}
@@ -1540,17 +1580,31 @@ func (r *WhitelistRegistry) fetchEntityKeys(ctx context.Context, entity string) 
 	}
 	r.logger.Debug("jwt-vc-issuer discovery failed", "entity", entity, "error", err)
 
+	// A discovery step that failed transiently (transport error, 5xx) must not
+	// be hidden by a later step's 404: the entity may simply not be up yet.
+	var transient error
+	if retryableFetchError(err) {
+		transient = err
+	}
+
 	// 2-4. Try metadata endpoints that expose jwks_uri
-	discovered := r.discoverJWKSURI(ctx, entity)
+	discovered, dErr := r.discoverJWKSURI(ctx, entity)
 	if discovered != "" {
 		return r.fetchJWKSFromURL(ctx, discovered)
+	}
+	if transient == nil {
+		transient = dErr
 	}
 
 	// 5. Fallback to default well-known endpoint
 	fallbackURL := r.buildJWKSURL(entity)
 	r.logger.Debug("metadata discovery failed, falling back to default",
 		"entity", entity, "fallback_url", fallbackURL)
-	return r.fetchJWKSFromURL(ctx, fallbackURL)
+	keys, stale, err = r.fetchJWKSFromURL(ctx, fallbackURL)
+	if err != nil && transient != nil && !retryableFetchError(err) {
+		err = fmt.Errorf("%w; an earlier discovery step failed transiently: %w", err, &transientFailure{transient})
+	}
+	return keys, stale, err
 }
 
 // parseJWKSPublicKeys parses a JWKS JSON body into public keys.
@@ -1578,6 +1632,17 @@ func (r *WhitelistRegistry) fetchJWKSFromURL(ctx context.Context, jwksURL string
 	return result, stale, nil
 }
 
+// statusError describes a non-200 discovery response. A 5xx is returned as a
+// resilience.HTTPStatusError (wrapped, keeping the message) so a transient
+// failure is recognisable later; other statuses stay plain errors.
+func statusError(what, url string, code int) error {
+	msg := fmt.Errorf("%s returned status %d", what, code)
+	if code >= http.StatusInternalServerError {
+		return fmt.Errorf("%w: %w", msg, &resilience.HTTPStatusError{StatusCode: code, URL: url})
+	}
+	return msg
+}
+
 // tryJWTVCIssuerMetadata attempts SD-JWT VC §5.3 JWT VC Issuer Metadata discovery.
 // The well-known URL is constructed per RFC 8615: the well-known string is inserted
 // between the host component and the path component of the entity URL.
@@ -1593,12 +1658,12 @@ func (r *WhitelistRegistry) tryJWTVCIssuerMetadata(ctx context.Context, entity s
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("fetching jwt-vc-issuer metadata: %w", err)
+		return nil, false, &resilience.TransportError{Err: fmt.Errorf("fetching jwt-vc-issuer metadata: %w", err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("jwt-vc-issuer metadata returned status %d", resp.StatusCode)
+		return nil, false, statusError("jwt-vc-issuer metadata", metadataURL, resp.StatusCode)
 	}
 
 	body, err := registry.ReadLimitedBody(resp.Body)
@@ -1639,7 +1704,7 @@ func (r *WhitelistRegistry) tryJWTVCIssuerMetadata(ctx context.Context, entity s
 //  3. OpenID4VCI Credential Issuer Metadata (.well-known/openid-credential-issuer)
 //
 // Returns the discovered jwks_uri, or empty string if all attempts fail.
-func (r *WhitelistRegistry) discoverJWKSURI(ctx context.Context, entity string) string {
+func (r *WhitelistRegistry) discoverJWKSURI(ctx context.Context, entity string) (string, error) {
 	entity = strings.TrimSuffix(entity, "/")
 
 	discoveryEndpoints := []string{
@@ -1648,12 +1713,18 @@ func (r *WhitelistRegistry) discoverJWKSURI(ctx context.Context, entity string) 
 		entity + "/.well-known/openid-credential-issuer",
 	}
 
+	// transient is the first failure that may clear by itself, so the caller can
+	// tell "not there" (404) from "not up yet" (transport error, 5xx).
+	var transient error
 	for _, endpoint := range discoveryEndpoints {
 		jwksURI, err := r.fetchMetadataJWKSURI(ctx, endpoint)
 		if err != nil {
 			r.logger.Debug("metadata discovery attempt failed",
 				"endpoint", endpoint,
 				"error", err)
+			if transient == nil && retryableFetchError(err) {
+				transient = err
+			}
 			continue
 		}
 		if jwksURI != "" {
@@ -1661,11 +1732,11 @@ func (r *WhitelistRegistry) discoverJWKSURI(ctx context.Context, entity string) 
 				"entity", entity,
 				"discovery_endpoint", endpoint,
 				"jwks_uri", jwksURI)
-			return jwksURI
+			return jwksURI, nil
 		}
 	}
 
-	return ""
+	return "", transient
 }
 
 // fetchMetadataJWKSURI fetches a metadata document and extracts the jwks_uri field.
@@ -1678,12 +1749,12 @@ func (r *WhitelistRegistry) fetchMetadataJWKSURI(ctx context.Context, metadataUR
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("fetching metadata: %w", err)
+		return "", &resilience.TransportError{Err: fmt.Errorf("fetching metadata: %w", err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("metadata fetch returned status %d", resp.StatusCode)
+		return "", statusError("metadata fetch", metadataURL, resp.StatusCode)
 	}
 
 	body, err := registry.ReadLimitedBody(resp.Body)
