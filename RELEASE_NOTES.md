@@ -4,6 +4,18 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.29.1:start -->
+## [v0.29.1] - 2026-11-11
+
+### Fixed
+- Whitelist now loads entity JWKS concurrently (up to 8 at a time, 45s timeout each) and publishes keys as they arrive, eliminating startup delays caused by slow or unresponsive entities (#246)
+- Entities whose JWKS fetch fails transiently (transport errors, timeouts, 5xx) are now retried at 5s, 15s, and 45s intervals instead of waiting for the next periodic refresh, reducing the window where valid credentials are denied (#246)
+- Denials due to missing keys when the fetch failed or hasn't completed now carry `context.reason.evaluation_status: "error"` and `incomplete`, with aggregated `evaluation_errors` explaining the cause, distinguishing transient failures from settled trust decisions (#246)
+
+### Changed
+- Updated to Go 1.27.4 to address GO-2026-6859 vulnerability in net/http (#247)
+<!-- release-notes:v0.29.1:end -->
+
 <!-- release-notes:v0.29.0:start -->
 ## [v0.29.0] - 2026-11-10
 
