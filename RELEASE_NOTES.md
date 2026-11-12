@@ -4,6 +4,17 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.29.2:start -->
+## [v0.29.2] - 2026-11-12
+
+### Fixed
+- Resolved panic when calling `TSL.String()` or `TSL.Summary()` on trust service lists containing names without `xml:lang` attributes, via g119612 v0.8.3 upgrade (#250)
+- Fixed `select` query matching for status and service-type URIs to work correctly after normalization (#250)
+
+### Changed
+- Updated `github.com/sirosfoundation/g119612` dependency from v0.8.1 to v0.8.3 (#250)
+<!-- release-notes:v0.29.2:end -->
+
 <!-- release-notes:v0.29.1:start -->
 ## [v0.29.1] - 2026-11-11
 
