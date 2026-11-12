@@ -310,12 +310,18 @@ func TestDisplayName_FromListedEntity(t *testing.T) {
 	r := ask("urn:named", false)
 	require.True(t, r.Decision)
 	assert.Equal(t, "Acme Bank Ltd", r.Context.DisplayName)
-	assert.Equal(t, "Handelsnamn", ask("urn:trade", false).Context.DisplayName, "trade name preferred, first entry when no English")
-	assert.Empty(t, ask("urn:plain", false).Context.DisplayName, "entity without a name: member absent")
+	assert.Equal(t, map[string]string{"sv": "Acme Bank AB", "en": "Acme Bank Ltd"}, r.Context.DisplayNameL10n)
+	tradeResp := ask("urn:trade", false)
+	assert.Equal(t, "Handelsnamn", tradeResp.Context.DisplayName, "trade name preferred, first entry when no English")
+	assert.Equal(t, map[string]string{"sv": "Handelsnamn"}, tradeResp.Context.DisplayNameL10n, "the l10n set is the one display_name came from")
+	plainResp := ask("urn:plain", false)
+	assert.Empty(t, plainResp.Context.DisplayName, "entity without a name: member absent")
+	assert.Empty(t, plainResp.Context.DisplayNameL10n)
 
 	// CA-anchored chain for an unlisted subject: the CA's name must not label
 	// the verifier; the manager falls back to the subject's origin.
 	r = ask("https://some-rp.example", true)
 	require.True(t, r.Decision, "%v", r.Context)
 	assert.Empty(t, r.Context.DisplayName)
+	assert.Empty(t, r.Context.DisplayNameL10n)
 }

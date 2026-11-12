@@ -3,6 +3,7 @@ package registry
 import (
 	"net"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -49,6 +50,43 @@ func SanitizeDisplayName(name string) string {
 		n++
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// maxDisplayNameLangs bounds the number of languages in display_name_l10n.
+const maxDisplayNameLangs = 32
+
+var langTagRE = regexp.MustCompile(`^[a-z]{2,3}(-[a-z0-9]{1,8})*$`)
+
+// SanitizeDisplayNameL10n sanitizes a language-tag to name map: tags are
+// lower-cased and must look like BCP 47 tags, names are sanitized, entries that
+// fail either test are dropped, and at most maxDisplayNameLangs entries are kept
+// (in lexical tag order, so the result is reproducible). It returns nil when
+// nothing remains.
+func SanitizeDisplayNameL10n(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	tags := make([]string, 0, len(in))
+	for tag := range in {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	out := make(map[string]string, len(in))
+	for _, tag := range tags {
+		lang := strings.ToLower(strings.TrimSpace(tag))
+		name := SanitizeDisplayName(in[tag])
+		if _, dup := out[lang]; dup || !langTagRE.MatchString(lang) || len(lang) > 35 || name == "" {
+			continue
+		}
+		if len(out) >= maxDisplayNameLangs {
+			break
+		}
+		out[lang] = name
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // OriginDomain derives the normalized domain name of the site a subject
@@ -122,9 +160,11 @@ func applyDisplayName(req *authzen.EvaluationRequest, resp *authzen.EvaluationRe
 	if resp.Context != nil {
 		if name := SanitizeDisplayName(resp.Context.DisplayName); name != "" {
 			resp.Context.DisplayName = name
+			resp.Context.DisplayNameL10n = SanitizeDisplayNameL10n(resp.Context.DisplayNameL10n)
 			return
 		}
 		resp.Context.DisplayName = ""
+		resp.Context.DisplayNameL10n = nil
 	}
 	if req == nil {
 		return
@@ -140,24 +180,29 @@ func applyDisplayName(req *authzen.EvaluationRequest, resp *authzen.EvaluationRe
 
 // mergeDisplayName carries a registry-supplied display name from the positive
 // children into the aggregate of a multi-registry strategy or composite. Children
-// finish in no particular order, so the lexically smallest name wins to keep
-// responses reproducible. A name only ever comes from a decision that said true.
+// finish in no particular order, so the child with the lexically smallest name
+// wins to keep responses reproducible; its display_name_l10n travels with it so
+// the two members always describe the same entity. A name only ever comes from a
+// decision that said true.
 func mergeDisplayName(resp *authzen.EvaluationResponse, children []*authzen.EvaluationResponse) {
 	if resp == nil || !resp.Decision {
 		return
 	}
-	var names []string
+	var best *authzen.EvaluationResponseContext
 	for _, c := range children {
-		if c != nil && c.Decision && c.Context != nil && c.Context.DisplayName != "" {
-			names = append(names, c.Context.DisplayName)
+		if c == nil || !c.Decision || c.Context == nil || c.Context.DisplayName == "" {
+			continue
+		}
+		if best == nil || c.Context.DisplayName < best.DisplayName {
+			best = c.Context
 		}
 	}
-	if len(names) == 0 {
+	if best == nil {
 		return
 	}
-	sort.Strings(names)
 	if resp.Context == nil {
 		resp.Context = &authzen.EvaluationResponseContext{}
 	}
-	resp.Context.DisplayName = names[0]
+	resp.Context.DisplayName = best.DisplayName
+	resp.Context.DisplayNameL10n = best.DisplayNameL10n
 }

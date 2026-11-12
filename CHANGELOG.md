@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Evaluation response `context.display_name` (#249): the `lote` registry's own name
+- Evaluation response `context.display_name` and `display_name_l10n` (language tag to
+  name) (#249): the `lote` registry's own name
   for the matched entity (trade name, else legal name, direct matches only), otherwise the normalized
   origin domain of `subject.id` (https/http URL, `did:web`, `x509_san_dns`/
   `x509_san_uri` client_id). Positive decisions only, sanitised, no policy switch;

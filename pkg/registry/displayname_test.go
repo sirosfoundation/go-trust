@@ -133,3 +133,41 @@ func TestManagerDisplayName(t *testing.T) {
 		})
 	}
 }
+
+func TestSanitizeDisplayNameL10n(t *testing.T) {
+	assert.Nil(t, SanitizeDisplayNameL10n(nil))
+	assert.Nil(t, SanitizeDisplayNameL10n(map[string]string{"": "x", "not a tag": "y", "en": " \u200b "}))
+	got := SanitizeDisplayNameL10n(map[string]string{
+		"EN":    " Acme\u202e Bank ",
+		"sv-SE": "Acme Bank AB",
+		"en":    "dup, dropped",
+		"@@":    "bad tag",
+	})
+	assert.Equal(t, map[string]string{"en": "Acme Bank", "sv-se": "Acme Bank AB"}, got)
+
+	many := map[string]string{}
+	for i := 0; i < 100; i++ {
+		many["a"+string(rune('a'+i%26))+string(rune('a'+i/26))] = "n"
+	}
+	assert.Len(t, SanitizeDisplayNameL10n(many), maxDisplayNameLangs)
+}
+
+func TestDisplayNameL10nTravelsWithTheName(t *testing.T) {
+	pos := func(name string, l10n map[string]string) *authzen.EvaluationResponse {
+		return &authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{DisplayName: name, DisplayNameL10n: l10n}}
+	}
+	resp := &authzen.EvaluationResponse{Decision: true}
+	mergeDisplayName(resp, []*authzen.EvaluationResponse{
+		pos("Zed", map[string]string{"en": "Zed"}),
+		pos("Alpha", map[string]string{"en": "Alpha", "sv": "Alfa"}),
+	})
+	assert.Equal(t, "Alpha", resp.Context.DisplayName)
+	assert.Equal(t, map[string]string{"en": "Alpha", "sv": "Alfa"}, resp.Context.DisplayNameL10n)
+
+	// An unnamed response falling back to the origin carries no l10n object, and
+	// l10n without a usable display_name is dropped.
+	fb := &authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{DisplayNameL10n: map[string]string{"en": "X"}}}
+	applyDisplayName(&authzen.EvaluationRequest{Subject: authzen.Subject{ID: "https://rp.example.com"}}, fb)
+	assert.Equal(t, "rp.example.com", fb.Context.DisplayName)
+	assert.Nil(t, fb.Context.DisplayNameL10n)
+}

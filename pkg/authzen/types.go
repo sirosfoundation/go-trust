@@ -84,6 +84,12 @@ type EvaluationResponseContext struct {
 	// Present only on positive decisions. Presentation only: never a trust
 	// input, and absence is not an error.
 	DisplayName string `json:"display_name,omitempty" example:"Acme Bank AB"`
+	// DisplayNameL10n carries the registry's names for the subject by language
+	// tag (lower-case BCP 47, e.g. "en", "sv"), for clients that pick a language
+	// of their own. DisplayName is the registry's preferred entry of the
+	// same name set (English when present); the member is absent when the name has no language-tagged source (for example the
+	// origin-domain fallback).
+	DisplayNameL10n map[string]string `json:"display_name_l10n,omitempty"`
 	// VerifierIDs lists verifier identifiers the PDP derived from authenticated
 	// material, for wallets that need a stable identifier string for the relying
 	// party (for example as input to a pseudonym function). It is present only

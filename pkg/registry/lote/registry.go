@@ -800,6 +800,15 @@ func setEntityDisplayName(resp *authzen.EvaluationResponse, ent *indexedEntity) 
 			resp.Context = &authzen.EvaluationResponseContext{}
 		}
 		resp.Context.DisplayName = name
+		l10n := make(map[string]string, len(names))
+		for _, n := range names {
+			if lang := strings.ToLower(strings.TrimSpace(n.Lang)); lang != "" {
+				if _, dup := l10n[lang]; !dup {
+					l10n[lang] = n.Value
+				}
+			}
+		}
+		resp.Context.DisplayNameL10n = registry.SanitizeDisplayNameL10n(l10n)
 		return
 	}
 }

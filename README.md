@@ -869,8 +869,10 @@ The name comes from, in order:
 
 Names are sanitised before they are returned (whitespace collapsed, control and bidirectional-override characters removed, 200 characters at most). Denials never carry a `display_name`.
 
+When the name comes from a registry, `context.display_name_l10n` also lists it by language tag (lower-case BCP 47, at most 32 entries), so a client can pick a language of its own; `display_name` is the registry's preferred entry of the same set (English when present). The object is absent for the origin-domain fallback, which has no language.
+
 ```json
-{"decision": true, "context": {"display_name": "Acme Bank AB"}}
+{"decision": true, "context": {"display_name": "Acme Bank Ltd", "display_name_l10n": {"en": "Acme Bank Ltd", "sv": "Acme Bank AB"}}}
 ```
 
 ### Verifier Identifiers (`verifier_ids`)
