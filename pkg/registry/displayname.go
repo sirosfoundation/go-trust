@@ -131,7 +131,6 @@ func applyDisplayName(req *authzen.EvaluationRequest, resp *authzen.EvaluationRe
 	}
 	// An overlong domain is omitted rather than truncated into a misleading host.
 	if origin := OriginDomain(req.Subject.ID); origin != "" && len(origin) <= maxDisplayNameLen {
-	if origin := OriginDomain(req.Subject.ID); origin != "" && len(origin) <= maxDisplayNameLen {
 		if resp.Context == nil {
 			resp.Context = &authzen.EvaluationResponseContext{}
 		}
