@@ -403,8 +403,8 @@ type LoTERegistryConfig struct {
 	// entities may act in that role. An action name that is itself a LoTE type
 	// URI needs no entry.
 	RoleSchemeTypes map[string][]string `yaml:"role_scheme_types,omitempty"`
-	// RequireRole denies x5c requests that reach the CA-anchored path without
-	// a role that resolves to LoTE types.
+	// RequireRole denies requests, for directly listed entities as well as
+	// CA-anchored chains, without a role that resolves to LoTE types.
 	RequireRole bool `yaml:"require_role,omitempty"`
 	// TrustAnchorBundle is the path to a PEM file of CA certificates that anchor
 	// the x5c chain of the JWS signer of every JSON LoTE and LoTL (compact,

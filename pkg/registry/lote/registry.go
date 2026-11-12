@@ -62,8 +62,9 @@ type Config struct {
 	// role.
 	RoleSchemeTypes map[string][]string
 
-	// RequireRole denies x5c requests that reach the CA-anchored path (subject
-	// not itself listed) without a role that resolves through RoleSchemeTypes.
+	// RequireRole denies any request whose action does not resolve to LoTE
+	// types through RoleSchemeTypes (or name a LoTE type itself), whether the
+	// subject is listed directly or reached through a listed CA.
 	RequireRole bool
 
 	// AllowStale accepts lists whose NextUpdate has passed. By default a
@@ -313,6 +314,13 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	// Look up the entity by subject ID, limited to the LoTE types the
 	// requested role allows.
 	roleTypes := r.roleTypes(req)
+	if roleTypes == nil && r.config.RequireRole {
+		reason := map[string]interface{}{
+			"admin": "the request names no role this registry can scope by (RequireRole)",
+		}
+		addCredentialTypesToReason(reason, credentialTypes)
+		return &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{Reason: reason}}, nil
+	}
 	variants := r.index.variants[subjectID]
 	var candidates []*indexedEntity
 	for _, v := range variants {
@@ -654,7 +662,8 @@ func leafBindingFailure(req *authzen.EvaluationRequest, leaf *x509.Certificate, 
 
 // scopedRoots returns the CA pool an x5c chain may anchor to: the certificates
 // of the role's LoTE types, or every listed certificate when the request names
-// no role. It reports false when the request names no role and RequireRole is set.
+// no role. It reports false when the request names no role and RequireRole is
+// set (Evaluate already denies that case; kept so the CA path fails closed on its own).
 func (r *Registry) scopedRoots(roleTypes []string) (*x509.CertPool, bool) {
 	if roleTypes == nil {
 		return r.index.globalCertPool, !r.config.RequireRole

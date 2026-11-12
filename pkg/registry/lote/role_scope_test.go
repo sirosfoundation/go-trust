@@ -245,3 +245,37 @@ func TestFreshness_LoTLLapseSparesIndependentTrust(t *testing.T) {
 	assert.False(t, granted("urn:short-only"), "only the lapsed LoTL vouched for it")
 	assert.True(t, granted("urn:both"), "still reachable through the current LoTL")
 }
+
+// require_role must also cover a subject that is listed directly (#253): a
+// missing or unmapped action is denied, not accepted against every list type.
+func TestRoleScope_RequireRoleDirectEntity(t *testing.T) {
+	cfg := Config{
+		RequireRole:     true,
+		RoleSchemeTypes: map[string][]string{"credential-issuer": {etsi119602.LoTETypePIDProviders}},
+	}
+	reg, _ := roleScopedRegistry(t, cfg)
+	ask := func(role string) bool {
+		req := &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{Type: "key", ID: "urn:pid-provider:no"},
+			Resource: authzen.Resource{ID: "urn:pid-provider:no"},
+		}
+		if role != "" {
+			req.Action = &authzen.Action{Name: role}
+		}
+		resp, err := reg.Evaluate(context.Background(), req)
+		require.NoError(t, err)
+		return resp.Decision
+	}
+	assert.True(t, ask("credential-issuer"), "mapped role of the listing type")
+	assert.True(t, ask(etsi119602.LoTETypePIDProviders), "LoTE type URI as role")
+	assert.False(t, ask(""), "no action")
+	assert.False(t, ask("something-else"), "unmapped action")
+
+	open, _ := roleScopedRegistry(t, Config{})
+	resp, err := open.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "urn:pid-provider:no"},
+		Resource: authzen.Resource{ID: "urn:pid-provider:no"},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Decision, "without require_role a role-less request stays unscoped")
+}
