@@ -22,7 +22,7 @@ require (
 	github.com/moov-io/signedxml v1.2.3
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/sirosfoundation/g119612 v0.8.1
+	github.com/sirosfoundation/g119612 v0.8.3
 	github.com/sirosfoundation/go-cryptoutil v0.7.2
 	github.com/sirosfoundation/go-cryptoutil/brainpool v0.7.2
 	github.com/sirosfoundation/go-cryptoutil/ecparams v0.7.2
