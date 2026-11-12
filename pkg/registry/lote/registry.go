@@ -390,6 +390,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	for _, ent := range candidates {
 		resp := r.evaluateEntity(req, ent, subjectID, credentialTypes)
 		if resp.Decision {
+			setEntityDisplayName(resp, ent)
 			return resp, nil
 		}
 		if denied == nil {
@@ -777,7 +778,43 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 		fmt.Sprintf("x5c chain validates against CA-anchored entity %q for subject", matchedID),
 		credentialTypes)
 	registry.ApplyEnrichmentToResponse(resp, enrichment)
+	setEntityDisplayName(resp, matchedEnt)
 	return resp
+}
+
+// setEntityDisplayName gives a positive response the listed entity's own name:
+// the trade name when the list carries one, else the legal name, preferring
+// English and otherwise the first entry.
+func setEntityDisplayName(resp *authzen.EvaluationResponse, ent *indexedEntity) {
+	if resp == nil || !resp.Decision || ent == nil {
+		return
+	}
+	info := ent.entity.TrustedEntityInformation
+	for _, names := range []etsi119602.NameSet{info.TETradeName, info.TEName} {
+		name := registry.SanitizeDisplayName(preferredName(names))
+		if name == "" {
+			continue
+		}
+		if resp.Context == nil {
+			resp.Context = &authzen.EvaluationResponseContext{}
+		}
+		resp.Context.DisplayName = name
+		return
+	}
+}
+
+func preferredName(names etsi119602.NameSet) string {
+	for _, n := range names {
+		if strings.EqualFold(n.Lang, "en") && strings.TrimSpace(n.Value) != "" {
+			return n.Value
+		}
+	}
+	for _, n := range names {
+		if strings.TrimSpace(n.Value) != "" {
+			return n.Value
+		}
+	}
+	return ""
 }
 
 // findMatchingEntityForChain identifies which listed entity's cert pool the given

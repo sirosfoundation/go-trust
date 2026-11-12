@@ -78,6 +78,12 @@ type EvaluationResponseContext struct {
 	// For OpenID Federation: contains the Entity Configuration
 	// This field is set when trust_metadata is requested or for resolution-only requests.
 	TrustMetadata interface{} `json:"trust_metadata,omitempty" swaggertype:"object"` // DID Document or Entity Configuration
+	// DisplayName is a human-facing name for the subject, for consent UIs. It is
+	// the registry's own name for the entity when it has one, otherwise the
+	// normalized domain name of the subject's origin when one can be derived.
+	// Present only on positive decisions. Presentation only: never a trust
+	// input, and absence is not an error.
+	DisplayName string `json:"display_name,omitempty" example:"Acme Bank AB"`
 	// VerifierIDs lists verifier identifiers the PDP derived from authenticated
 	// material, for wallets that need a stable identifier string for the relying
 	// party (for example as input to a pseudonym function). It is present only
