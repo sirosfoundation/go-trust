@@ -778,11 +778,12 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 		fmt.Sprintf("x5c chain validates against CA-anchored entity %q for subject", matchedID),
 		credentialTypes)
 	registry.ApplyEnrichmentToResponse(resp, enrichment)
-	setEntityDisplayName(resp, matchedEnt)
 	return resp
 }
 
-// setEntityDisplayName gives a positive response the listed entity's own name:
+// setEntityDisplayName gives a positive response the listed entity's own name
+// (direct matches only: on the CA-anchored path the listed entity is the issuing
+// CA, not the requesting verifier, so the subject's origin is the better label):
 // the trade name when the list carries one, else the legal name, preferring
 // English and otherwise the first entry.
 func setEntityDisplayName(resp *authzen.EvaluationResponse, ent *indexedEntity) {

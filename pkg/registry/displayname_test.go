@@ -63,6 +63,11 @@ func TestApplyDisplayName(t *testing.T) {
 	applyDisplayName(req, named)
 	assert.Equal(t, "Acme Bank", named.Context.DisplayName, "registry name wins, sanitized")
 
+	longHost := strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 20)
+	tooLong := &authzen.EvaluationResponse{Decision: true}
+	applyDisplayName(&authzen.EvaluationRequest{Subject: authzen.Subject{ID: "https://" + longHost}}, tooLong)
+	assert.Nil(t, tooLong.Context, "overlong origin is omitted, not truncated")
+
 	opaque := &authzen.EvaluationResponse{Decision: true}
 	applyDisplayName(&authzen.EvaluationRequest{Subject: authzen.Subject{ID: "x509_hash:ab"}}, opaque)
 	assert.Nil(t, opaque.Context, "no name and no origin: member absent")

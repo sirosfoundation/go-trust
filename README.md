@@ -864,8 +864,8 @@ A positive evaluation response may carry `context.display_name`, a human-facing 
 
 The name comes from, in order:
 
-1. **The registry's own name for the entity.** The `lote` registry returns the listed entity's `TETradeName`, else its `TEName`, preferring English and otherwise the first entry. Under the `all`/`best_match` strategies and composite registries the lexically smallest name among the agreeing registries is used, so responses are reproducible.
-2. **The origin of the subject**, when no registry names the entity: the lower-case domain name of `subject.id` when it is an `https`/`http` URL, a `did:web` identifier or an `x509_san_dns:`/`x509_san_uri:` client_id (no scheme, port, path or trailing dot; internationalised names stay in their A-label `xn--` form). Identifiers that name no site (hash identifiers, URNs, IP addresses) yield no member.
+1. **The registry's own name for the entity.** The `lote` registry returns the listed entity's `TETradeName`, else its `TEName`, preferring English and otherwise the first entry. This applies when the subject is itself listed; for a verifier reached through a listed CA the CA's name is not used, since it does not name the verifier. Under the `all`/`best_match` strategies and composite registries the lexically smallest name among the agreeing registries is used, so responses are reproducible.
+2. **The origin of the subject**, when no registry names the entity: the lower-case domain name of `subject.id` when it is an `https`/`http` URL, a `did:web` identifier or an `x509_san_dns:`/`x509_san_uri:` client_id (no scheme, port, path or trailing dot; internationalised names stay in their A-label `xn--` form; omitted if longer than 200 characters). Identifiers that name no site (hash identifiers, URNs, IP addresses) yield no member.
 
 Names are sanitised before they are returned (whitespace collapsed, control and bidirectional-override characters removed, 200 characters at most). Denials never carry a `display_name`.
 
