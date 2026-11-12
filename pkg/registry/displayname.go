@@ -129,7 +129,7 @@ func applyDisplayName(req *authzen.EvaluationRequest, resp *authzen.EvaluationRe
 	if req == nil {
 		return
 	}
-	if origin := OriginDomain(req.Subject.ID); origin != "" {
+	if origin := OriginDomain(req.Subject.ID); origin != "" && len(origin) <= maxDisplayNameLen {
 		if resp.Context == nil {
 			resp.Context = &authzen.EvaluationResponseContext{}
 		}
