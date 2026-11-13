@@ -269,32 +269,14 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 			}
 		}
 
-		// Over-request detection against the AUTHORITATIVE entitlements: the
-		// registrar-issued credential queries in the WRPRC payload, not
-		// policy-configured attributes. A WRPRC granting NO queries is an
-		// authoritative empty grant, not missing data: every requested
-		// attribute is an over-request.
-		if requestedAttrs := extractRequestedAttributes(req); len(requestedAttrs) > 0 {
-			if len(ent.AllowedAttributes) == 0 {
-				result.OverRequest = &rpcert.OverRequestResult{
-					Requested:     requestedAttrs,
-					OverRequested: requestedAttrs,
-					IsOverRequest: true,
-				}
-			} else {
-				result.OverRequest = rpcert.DetectOverRequest(ent, requestedAttrs)
-			}
-			if result.OverRequest.IsOverRequest && isStrictEntitlementCheck(req) {
-				denyOverRequest(result)
-				return result
-			}
-		} else if requestsWholeCredential(req) {
-			// A DCQL credential query without `claims` requests the WHOLE
-			// credential — a scope the registrar's attribute-level grants
-			// cannot represent, so the over-request comparison above cannot
-			// run. In strict mode that unrepresentable scope denies rather
-			// than passing as "nothing requested"; otherwise it is surfaced
-			// as a warning alongside the allow.
+		// A whole-credential request — a DCQL credential query without
+		// `claims` — is checked FIRST and unconditionally: a MIXED query
+		// (one claims-less credential beside one with claims) must not slip
+		// the unrepresentable scope past the attribute-level comparison
+		// below, which would otherwise see only the explicit claims.
+		// In strict mode the unrepresentable scope denies; otherwise it is
+		// surfaced as a warning and the attribute comparison still runs.
+		if requestsWholeCredential(req) {
 			result.OverRequest = &rpcert.OverRequestResult{
 				OverRequested: []string{"<the entire credential>"},
 				IsOverRequest: true,
@@ -304,6 +286,33 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 				result.FailureReason = map[string]interface{}{
 					"error": "the request asks for a whole credential, which the WRPRC's attribute-level grants cannot represent",
 				}
+				return result
+			}
+		}
+
+		// Over-request detection against the AUTHORITATIVE entitlements: the
+		// registrar-issued credential queries in the WRPRC payload, not
+		// policy-configured attributes. A WRPRC granting NO queries is an
+		// authoritative empty grant, not missing data: every requested
+		// attribute is an over-request.
+		if requestedAttrs := extractRequestedAttributes(req); len(requestedAttrs) > 0 {
+			var overReq *rpcert.OverRequestResult
+			if len(ent.AllowedAttributes) == 0 {
+				overReq = &rpcert.OverRequestResult{
+					Requested:     requestedAttrs,
+					OverRequested: requestedAttrs,
+					IsOverRequest: true,
+				}
+			} else {
+				overReq = rpcert.DetectOverRequest(ent, requestedAttrs)
+			}
+			// A clean attribute comparison must not erase the
+			// whole-credential warning recorded above.
+			if overReq.IsOverRequest || result.OverRequest == nil {
+				result.OverRequest = overReq
+			}
+			if result.OverRequest.IsOverRequest && isStrictEntitlementCheck(req) {
+				denyOverRequest(result)
 				return result
 			}
 		}

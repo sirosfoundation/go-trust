@@ -1321,3 +1321,41 @@ func TestVerifyWRPRC_CritHeaderRefused(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "critical header")
 }
+
+func TestEnrichX5CResponse_WRPRCMixedQueryWholeCredentialStrictDenies(t *testing.T) {
+	// A MIXED query — one claims-less credential (the whole credential)
+	// beside one with an ALLOWED claim — must not slip the whole-credential
+	// scope past strict mode through the allowed claim's attribute check.
+	token, validator := mintWRPRC(t, wrprcClaims(""))
+	leaf := wrpacLeaf(t, "LEIXG-FRONTED")
+	query := map[string]interface{}{
+		"credentials": []interface{}{
+			map[string]interface{}{"id": "whole", "format": "dc+sd-jwt"},
+			map[string]interface{}{
+				"id":     "scoped",
+				"format": "dc+sd-jwt",
+				"claims": []interface{}{
+					map[string]interface{}{"path": []interface{}{"given_name"}},
+				},
+			},
+		},
+	}
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                    token,
+		"query":                    query,
+		"strict_entitlement_check": true,
+	}}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.FailureReason)
+	assert.Contains(t, result.FailureReason["error"], "whole credential")
+
+	// Non-strict: allow, with the whole-credential warning preserved even
+	// though the explicit claim (given_name) is within the grant.
+	req.Context["strict_entitlement_check"] = false
+	result = EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.True(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	assert.True(t, result.OverRequest.IsOverRequest)
+	assert.Equal(t, []string{"<the entire credential>"}, result.OverRequest.OverRequested)
+}
