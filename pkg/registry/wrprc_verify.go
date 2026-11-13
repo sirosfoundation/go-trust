@@ -80,7 +80,7 @@ func (v *anchoredWRPRCVerifier) VerifyWRPRC(_ context.Context, token []byte) (*r
 		return nil, fmt.Errorf("wrprc: unexpected JWS typ %q, want %q", header.Typ, rpcert.WRPRCTyp)
 	}
 
-	leaf, intermediates, err := parseWRPRCX5C(header.X5C)
+	leaf, intermediates, err := ParseJWSX5CChain(header.X5C)
 	if err != nil {
 		return nil, err
 	}
@@ -134,9 +134,10 @@ func (v *anchoredWRPRCVerifier) VerifyWRPRC(_ context.Context, token []byte) (*r
 	return ent, nil
 }
 
-// parseWRPRCX5C parses the base64-encoded DER chain from the JWS x5c header
-// into the leaf and an intermediates pool.
-func parseWRPRCX5C(x5c []string) (*x509.Certificate, *x509.CertPool, error) {
+// ParseJWSX5CChain parses the base64-encoded DER certificate chain from a
+// JWS x5c header into the leaf and an intermediates pool — the shared
+// implementation the WRPRC verifier and the lote JWS verification both use.
+func ParseJWSX5CChain(x5c []string) (*x509.Certificate, *x509.CertPool, error) {
 	if len(x5c) == 0 {
 		return nil, nil, fmt.Errorf("wrprc: JWS header missing x5c certificate chain")
 	}

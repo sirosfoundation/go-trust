@@ -467,17 +467,9 @@ func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEn
 			if certs, err := parseX5CCerts(req, r.config.CryptoExt); err == nil && len(certs) > 0 {
 				enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles, r.wrprcVerifier())
 				if !enrichment.Decision {
-					reason := map[string]interface{}{
-						"admin": fmt.Sprintf("key matches entity %q but enrichment check failed", subjectID),
-					}
-					for k, v := range enrichment.FailureReason {
-						reason[k] = v
-					}
-					addCredentialTypesToReason(reason, credentialTypes)
-					return &authzen.EvaluationResponse{
-						Decision: false,
-						Context:  &authzen.EvaluationResponseContext{Reason: reason},
-					}
+
+					return enrichmentDenial(fmt.Sprintf("key matches entity %q but enrichment check failed", subjectID), enrichment, credentialTypes)
+
 				}
 				registry.ApplyEnrichmentToResponse(resp, enrichment)
 			}
@@ -654,19 +646,9 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 			r.wrprcVerifier(),
 		)
 		if !enrichment.Decision {
-			reason := map[string]interface{}{
-				"admin": fmt.Sprintf("x5c chain valid for entity %q but enrichment check failed", ent.entityID),
-			}
-			for k, v := range enrichment.FailureReason {
-				reason[k] = v
-			}
-			addCredentialTypesToReason(reason, credentialTypes)
-			return &authzen.EvaluationResponse{
-				Decision: false,
-				Context: &authzen.EvaluationResponseContext{
-					Reason: reason,
-				},
-			}
+
+			return enrichmentDenial(fmt.Sprintf("x5c chain valid for entity %q but enrichment check failed", ent.entityID), enrichment, credentialTypes)
+
 		}
 		resp := r.buildSuccessResponse(ent.entityID, ent.territory, "x5c chain validates against trust anchor for entity", credentialTypes)
 		registry.ApplyEnrichmentToResponse(resp, enrichment)
@@ -688,6 +670,21 @@ func leafBindingFailure(req *authzen.EvaluationRequest, leaf *x509.Certificate, 
 	}
 	reason := map[string]interface{}{
 		"admin": fmt.Sprintf("x5c chain validates against a listed CA but certificate binding check failed: %s", bindErr),
+	}
+	addCredentialTypesToReason(reason, credentialTypes)
+	return &authzen.EvaluationResponse{
+		Decision: false,
+		Context:  &authzen.EvaluationResponseContext{Reason: reason},
+	}
+}
+
+// enrichmentDenial builds the denial response for a failed enrichment check:
+// the admin message naming what anchored, the enrichment's own failure
+// reason, and the request's credential types.
+func enrichmentDenial(adminMsg string, enrichment *registry.X5CEnrichmentResult, credentialTypes []string) *authzen.EvaluationResponse {
+	reason := map[string]interface{}{"admin": adminMsg}
+	for k, v := range enrichment.FailureReason {
+		reason[k] = v
 	}
 	addCredentialTypesToReason(reason, credentialTypes)
 	return &authzen.EvaluationResponse{
@@ -822,17 +819,9 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 		r.wrprcVerifier(),
 	)
 	if !enrichment.Decision {
-		reason := map[string]interface{}{
-			"admin": fmt.Sprintf("x5c chain validates against CA %q in LoTE but enrichment check failed", matchedID),
-		}
-		for k, v := range enrichment.FailureReason {
-			reason[k] = v
-		}
-		addCredentialTypesToReason(reason, credentialTypes)
-		return &authzen.EvaluationResponse{
-			Decision: false,
-			Context:  &authzen.EvaluationResponseContext{Reason: reason},
-		}
+
+		return enrichmentDenial(fmt.Sprintf("x5c chain validates against CA %q in LoTE but enrichment check failed", matchedID), enrichment, credentialTypes)
+
 	}
 
 	resp := r.buildSuccessResponse(req.Subject.ID, territory,

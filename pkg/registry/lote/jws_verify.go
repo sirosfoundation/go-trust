@@ -136,7 +136,7 @@ func verifyLoTEJWS(_ context.Context, raw []byte, roots *x509.CertPool, now time
 	}
 
 	// Parse x5c chain
-	leaf, intermediates, err := parseX5CChainRaw(header.X5C)
+	leaf, intermediates, err := registry.ParseJWSX5CChain(header.X5C)
 	if err != nil {
 		return nil, nil, fmt.Errorf("lote: parsing x5c from JWS header: %w", err)
 	}
@@ -168,34 +168,6 @@ func verifyLoTEJWS(_ context.Context, raw []byte, roots *x509.CertPool, now time
 	}
 
 	return leaf, payload, nil
-}
-
-func parseX5CChainRaw(x5c []string) (*x509.Certificate, *x509.CertPool, error) {
-	if len(x5c) == 0 {
-		return nil, nil, fmt.Errorf("x5c is empty")
-	}
-	intermediates := x509.NewCertPool()
-	var leaf *x509.Certificate
-	for i, b64 := range x5c {
-		der, err := base64.StdEncoding.DecodeString(b64)
-		if err != nil {
-			// Some implementations use raw URL encoding
-			der, err = base64.RawStdEncoding.DecodeString(b64)
-			if err != nil {
-				return nil, nil, fmt.Errorf("x5c[%d]: base64 decode failed: %w", i, err)
-			}
-		}
-		cert, err := x509.ParseCertificate(der)
-		if err != nil {
-			return nil, nil, fmt.Errorf("x5c[%d]: parse certificate: %w", i, err)
-		}
-		if i == 0 {
-			leaf = cert
-		} else {
-			intermediates.AddCert(cert)
-		}
-	}
-	return leaf, intermediates, nil
 }
 
 // fetchRawSource fetches the raw bytes from a URL or local file path.

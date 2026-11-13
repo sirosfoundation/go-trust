@@ -264,13 +264,7 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 				result.OverRequest = rpcert.DetectOverRequest(ent, requestedAttrs)
 			}
 			if result.OverRequest.IsOverRequest && isStrictEntitlementCheck(req) {
-				result.Decision = false
-				result.FailureReason = map[string]interface{}{
-					"error":          "RP is requesting attributes beyond their entitlements",
-					"over_requested": result.OverRequest.OverRequested,
-					"allowed":        result.OverRequest.Allowed,
-					"requested":      result.OverRequest.Requested,
-				}
+				denyOverRequest(result)
 				return result
 			}
 		}
@@ -297,13 +291,7 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 			result.OverRequest = rpcert.DetectOverRequest(entitlements, requestedAttrs)
 
 			if result.OverRequest.IsOverRequest && isStrictEntitlementCheck(req) {
-				result.Decision = false
-				result.FailureReason = map[string]interface{}{
-					"error":          "RP is requesting attributes beyond their entitlements",
-					"over_requested": result.OverRequest.OverRequested,
-					"allowed":        result.OverRequest.Allowed,
-					"requested":      result.OverRequest.Requested,
-				}
+				denyOverRequest(result)
 				return result
 			}
 		}
@@ -544,6 +532,19 @@ func extractRequestedAttributes(req *authzen.EvaluationRequest) []string {
 	}
 
 	return nil
+}
+
+// denyOverRequest marks the enrichment result as a strict-mode over-request
+// denial — the shared shape of the WRPRC (authoritative) and legacy
+// (policy-configured) over-request paths.
+func denyOverRequest(result *X5CEnrichmentResult) {
+	result.Decision = false
+	result.FailureReason = map[string]interface{}{
+		"error":          "RP is requesting attributes beyond their entitlements",
+		"over_requested": result.OverRequest.OverRequested,
+		"allowed":        result.OverRequest.Allowed,
+		"requested":      result.OverRequest.Requested,
+	}
 }
 
 // extractWRPRC extracts the serialized fronted relying party's WRPRC
