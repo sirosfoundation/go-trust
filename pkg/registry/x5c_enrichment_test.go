@@ -1471,3 +1471,78 @@ func TestEnrichX5CResponse_WRPRCNestedClaimPathsExact(t *testing.T) {
 	result = EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
 	assert.True(t, result.Decision)
 }
+
+func TestEnrichX5CResponse_WRPRCDottedClaimNameNoCollision(t *testing.T) {
+	// A grant for the nested path ["address", "street"]; a request listing
+	// the granted path AND the dotted literal ["address.street"]. The two
+	// are DIFFERENT claims: a joined-string dedup key would merge them and
+	// the ungranted literal would escape the exact-path check. Direct
+	// comparison keeps both, and strict mode denies the literal.
+	claims := wrprcClaims("")
+	claims["credentials"] = []map[string]interface{}{
+		{
+			"format": "dc+sd-jwt",
+			"claims": []map[string]interface{}{
+				{"path": []string{"address", "street"}},
+			},
+		},
+	}
+	token, validator := mintWRPRC(t, claims)
+	leaf := wrpacLeaf(t, "LEIXG-FRONTED")
+	query := map[string]interface{}{
+		"credentials": []interface{}{
+			map[string]interface{}{
+				"id":     "pid",
+				"format": "dc+sd-jwt",
+				"claims": []interface{}{
+					map[string]interface{}{"path": []interface{}{"address", "street"}},
+					map[string]interface{}{"path": []interface{}{"address.street"}},
+				},
+			},
+		},
+	}
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                    token,
+		"query":                    query,
+		"strict_entitlement_check": true,
+	}}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	require.Contains(t, result.OverRequest.OverRequested, "address.street")
+	// The granted nested path is not over-requested: only the literal is.
+	require.Len(t, result.OverRequest.OverRequested, 1)
+}
+
+func TestApplyEnrichmentToResponse_IncludesExactClaimPathGrants(t *testing.T) {
+	// The response must carry the registrar's EXACT grants: an mdoc grant
+	// for [namespace, age_over_18] flattens to the namespace alone, and an
+	// EDP consumer cannot distinguish it from a grant for portrait without
+	// the full path.
+	claims := wrprcClaims("")
+	claims["credentials"] = []map[string]interface{}{
+		{
+			"format": "mso_mdoc",
+			"claims": []map[string]interface{}{
+				{"path": []string{"org.iso.18013.5.1", "age_over_18"}},
+			},
+		},
+	}
+	token, validator := mintWRPRC(t, claims)
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, wrpacLeaf(t, "LEIXG-FRONTED"), rpcert.DefaultProfileRegistry(), validator)
+	assert.True(t, result.Decision)
+	resp := &authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{}}
+	ApplyEnrichmentToResponse(resp, result)
+	md, ok := resp.Context.TrustMetadata.(map[string]interface{})
+	require.True(t, ok)
+	wrprc, ok := md["wrprc"].(map[string]interface{})
+	require.True(t, ok)
+	paths, ok := wrprc["allowed_claim_paths"].([]map[string]interface{})
+	require.True(t, ok, "the exact claim-path grants must be present")
+	require.Len(t, paths, 1)
+	assert.Equal(t, "mso_mdoc", paths[0]["format"])
+	assert.Equal(t, []string{"org.iso.18013.5.1", "age_over_18"}, paths[0]["path"])
+	// The flat display names remain beside them.
+	assert.Equal(t, []string{"org.iso.18013.5.1"}, wrprc["allowed_attributes"])
+}

@@ -3,7 +3,6 @@ package registry
 import (
 	"context"
 	"crypto/x509"
-	"strings"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
@@ -450,8 +449,13 @@ func ApplyEnrichmentToResponse(resp *authzen.EvaluationResponse, enrichment *X5C
 			"trade_name":            ent.TradeName,
 			"country":               ent.Country,
 			"entitlements":          ent.EntitlementURIs,
-			"allowed_attributes":    ent.AllowedAttributes,
-			"privacy_policy_uri":    ent.PrivacyPolicyURI,
+			// The display-oriented flat names AND the exact grants: an
+			// mdoc grant for [namespace, age_over_18] flattens to the
+			// namespace alone, and a consumer cannot distinguish it from a
+			// grant for [namespace, portrait] without the full paths.
+			"allowed_attributes":  ent.AllowedAttributes,
+			"allowed_claim_paths": claimPathGrantsMetadata(ent.AllowedClaimPaths),
+			"privacy_policy_uri":  ent.PrivacyPolicyURI,
 		}
 	}
 
@@ -628,6 +632,20 @@ func requestsWholeCredential(req *authzen.EvaluationRequest) bool {
 	return dcql.RequestsWholeCredential()
 }
 
+// claimPathGrantsMetadata renders the registrar's exact claim-path grants
+// for response consumers: each entry the credential format and the full
+// claim path at its native granularity.
+func claimPathGrantsMetadata(grants []rpcert.ClaimPathGrant) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(grants))
+	for _, grant := range grants {
+		out = append(out, map[string]interface{}{
+			"format": grant.Format,
+			"path":   append([]string(nil), grant.Path...),
+		})
+	}
+	return out
+}
+
 // denyOverRequest marks the enrichment result as a strict-mode over-request
 // denial — the shared shape of the WRPRC (authoritative) and legacy
 // (policy-configured) over-request paths.
@@ -670,13 +688,19 @@ func extractWRPRC(req *authzen.EvaluationRequest) (token string, valid bool, pre
 // DCQL entries carry their query's.
 func requestedClaimGrants(req *authzen.EvaluationRequest) []rpcert.ClaimPathGrant {
 	var requested []rpcert.ClaimPathGrant
-	seen := map[string]bool{}
 	add := func(format string, path []string) {
-		key := format + "\x00" + strings.Join(path, ".")
-		if seen[key] || len(path) == 0 {
+		if len(path) == 0 {
 			return
 		}
-		seen[key] = true
+		// Deduplicate by DIRECT comparison, never a joined-string key: a
+		// dotted key merges ["address", "street"] with ["address.street"],
+		// and the merged-away literal claim would escape the exact-path
+		// check.
+		for _, existing := range requested {
+			if existing.Format == format && rpcert.EqualClaimPath(existing.Path, path) {
+				return
+			}
+		}
 		requested = append(requested, rpcert.ClaimPathGrant{Format: format, Path: path})
 	}
 	if req.Context != nil {

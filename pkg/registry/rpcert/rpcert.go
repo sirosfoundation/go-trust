@@ -358,8 +358,8 @@ func claimPathGrants(creds []wrprcCredential) []ClaimPathGrant {
 	return grants
 }
 
-// equalClaimPath reports whether two claim paths are element-wise equal.
-func equalClaimPath(a, b []string) bool {
+// EqualClaimPath reports whether two claim paths are element-wise equal.
+func EqualClaimPath(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -387,7 +387,7 @@ func DetectOverRequestPaths(entitlements *RPEntitlements, requested []ClaimPathG
 		granted := false
 		for _, grant := range entitlements.AllowedClaimPaths {
 			if (grant.Format == "" || req.Format == "" || grant.Format == req.Format) &&
-				equalClaimPath(grant.Path, req.Path) {
+				EqualClaimPath(grant.Path, req.Path) {
 				granted = true
 				break
 			}
