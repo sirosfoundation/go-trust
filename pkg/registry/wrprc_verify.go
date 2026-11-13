@@ -1,0 +1,237 @@
+package registry
+
+import (
+	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"math/big"
+	"strings"
+
+	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
+
+	// Import hash implementations so crypto.SHA256 etc. are available via .New().
+	_ "crypto/sha256"
+	_ "crypto/sha512"
+)
+
+// WRPRCVerifier evaluates a presented WRPRC (the fronted relying party's
+// registration certificate, ETSI TS 119 475): the typ, the registrar chain
+// anchored in the configured roots, the JWT signature by the anchored
+// chain's leaf key, the claims, and the validity period.
+//
+// rpcert deliberately does not verify JWT signatures — see its doc.go: the
+// caller holds that step, because it holds the protocol context. For the x5c
+// enrichment pipeline the caller IS this pipeline, so the step belongs here:
+// the deprecated rpcert.JWTRegistrationCertValidator anchors the chain and
+// decodes the payload but never checks that the payload was signed by the
+// key in that chain — a payload swapped under an authentic registrar header
+// passes it. It does not pass a WRPRCVerifier.
+type WRPRCVerifier interface {
+	VerifyWRPRC(ctx context.Context, token []byte) (*rpcert.RPEntitlements, error)
+}
+
+// NewAnchoredWRPRCVerifier returns a WRPRCVerifier that anchors the WRPRC's
+// registrar chain in roots. A nil pool means every presentation fails: the
+// enrichment fails closed when a WRPRC arrives with no anchors configured.
+func NewAnchoredWRPRCVerifier(roots *x509.CertPool) WRPRCVerifier {
+	return &anchoredWRPRCVerifier{roots: roots}
+}
+
+type anchoredWRPRCVerifier struct {
+	roots *x509.CertPool
+}
+
+// VerifyWRPRC evaluates a compact-serialization rc-wrp+jwt: the header typ,
+// the x5c chain against the anchors, the JWS signature under the anchored
+// leaf's public key (RFC 7518), the payload claims, and the validity period.
+func (v *anchoredWRPRCVerifier) VerifyWRPRC(_ context.Context, token []byte) (*rpcert.RPEntitlements, error) {
+	if v.roots == nil {
+		return nil, fmt.Errorf("wrprc: no registrar trust anchors configured")
+	}
+	trimmed := strings.TrimSpace(string(token))
+	parts := strings.Split(trimmed, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("wrprc: expected a compact JWS with 3 parts, got %d", len(parts))
+	}
+
+	headerRaw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("wrprc: decoding JWS header: %w", err)
+	}
+	var header struct {
+		Typ string   `json:"typ"`
+		Alg string   `json:"alg"`
+		X5C []string `json:"x5c"`
+	}
+	if err := json.Unmarshal(headerRaw, &header); err != nil {
+		return nil, fmt.Errorf("wrprc: parsing JWS header: %w", err)
+	}
+	// GEN-5.2.2-01: the media type identifies the document. Compared exactly:
+	// Registrars emit the lowercase form and the latitude of a
+	// case-insensitive media type buys nothing.
+	if header.Typ != rpcert.WRPRCTyp {
+		return nil, fmt.Errorf("wrprc: unexpected JWS typ %q, want %q", header.Typ, rpcert.WRPRCTyp)
+	}
+
+	leaf, intermediates, err := parseWRPRCX5C(header.X5C)
+	if err != nil {
+		return nil, err
+	}
+	opts := x509.VerifyOptions{
+		Roots:         v.roots,
+		Intermediates: intermediates,
+		// ExtKeyUsageAny: the registrar signing certificate is not a TLS
+		// server certificate; Go's zero-value KeyUsages would reject it.
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}
+	if _, err := leaf.Verify(opts); err != nil {
+		return nil, fmt.Errorf("wrprc: registrar chain does not anchor: %w", err)
+	}
+
+	// THE signature: the payload was signed by the anchored chain's leaf
+	// key — the step that makes a swapped-payload attack fail.
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return nil, fmt.Errorf("wrprc: decoding JWS signature: %w", err)
+	}
+	if err := verifyWRPRCSignature(header.Alg, leaf.PublicKey, []byte(parts[0]+"."+parts[1]), sig); err != nil {
+		return nil, fmt.Errorf("wrprc: JWS signature: %w", err)
+	}
+
+	payload, err := rpcert.ParseWRPRCJWTPayload(trimmed)
+	if err != nil {
+		return nil, err
+	}
+	ent, err := rpcert.ParseWRPRCClaims(payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := rpcert.CheckWRPRCValidityPeriod(ent); err != nil {
+		return nil, err
+	}
+	ent.Raw = trimmed
+	return ent, nil
+}
+
+// parseWRPRCX5C parses the base64-encoded DER chain from the JWS x5c header
+// into the leaf and an intermediates pool.
+func parseWRPRCX5C(x5c []string) (*x509.Certificate, *x509.CertPool, error) {
+	if len(x5c) == 0 {
+		return nil, nil, fmt.Errorf("wrprc: JWS header missing x5c certificate chain")
+	}
+	intermediates := x509.NewCertPool()
+	var leaf *x509.Certificate
+	for i, b64 := range x5c {
+		der, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			der, err = base64.RawStdEncoding.DecodeString(b64)
+			if err != nil {
+				return nil, nil, fmt.Errorf("wrprc: x5c[%d]: base64 decode failed: %w", i, err)
+			}
+		}
+		cert, err := x509.ParseCertificate(der)
+		if err != nil {
+			return nil, nil, fmt.Errorf("wrprc: x5c[%d]: parse failed: %w", i, err)
+		}
+		if i == 0 {
+			leaf = cert
+		} else {
+			intermediates.AddCert(cert)
+		}
+	}
+	return leaf, intermediates, nil
+}
+
+// verifyWRPRCSignature verifies a JWS signature per RFC 7518. The algorithm
+// set mirrors the LoTE JWS verifier (lote/jws_verify.go): the RSA and ECDSA
+// families registrars actually use per TS 119 182-1. HMAC algorithms are
+// absent on purpose: a symmetric MAC has no place in a chain-anchored
+// registrar certificate.
+func verifyWRPRCSignature(alg string, pub crypto.PublicKey, signingInput, sig []byte) error {
+	switch alg {
+	case "RS256", "RS384", "RS512":
+		rsaKey, ok := pub.(*rsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("algorithm %s requires RSA public key", alg)
+		}
+		h := jwsAlgHash(alg)
+		hh := h.New()
+		hh.Write(signingInput)
+		return rsa.VerifyPKCS1v15(rsaKey, h, hh.Sum(nil), sig) //nolint:gosec
+	case "PS256", "PS384", "PS512":
+		rsaKey, ok := pub.(*rsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("algorithm %s requires RSA public key", alg)
+		}
+		h := jwsAlgHash(alg)
+		hh := h.New()
+		hh.Write(signingInput)
+		pssOpts := &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: h}
+		return rsa.VerifyPSS(rsaKey, h, hh.Sum(nil), sig, pssOpts)
+	case "ES256", "ES384", "ES512":
+		ecKey, ok := pub.(*ecdsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("algorithm %s requires ECDSA public key", alg)
+		}
+		h := jwsAlgHash(alg)
+		hh := h.New()
+		hh.Write(signingInput)
+		digest := hh.Sum(nil)
+		// ECDSA JWS signature is r || s (fixed-size big-endian) per RFC 7518 §3.4.
+		keyBytes := (ecKey.Curve.Params().BitSize + 7) / 8
+		if len(sig) != 2*keyBytes {
+			return fmt.Errorf("ECDSA signature has unexpected length %d (want %d)", len(sig), 2*keyBytes)
+		}
+		r := new(big.Int).SetBytes(sig[:keyBytes])
+		s := new(big.Int).SetBytes(sig[keyBytes:])
+		if !ecdsa.Verify(ecKey, digest, r, s) {
+			return fmt.Errorf("ECDSA signature invalid")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported JWS algorithm %q", alg)
+	}
+}
+
+// jwsAlgHash maps a JWA algorithm name to its crypto.Hash (RFC 7518 §3).
+func jwsAlgHash(alg string) crypto.Hash {
+	switch alg {
+	case "RS256", "PS256", "ES256":
+		return crypto.SHA256
+	case "RS384", "PS384", "ES384":
+		return crypto.SHA384
+	default: // RS512, PS512, ES512
+		return crypto.SHA512
+	}
+}
+
+// mintWRPRCSignature signs the JWS signing input in the JOSE format
+// (test-only helper): r || s fixed-width big-endian per RFC 7518 §3.4.
+func mintWRPRCSignature(key *ecdsa.PrivateKey, alg string, signingInput []byte) ([]byte, error) {
+	var h crypto.Hash
+	switch alg {
+	case "ES256":
+		h = crypto.SHA256
+	default:
+		return nil, fmt.Errorf("test helper: unsupported algorithm %q", alg)
+	}
+	hh := h.New()
+	hh.Write(signingInput)
+	digest := hh.Sum(nil)
+	r, s, err := ecdsa.Sign(rand.Reader, key, digest)
+	if err != nil {
+		return nil, err
+	}
+	keyBytes := (elliptic.P256().Params().BitSize + 7) / 8
+	sig := make([]byte, 2*keyBytes)
+	r.FillBytes(sig[:keyBytes])
+	s.FillBytes(sig[keyBytes:])
+	return sig, nil
+}

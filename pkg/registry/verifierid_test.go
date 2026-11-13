@@ -176,7 +176,7 @@ func TestCanonicalForms(t *testing.T) {
 
 func TestEnrichVerifierIDs_PolicyOffEmitsNothing(t *testing.T) {
 	cert := makeVIDCert(t, vidCertOpts{orgID: "VATSE-556000000101", policy: rpcert.OIDNCPLegalPerson, dns: []string{"rp.example.com"}})
-	res := EnrichX5CResponseWithProfiles(vidReq("x509_san_dns:rp.example.com", nil, nil), cert, rpcert.DefaultProfileRegistry())
+	res := EnrichX5CResponseWithProfiles(vidReq("x509_san_dns:rp.example.com", nil, nil), cert, rpcert.DefaultProfileRegistry(), nil)
 	assert.Empty(t, res.VerifierIDs)
 
 	resp := &authzen.EvaluationResponse{Decision: true}
@@ -187,7 +187,7 @@ func TestEnrichVerifierIDs_PolicyOffEmitsNothing(t *testing.T) {
 func TestEnrichVerifierIDs_Semantic_LegalPerson(t *testing.T) {
 	cert := makeVIDCert(t, vidCertOpts{orgID: "VATSE-556000000101", policy: rpcert.OIDNCPLegalPerson})
 	req := vidReq("https://rp.example.com", []string{"semantic"}, nil)
-	res := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry())
+	res := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry(), nil)
 
 	require.True(t, res.Decision)
 	assert.Equal(t, []authzen.VerifierID{{
@@ -202,7 +202,7 @@ func TestEnrichVerifierIDs_Semantic_LegalPerson(t *testing.T) {
 // ETSI TS 119 475 5.1.5: natural-person semantic identifiers live in serialNumber.
 func TestEnrichVerifierIDs_Semantic_NaturalPerson(t *testing.T) {
 	cert := makeVIDCert(t, vidCertOpts{serial: "PNOSE-196001010101", policy: rpcert.OIDNCPNaturalPerson})
-	res := EnrichX5CResponseWithProfiles(vidReq("https://rp.example.com", []string{"semantic"}, nil), cert, rpcert.DefaultProfileRegistry())
+	res := EnrichX5CResponseWithProfiles(vidReq("https://rp.example.com", []string{"semantic"}, nil), cert, rpcert.DefaultProfileRegistry(), nil)
 	require.True(t, res.Decision)
 	assert.Equal(t, []authzen.VerifierID{{
 		Type: "semantic", ID: "semantic_id:PNOSE-196001010101", Basis: "x5c-chain",
@@ -214,7 +214,7 @@ func TestEnrichVerifierIDs_Semantic_NaturalPerson(t *testing.T) {
 func TestEnrichVerifierIDs_Semantic_NonSemanticSerialNumberNotEmitted(t *testing.T) {
 	for _, policy := range []string{rpcert.OIDNCPLegalPerson, rpcert.OIDNCPNaturalPerson, ""} {
 		cert := makeVIDCert(t, vidCertOpts{serial: "123456", policy: policy})
-		res := EnrichX5CResponseWithProfiles(vidReq("https://rp.example.com", []string{"semantic"}, nil), cert, rpcert.DefaultProfileRegistry())
+		res := EnrichX5CResponseWithProfiles(vidReq("https://rp.example.com", []string{"semantic"}, nil), cert, rpcert.DefaultProfileRegistry(), nil)
 		assert.True(t, res.Decision)
 		assert.Empty(t, res.VerifierIDs, "policy %q", policy)
 	}
@@ -294,7 +294,7 @@ func TestEnrichVerifierIDs_UnverifiedClientIDNeverEchoed(t *testing.T) {
 func TestEnrichVerifierIDs_ProfileValidationFailureEmitsNothing(t *testing.T) {
 	cert := makeVIDCert(t, vidCertOpts{orgID: "VATSE-556000000101", policy: rpcert.OIDNCPLegalPerson, dns: []string{"rp.example.com"}, noEmails: true})
 	req := vidReq("x509_san_dns:rp.example.com", []string{"semantic", "x509_san_dns"}, nil)
-	res := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry())
+	res := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry(), nil)
 
 	require.True(t, res.Decision, "profile failure is a warning, not a deny")
 	require.NotEmpty(t, res.ProfileValidationError)
@@ -314,12 +314,12 @@ func TestEnrichVerifierIDs_DenyEmitsNothing(t *testing.T) {
 	req := vidReq("https://rp.example.com", []string{"semantic"}, map[string]interface{}{
 		"required_cert_policy_oids": []string{"1.2.3.4"},
 	})
-	res := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry())
+	res := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry(), nil)
 	assert.False(t, res.Decision)
 	assert.Empty(t, res.VerifierIDs)
 
 	// A deny response never gets identifiers, whatever the enrichment says.
-	good := EnrichX5CResponseWithProfiles(vidReq("https://rp.example.com", []string{"semantic"}, nil), cert, rpcert.DefaultProfileRegistry())
+	good := EnrichX5CResponseWithProfiles(vidReq("https://rp.example.com", []string{"semantic"}, nil), cert, rpcert.DefaultProfileRegistry(), nil)
 	require.NotEmpty(t, good.VerifierIDs)
 	deny := &authzen.EvaluationResponse{Decision: false}
 	ApplyEnrichmentToResponse(deny, good)
@@ -343,7 +343,7 @@ func TestEnrichVerifierIDs_Intermediary(t *testing.T) {
 		"intermediary_x5c":     []string{"MIIBintermediary"},
 	}
 	res := EnrichX5CResponseWithProfiles(
-		vidReq("x509_san_dns:rp.example.com", []string{"semantic", "x509_san_dns"}, extra), cert, rpcert.DefaultProfileRegistry())
+		vidReq("x509_san_dns:rp.example.com", []string{"semantic", "x509_san_dns"}, extra), cert, rpcert.DefaultProfileRegistry(), nil)
 
 	require.True(t, res.Decision)
 	require.True(t, res.IsIntermediaryRequest)
@@ -355,13 +355,13 @@ func TestEnrichVerifierIDs_Intermediary(t *testing.T) {
 	// Same request without the intermediary: dns is there, so the omission is
 	// the intermediary's doing.
 	res = EnrichX5CResponseWithProfiles(
-		vidReq("x509_san_dns:rp.example.com", []string{"semantic", "x509_san_dns"}, nil), cert, rpcert.DefaultProfileRegistry())
+		vidReq("x509_san_dns:rp.example.com", []string{"semantic", "x509_san_dns"}, nil), cert, rpcert.DefaultProfileRegistry(), nil)
 	assert.Contains(t, idsOf(res.VerifierIDs), "x509_san_dns")
 
 	// Intermediary with a leaf that has no semantic id: nothing at all.
 	bare := makeVIDCert(t, vidCertOpts{serial: "123456", dns: []string{"rp.example.com"}})
 	res = EnrichX5CResponseWithProfiles(
-		vidReq("x509_san_dns:rp.example.com", []string{"semantic", "x509_san_dns"}, extra), bare, rpcert.DefaultProfileRegistry())
+		vidReq("x509_san_dns:rp.example.com", []string{"semantic", "x509_san_dns"}, extra), bare, rpcert.DefaultProfileRegistry(), nil)
 	assert.Empty(t, res.VerifierIDs)
 }
 
@@ -370,23 +370,23 @@ func TestEnrichVerifierIDs_HintNarrowsToOneEntry(t *testing.T) {
 	types := []string{"semantic", "x509_san_dns"}
 	profiles := rpcert.DefaultProfileRegistry()
 
-	all := EnrichX5CResponseWithProfiles(vidReq("x509_san_dns:rp.example.com", types, nil), cert, profiles)
+	all := EnrichX5CResponseWithProfiles(vidReq("x509_san_dns:rp.example.com", types, nil), cert, profiles, nil)
 	assert.Len(t, all.VerifierIDs, 2, "everything the policy enables")
 
 	hinted := map[string]interface{}{authzen.VerifierIDHintContextKey: "x509_san_dns"}
-	one := EnrichX5CResponseWithProfiles(vidReq("x509_san_dns:rp.example.com", types, hinted), cert, profiles)
+	one := EnrichX5CResponseWithProfiles(vidReq("x509_san_dns:rp.example.com", types, hinted), cert, profiles, nil)
 	require.Len(t, one.VerifierIDs, 1)
 	assert.Equal(t, "x509_san_dns", one.VerifierIDs[0].Type)
 
 	// A hint for a type the policy does not enable returns nothing.
 	hinted = map[string]interface{}{authzen.VerifierIDHintContextKey: "x509_san_uri"}
-	none := EnrichX5CResponseWithProfiles(vidReq("x509_san_dns:rp.example.com", types, hinted), cert, profiles)
+	none := EnrichX5CResponseWithProfiles(vidReq("x509_san_dns:rp.example.com", types, hinted), cert, profiles, nil)
 	assert.Empty(t, none.VerifierIDs)
 }
 
 func TestApplyEnrichmentToResponse_VerifierIDsJSONShape(t *testing.T) {
 	cert := makeVIDCert(t, vidCertOpts{orgID: "VATSE-556000000101", policy: rpcert.OIDNCPLegalPerson, dns: []string{"rp.example.com"}})
-	res := EnrichX5CResponseWithProfiles(vidReq("x509_san_dns:rp.example.com", []string{"semantic", "x509_san_dns"}, nil), cert, rpcert.DefaultProfileRegistry())
+	res := EnrichX5CResponseWithProfiles(vidReq("x509_san_dns:rp.example.com", []string{"semantic", "x509_san_dns"}, nil), cert, rpcert.DefaultProfileRegistry(), nil)
 	resp := &authzen.EvaluationResponse{Decision: true}
 	ApplyEnrichmentToResponse(resp, res)
 

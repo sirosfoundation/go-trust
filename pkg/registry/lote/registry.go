@@ -616,7 +616,10 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 
 	if _, err := certs[0].Verify(opts); err == nil {
 		// Post-chain-validation enrichment: cert policy OID check + RP identity extraction
-		enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles)
+		enrichment := registry.EnrichX5CResponseWithProfiles(
+			req, certs[0], r.profiles,
+			registry.NewAnchoredWRPRCVerifier(r.index.globalCertPool),
+		)
 		if !enrichment.Decision {
 			reason := map[string]interface{}{
 				"admin": fmt.Sprintf("x5c chain valid for entity %q but enrichment check failed", ent.entityID),
@@ -758,7 +761,10 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 	}
 
 	// Post-chain-validation enrichment (profile / WRPRC checks).
-	enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles)
+	enrichment := registry.EnrichX5CResponseWithProfiles(
+		req, certs[0], r.profiles,
+		registry.NewAnchoredWRPRCVerifier(r.index.globalCertPool),
+	)
 	if !enrichment.Decision {
 		reason := map[string]interface{}{
 			"admin": fmt.Sprintf("x5c chain validates against CA %q in LoTE but enrichment check failed", matchedID),

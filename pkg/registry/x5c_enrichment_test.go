@@ -1,10 +1,17 @@
 package registry
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/base64"
+	"encoding/json"
+	"math/big"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -583,7 +590,7 @@ func TestEnrichWithProfiles_MatchesWRPAC(t *testing.T) {
 		},
 	}
 
-	result := EnrichX5CResponseWithProfiles(req, cert, profiles)
+	result := EnrichX5CResponseWithProfiles(req, cert, profiles, nil)
 
 	assert.True(t, result.Decision)
 	assert.Equal(t, "wrpac", result.MatchedProfile)
@@ -620,7 +627,7 @@ func TestEnrichWithProfiles_NoProfileMatch(t *testing.T) {
 		},
 	}
 
-	result := EnrichX5CResponseWithProfiles(req, cert, profiles)
+	result := EnrichX5CResponseWithProfiles(req, cert, profiles, nil)
 
 	assert.True(t, result.Decision)
 	assert.Empty(t, result.MatchedProfile)
@@ -654,7 +661,7 @@ func TestEnrichWithProfiles_ProfileValidationWarning(t *testing.T) {
 		},
 	}
 
-	result := EnrichX5CResponseWithProfiles(req, cert, profiles)
+	result := EnrichX5CResponseWithProfiles(req, cert, profiles, nil)
 
 	assert.True(t, result.Decision, "profile validation warnings should not deny")
 	assert.Equal(t, "wrpac", result.MatchedProfile)
@@ -685,7 +692,7 @@ func TestEnrichWithProfiles_DigitalSignatureOnlyNoWarning(t *testing.T) {
 		},
 	}
 
-	result := EnrichX5CResponseWithProfiles(req, cert, profiles)
+	result := EnrichX5CResponseWithProfiles(req, cert, profiles, nil)
 
 	assert.True(t, result.Decision)
 	assert.Equal(t, "wrpac", result.MatchedProfile)
@@ -705,7 +712,7 @@ func TestEnrichWithProfiles_NilRegistry(t *testing.T) {
 		},
 	}
 
-	result := EnrichX5CResponseWithProfiles(req, cert, nil)
+	result := EnrichX5CResponseWithProfiles(req, cert, nil, nil)
 
 	assert.True(t, result.Decision)
 	assert.Empty(t, result.MatchedProfile, "nil registry should skip profile matching")
@@ -766,7 +773,7 @@ func TestEnrichX5CResponseWithProfiles_WRPACOrgID_Populated(t *testing.T) {
 		Context: map[string]interface{}{"extract_rp_identity": true},
 	}
 
-	result := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry())
+	result := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry(), nil)
 
 	assert.Equal(t, "wrpac", result.MatchedProfile)
 	assert.Equal(t, "LEIXG-529900T8BM49AURSDO55", result.WRPACOrgID,
@@ -779,7 +786,7 @@ func TestEnrichX5CResponseWithProfiles_WRPACOrgID_PopulatedWithoutFullIdentity(t
 	cert := buildWRPACCert(t, "LEIXG-529900T8BM49AURSDO55")
 	req := &authzen.EvaluationRequest{} // no extract_rp_identity
 
-	result := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry())
+	result := EnrichX5CResponseWithProfiles(req, cert, rpcert.DefaultProfileRegistry(), nil)
 
 	assert.Equal(t, "wrpac", result.MatchedProfile)
 	assert.Equal(t, "LEIXG-529900T8BM49AURSDO55", result.WRPACOrgID,
@@ -794,7 +801,7 @@ func TestEnrichX5CResponseWithProfiles_WRPACOrgID_EmptyWhenNoProfile(t *testing.
 	}
 	req := &authzen.EvaluationRequest{}
 
-	result := EnrichX5CResponseWithProfiles(req, cert, nil)
+	result := EnrichX5CResponseWithProfiles(req, cert, nil, nil)
 
 	assert.Empty(t, result.WRPACOrgID)
 }
@@ -816,4 +823,192 @@ func buildWRPACCert(t *testing.T, orgID string) *x509.Certificate {
 		NotBefore:         time.Now().Add(-time.Minute),
 		NotAfter:          time.Now().Add(time.Hour),
 	}
+}
+
+// ---------------------------------------------------------------------------
+// The WRPRC evaluation path (the EAAP presentation model)
+// ---------------------------------------------------------------------------
+
+// mintWRPRC mints a registrar-shaped WRPRC JWT (typ rc-wrp+jwt, ES256, the
+// registrar CA in x5c) and returns the token plus a validator anchored to
+// that CA.
+func mintWRPRC(t *testing.T, claims map[string]interface{}) (string, WRPRCVerifier) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(42),
+		Subject:               pkix.Name{Organization: []string{"Registrar CA"}, CommonName: "registrar.example"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	caCert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	pool := x509.NewCertPool()
+	pool.AddCert(caCert)
+
+	header := map[string]interface{}{
+		"typ": rpcert.WRPRCTyp,
+		"alg": "ES256",
+		"x5c": []string{base64.StdEncoding.EncodeToString(caCert.Raw)},
+	}
+	hdrJSON, err := json.Marshal(header)
+	require.NoError(t, err)
+	hdrB64 := base64.RawURLEncoding.EncodeToString(hdrJSON)
+	payJSON, err := json.Marshal(claims)
+	require.NoError(t, err)
+	payB64 := base64.RawURLEncoding.EncodeToString(payJSON)
+	signingInput := hdrB64 + "." + payB64
+	sig, err := mintWRPRCSignature(key, "ES256", []byte(signingInput))
+	require.NoError(t, err)
+	token := signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+	return token, NewAnchoredWRPRCVerifier(pool)
+}
+
+// wrprcClaims is the minimal registrar payload the parser accepts: a usable
+// sub, non-empty entitlements, and a validity window. An empty act mints the
+// DIRECT shape; a non-empty one names the acting intermediary (Table 10).
+func wrprcClaims(act string) map[string]interface{} {
+	now := time.Now()
+	claims := map[string]interface{}{
+		"name":           "Fronted RP GmbH",
+		"sub":            "LEIXG-FRONTED",
+		"sub_ln":         "Fronted RP GmbH",
+		"country":        "DE",
+		"entitlements":   []string{"urn:example:entitlement:non-qeaa-provider"},
+		"privacy_policy": "https://fronted.example/privacy",
+		"iat":            now.Add(-time.Hour).Unix(),
+		"exp":            now.Add(30 * 24 * time.Hour).Unix(),
+		"credentials": []map[string]interface{}{
+			{
+				"format": "dc+sd-jwt",
+				"claims": []map[string]interface{}{{"path": []string{"given_name"}}},
+			},
+		},
+	}
+	if act != "" {
+		claims["act"] = map[string]interface{}{"sub": act}
+	}
+	return claims
+}
+
+func TestEnrichX5CResponse_WRPRCNoValidatorFailsClosed(t *testing.T) {
+	token, _ := mintWRPRC(t, wrprcClaims(""))
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, nil)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.FailureReason)
+	assert.Contains(t, result.FailureReason["error"], "no registrar trust anchors")
+}
+
+func TestEnrichX5CResponse_WRPRCUnanchoredChainDenies(t *testing.T) {
+	// A validator anchored to a DIFFERENT registrar CA: the WRPRC's chain
+	// does not validate, so the presentation fails closed.
+	token, _ := mintWRPRC(t, wrprcClaims(""))
+	_, other := mintWRPRC(t, wrprcClaims("LEIXG-X"))
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, other)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.FailureReason)
+	assert.Contains(t, result.FailureReason["error"], "failed validation")
+}
+
+func TestEnrichX5CResponse_WRPRCDirectSurfaces(t *testing.T) {
+	token, validator := mintWRPRC(t, wrprcClaims(""))
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, validator)
+	assert.True(t, result.Decision)
+	require.NotNil(t, result.WRPRCEntitlements)
+	assert.Equal(t, "LEIXG-FRONTED", result.WRPRCEntitlements.Subject.ID)
+	assert.False(t, result.IsIntermediaryRequest)
+	assert.Nil(t, result.IntermediaryIdentity)
+
+	// ApplyEnrichmentToResponse surfaces the WRPRC into the trust metadata.
+	resp := &authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{}}
+	ApplyEnrichmentToResponse(resp, result)
+	md, ok := resp.Context.TrustMetadata.(map[string]interface{})
+	require.True(t, ok)
+	wrprc, ok := md["wrprc"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "LEIXG-FRONTED", wrprc["fronted_rp_id"])
+	assert.Equal(t, "Fronted RP GmbH", wrprc["fronted_rp_legal_name"])
+	assert.Equal(t, "", wrprc["acting_intermediary"])
+}
+
+func TestEnrichX5CResponse_WRPRCIntermediaryNotAllowed(t *testing.T) {
+	// The WRPRC names an acting intermediary, but the policy does not admit
+	// intermediaries: deny, regardless of anything else.
+	token, validator := mintWRPRC(t, wrprcClaims("LEIXG-INTERMEDIARY"))
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.FailureReason)
+	assert.Contains(t, result.FailureReason["error"], "not allowed by policy")
+}
+
+func TestEnrichX5CResponse_WRPRCIntermediaryAllowedVerified(t *testing.T) {
+	token, validator := mintWRPRC(t, wrprcClaims("LEIXG-INTERMEDIARY"))
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                token,
+		"allow_intermediaries": true,
+	}}
+	result := EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, validator)
+	assert.True(t, result.Decision)
+	assert.True(t, result.IsIntermediaryRequest)
+	require.NotNil(t, result.IntermediaryIdentity)
+	assert.Equal(t, true, result.IntermediaryIdentity["verified"])
+	assert.Equal(t, "LEIXG-INTERMEDIARY", result.IntermediaryIdentity["acting_intermediary"])
+	assert.Equal(t, "LEIXG-FRONTED", result.IntermediaryIdentity["fronted_rp_id"])
+}
+
+func TestEnrichX5CResponse_WRPRCOverRequestAuthoritative(t *testing.T) {
+	// The WRPRC's credential queries allow given_name only. The request asks
+	// for given_name AND family_name: strict mode denies on the registrar's
+	// authoritative set — policy-configured allowed_attributes play no role
+	// when the WRPRC is present.
+	token, validator := mintWRPRC(t, wrprcClaims(""))
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                    token,
+		"requested_attributes":     []string{"given_name", "family_name"},
+		"strict_entitlement_check": true,
+		"allowed_attributes":       []string{"given_name", "family_name", "anything"},
+	}}
+	result := EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	assert.True(t, result.OverRequest.IsOverRequest)
+	assert.Equal(t, []string{"family_name"}, result.OverRequest.OverRequested)
+
+	// Without strict mode the over-request surfaces as a warning.
+	req.Context["strict_entitlement_check"] = false
+	result = EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, validator)
+	assert.True(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	assert.True(t, result.OverRequest.IsOverRequest)
+}
+
+func TestEnrichX5CResponse_WRPRCSwappedPayloadDenies(t *testing.T) {
+	// The exact hole the deprecated JWTRegistrationCertValidator leaves: an
+	// authentic registrar header (real x5c chain, anchored) with the payload
+	// swapped underneath it. The chain anchors, the typ is right — only the
+	// signature check catches it, and here it must.
+	token, validator := mintWRPRC(t, wrprcClaims(""))
+	parts := strings.Split(token, ".")
+	// Re-encode a DIFFERENT payload under the authentic header+signature.
+	forged := wrprcClaims("")
+	forged["sub"] = "LEIXG-ATTACKER"
+	forgedJSON, err := json.Marshal(forged)
+	require.NoError(t, err)
+	tampered := parts[0] + "." + base64.RawURLEncoding.EncodeToString(forgedJSON) + "." + parts[2]
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": tampered}}
+	result := EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.FailureReason)
+	assert.Contains(t, result.FailureReason["error"], "failed validation")
+	assert.Nil(t, result.WRPRCEntitlements)
 }

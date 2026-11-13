@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"crypto/x509"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
@@ -54,6 +55,18 @@ type X5CEnrichmentResult struct {
 	// organisation-level binding check.
 	WRPACServiceID string
 
+	// WRPRCEntitlements holds the parsed and validated entitlements of the
+	// FRONTED relying party's WRPRC (ETSI TS 119 475), when the request
+	// carried one — request.Context["wrprc"], the content of the ETSI TS
+	// 119 472-2 §6.3.2.2 `registration_cert` member. Nil when the request
+	// carried no WRPRC (the pre-EAAP shape). When non-nil the registrar's
+	// chain anchored in the verifier's roots, the JWT signature verified
+	// under the anchored chain's leaf key, the validity period held at
+	// evaluation time, and the presenting WRPAC bound to the WRPRC per the
+	// presentation actually being made (direct RPRC_16, or the Table 10
+	// `act` intermediary binding).
+	WRPRCEntitlements *rpcert.RPEntitlements
+
 	// VerifierIDs are the verifier identifiers derived from the verified leaf
 	// certificate, for the types the policy enabled (return_verifier_ids). It is
 	// empty unless Decision is true and ProfileValidationError is empty: nothing
@@ -73,14 +86,24 @@ type X5CEnrichmentResult struct {
 // the caller should return a deny response with result.FailureReason merged
 // into the reason map.
 func EnrichX5CResponse(req *authzen.EvaluationRequest, leaf *x509.Certificate) *X5CEnrichmentResult {
-	return EnrichX5CResponseWithProfiles(req, leaf, nil)
+	return EnrichX5CResponseWithProfiles(req, leaf, nil, nil)
 }
 
 // EnrichX5CResponseWithProfiles is like EnrichX5CResponse but additionally
 // matches the leaf certificate against registered RP profiles. When a profile
 // matches, it is used for identity extraction and profile-specific validation.
 // Pass nil for profiles to get the same behaviour as EnrichX5CResponse.
-func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Certificate, profiles *rpcert.ProfileRegistry) *X5CEnrichmentResult {
+//
+// wrprcValidator evaluates the fronted relying party's WRPRC when the
+// request carries one (request.Context["wrprc"], the TS 119 472-2
+// registration_cert member's content): the registrar chain is anchored in
+// the verifier's roots, the JWT signature is verified under the anchored
+// chain's leaf key, the claims are parsed, the validity period is checked,
+// and the presenting WRPAC is bound to the WRPRC. A presented WRPRC with a
+// nil verifier fails closed — a registry that cannot evaluate a
+// registration certificate must not wave it through. See WRPRCVerifier and
+// NewAnchoredWRPRCVerifier.
+func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Certificate, profiles *rpcert.ProfileRegistry, wrprcValidator WRPRCVerifier) *X5CEnrichmentResult {
 	result := &X5CEnrichmentResult{Decision: true}
 
 	// Validate certificate policy OIDs if required
@@ -156,47 +179,125 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 		}
 	}
 
-	// Over-request detection: compare requested attributes against entitlements
-	requestedAttrs := extractRequestedAttributes(req)
-	allowedAttrs := extractAllowedAttributes(req)
-	if len(requestedAttrs) > 0 && len(allowedAttrs) > 0 {
-		entitlements := &rpcert.RPEntitlements{
-			AllowedAttributes: allowedAttrs,
-		}
-		result.OverRequest = rpcert.DetectOverRequest(entitlements, requestedAttrs)
-
-		if result.OverRequest.IsOverRequest && isStrictEntitlementCheck(req) {
+	// The EAAP presentation model (ETSI TS 119 475 + 119 411-8): when the
+	// request carries the fronted relying party's registration certificate —
+	// request.Context["wrprc"], the content of the ETSI TS 119 472-2
+	// §6.3.2.2 `registration_cert` member — evaluate it against the
+	// registrar's anchors and bind it to the presenting WRPAC. This path is
+	// AUTHORITATIVE: the registrar-issued entitlements supersede the
+	// policy-configured allowed_attributes, and the verified binding
+	// supersedes the unvalidated intermediary_x5c metadata.
+	if wrprcToken := extractWRPRC(req); wrprcToken != "" {
+		if wrprcValidator == nil {
 			result.Decision = false
 			result.FailureReason = map[string]interface{}{
-				"error":          "RP is requesting attributes beyond their entitlements",
-				"over_requested": result.OverRequest.OverRequested,
-				"allowed":        result.OverRequest.Allowed,
-				"requested":      result.OverRequest.Requested,
+				"error": "a WRPRC was presented but this registry has no registrar trust anchors configured",
 			}
 			return result
 		}
-	}
-
-	// Intermediary verification: check if this is a proxied/brokered request
-	intermediaryX5C := extractIntermediaryX5C(req)
-	if len(intermediaryX5C) > 0 {
-		result.IsIntermediaryRequest = true
-		if !isIntermediariesAllowed(req) {
+		ent, err := wrprcValidator.VerifyWRPRC(context.Background(), []byte(wrprcToken))
+		if err != nil {
 			result.Decision = false
 			result.FailureReason = map[string]interface{}{
-				"error": "intermediary/broker presentation requests are not allowed by policy",
+				"error": "the presented WRPRC failed validation",
+				"wrprc": err.Error(),
 			}
 			return result
 		}
-		// Extract intermediary identity from the first cert in the chain.
-		// NOTE: The intermediary certificate chain is NOT validated against any
-		// trust store. This metadata is informational only. Full intermediary
-		// chain validation will be implemented when the intermediary certificate
-		// profile is finalized.
-		result.IntermediaryIdentity = map[string]interface{}{
-			"intermediary_x5c_leaf": intermediaryX5C[0],
-			"rp_subject":            leaf.Subject.CommonName,
-			"verified":              false,
+		result.WRPRCEntitlements = ent
+
+		if ent.ActingIntermediary != "" {
+			// An intermediated presentation (Table 10 `act`, GEN-5.2.4-09):
+			// the presenting WRPAC is the INTERMEDIARY's access certificate,
+			// and the policy must admit intermediaries at all.
+			result.IsIntermediaryRequest = true
+			if !isIntermediariesAllowed(req) {
+				result.Decision = false
+				result.FailureReason = map[string]interface{}{
+					"error": "intermediary presentations are not allowed by policy (the WRPRC names an acting intermediary)",
+				}
+				return result
+			}
+		}
+		if err := rpcert.CheckWRPACWRPRCPresentationBinding(result.WRPACOrgID, ent); err != nil {
+			result.Decision = false
+			result.FailureReason = map[string]interface{}{
+				"error": "the presenting WRPAC does not bind to the WRPRC",
+				"wrprc": err.Error(),
+			}
+			return result
+		}
+
+		// Over-request detection against the AUTHORITATIVE entitlements: the
+		// registrar-issued credential queries in the WRPRC payload, not
+		// policy-configured attributes.
+		if requestedAttrs := extractRequestedAttributes(req); len(requestedAttrs) > 0 {
+			result.OverRequest = rpcert.DetectOverRequest(ent, requestedAttrs)
+			if result.OverRequest.IsOverRequest && isStrictEntitlementCheck(req) {
+				result.Decision = false
+				result.FailureReason = map[string]interface{}{
+					"error":          "RP is requesting attributes beyond their entitlements",
+					"over_requested": result.OverRequest.OverRequested,
+					"allowed":        result.OverRequest.Allowed,
+					"requested":      result.OverRequest.Requested,
+				}
+				return result
+			}
+		}
+
+		// Verified intermediary metadata for the intermediated shape: the
+		// registrar chain anchored and the binding was checked, unlike the
+		// unverified intermediary_x5c shape below.
+		if ent.ActingIntermediary != "" {
+			result.IntermediaryIdentity = map[string]interface{}{
+				"acting_intermediary":   ent.ActingIntermediary,
+				"fronted_rp_id":         ent.Subject.ID,
+				"fronted_rp_legal_name": ent.Subject.LegalName,
+				"verified":              true,
+			}
+		}
+	} else {
+		// Over-request detection: compare requested attributes against entitlements
+		requestedAttrs := extractRequestedAttributes(req)
+		allowedAttrs := extractAllowedAttributes(req)
+		if len(requestedAttrs) > 0 && len(allowedAttrs) > 0 {
+			entitlements := &rpcert.RPEntitlements{
+				AllowedAttributes: allowedAttrs,
+			}
+			result.OverRequest = rpcert.DetectOverRequest(entitlements, requestedAttrs)
+
+			if result.OverRequest.IsOverRequest && isStrictEntitlementCheck(req) {
+				result.Decision = false
+				result.FailureReason = map[string]interface{}{
+					"error":          "RP is requesting attributes beyond their entitlements",
+					"over_requested": result.OverRequest.OverRequested,
+					"allowed":        result.OverRequest.Allowed,
+					"requested":      result.OverRequest.Requested,
+				}
+				return result
+			}
+		}
+
+		// Intermediary verification: check if this is a proxied/brokered request
+		intermediaryX5C := extractIntermediaryX5C(req)
+		if len(intermediaryX5C) > 0 {
+			result.IsIntermediaryRequest = true
+			if !isIntermediariesAllowed(req) {
+				result.Decision = false
+				result.FailureReason = map[string]interface{}{
+					"error": "intermediary/broker presentation requests are not allowed by policy",
+				}
+				return result
+			}
+			// Extract intermediary identity from the first cert in the chain.
+			// NOTE: The intermediary certificate chain is NOT validated against any
+			// trust store. This metadata is informational only. Requests carrying
+			// a WRPRC take the verified EAAP path above instead.
+			result.IntermediaryIdentity = map[string]interface{}{
+				"intermediary_x5c_leaf": intermediaryX5C[0],
+				"rp_subject":            leaf.Subject.CommonName,
+				"verified":              false,
+			}
 		}
 	}
 
@@ -249,6 +350,27 @@ func ApplyEnrichmentToResponse(resp *authzen.EvaluationResponse, enrichment *X5C
 			trustMetadata = make(map[string]interface{})
 		}
 		trustMetadata["rp_profile"] = enrichment.MatchedProfile
+	}
+
+	// The fronted relying party's WRPRC evaluation, when the request carried
+	// one: the registrar-anchored entitlements the wallet renders and its EDP
+	// layer enforces, plus the acting intermediary for intermediated
+	// presentations.
+	if enrichment.WRPRCEntitlements != nil {
+		if trustMetadata == nil {
+			trustMetadata = make(map[string]interface{})
+		}
+		ent := enrichment.WRPRCEntitlements
+		trustMetadata["wrprc"] = map[string]interface{}{
+			"fronted_rp_id":         ent.Subject.ID,
+			"fronted_rp_legal_name": ent.Subject.LegalName,
+			"acting_intermediary":   ent.ActingIntermediary,
+			"trade_name":            ent.TradeName,
+			"country":               ent.Country,
+			"entitlements":          ent.EntitlementURIs,
+			"allowed_attributes":    ent.AllowedAttributes,
+			"privacy_policy_uri":    ent.PrivacyPolicyURI,
+		}
 	}
 
 	if trustMetadata != nil {
@@ -392,6 +514,25 @@ func extractRequestedAttributes(req *authzen.EvaluationRequest) []string {
 	}
 
 	return nil
+}
+
+// extractWRPRC extracts the serialized fronted relying party's WRPRC
+// (the TS 119 472-2 §6.3.2.2 `registration_cert` member's content) from
+// request.Context["wrprc"]. Empty when the request carries none — the
+// pre-EAAP request shape.
+func extractWRPRC(req *authzen.EvaluationRequest) string {
+	if req.Context == nil {
+		return ""
+	}
+	v, ok := req.Context["wrprc"]
+	if !ok {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return s
 }
 
 // extractAllowedAttributes extracts the RP's entitled attributes

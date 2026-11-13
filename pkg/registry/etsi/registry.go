@@ -1179,7 +1179,10 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	addCredentialTypesToReason(reason, credentialTypes)
 
 	// Post-chain-validation enrichment: cert policy OID check + RP identity extraction
-	enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles)
+	enrichment := registry.EnrichX5CResponseWithProfiles(
+		req, certs[0], r.profiles,
+		registry.NewAnchoredWRPRCVerifier(r.certPool),
+	)
 	if !enrichment.Decision {
 		for k, v := range enrichment.FailureReason {
 			reason[k] = v
