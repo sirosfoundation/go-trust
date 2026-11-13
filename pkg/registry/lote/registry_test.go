@@ -1801,6 +1801,37 @@ func TestEvaluate_PubEAA_MixedServices_OnlyNotifiedKeyAccepted(t *testing.T) {
 	assert.False(t, respDeny.Decision, "absent-status service key must NOT be trusted")
 }
 
+// mintWRPACTestLeaf mints the intermediary's WRPAC-shaped leaf under the
+// given Access CA: the NCP-l-eudiwrp policy OID (so the wrpac profile
+// matches it) and the organizationIdentifier DN attribute carrying the
+// intermediary's org id, so the presentation binding has identifiers.
+func mintWRPACTestLeaf(t *testing.T, caCert *x509.Certificate, caKey *ecdsa.PrivateKey) (*x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	wrpacPolicyOID, err := x509.ParseOID(rpcert.OIDNCPLegalPerson)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(42),
+		Subject: pkix.Name{
+			CommonName: "Intermediary WRPAC Leaf",
+			ExtraNames: []pkix.AttributeTypeAndValue{
+				{Type: asn1.ObjectIdentifier{2, 5, 4, 97}, Value: "LEIXG-INTERMEDIARY"},
+			},
+		},
+		NotBefore:   time.Now().Add(-time.Hour),
+		NotAfter:    time.Now().Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		Policies:    []x509.OID{wrpacPolicyOID},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, caCert, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+	leafCert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return leafCert, leafKey
+}
+
 // mintTestWRPRC mints a WRPRC JWT (typ rc-wrp+jwt, ES256) signed by the given
 // CA, carrying the given claims.
 func mintTestWRPRC(t *testing.T, caCert *x509.Certificate, caKey *ecdsa.PrivateKey, claims map[string]interface{}) string {
@@ -1837,28 +1868,7 @@ func TestEvaluate_X5C_CAAnchored_WithWRPRC(t *testing.T) {
 	registrarCACert, registrarCAKey := generateTestCA(t)
 
 	// The WRPAC leaf under the Access CA.
-	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	wrpacPolicyOID, err := x509.ParseOID(rpcert.OIDNCPLegalPerson)
-	require.NoError(t, err)
-	leafTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(42),
-		Subject: pkix.Name{
-			CommonName: "Intermediary WRPAC Leaf",
-			ExtraNames: []pkix.AttributeTypeAndValue{
-				{Type: asn1.ObjectIdentifier{2, 5, 4, 97}, Value: "LEIXG-INTERMEDIARY"},
-			},
-		},
-		NotBefore:   time.Now().Add(-time.Hour),
-		NotAfter:    time.Now().Add(24 * time.Hour),
-		KeyUsage:    x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		Policies:    []x509.OID{wrpacPolicyOID},
-	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, accessCACert, &leafKey.PublicKey, accessCAKey)
-	require.NoError(t, err)
-	leafCert, err := x509.ParseCertificate(leafDER)
-	require.NoError(t, err)
+	leafCert, _ := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
 
 	// The LoTE lists BOTH CAs.
 	// Two lists, two roles: the Access CA list and the registrar list. The
@@ -1967,28 +1977,7 @@ func TestEvaluate_X5C_CAAnchored_WithTamperedWRPRC(t *testing.T) {
 	accessCACert, accessCAKey := generateTestCA(t)
 	registrarCACert, registrarCAKey := generateTestCA(t)
 
-	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	wrpacPolicyOID, err := x509.ParseOID(rpcert.OIDNCPLegalPerson)
-	require.NoError(t, err)
-	leafTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(42),
-		Subject: pkix.Name{
-			CommonName: "Intermediary WRPAC Leaf",
-			ExtraNames: []pkix.AttributeTypeAndValue{
-				{Type: asn1.ObjectIdentifier{2, 5, 4, 97}, Value: "LEIXG-INTERMEDIARY"},
-			},
-		},
-		NotBefore:   time.Now().Add(-time.Hour),
-		NotAfter:    time.Now().Add(24 * time.Hour),
-		KeyUsage:    x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		Policies:    []x509.OID{wrpacPolicyOID},
-	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, accessCACert, &leafKey.PublicKey, accessCAKey)
-	require.NoError(t, err)
-	leafCert, err := x509.ParseCertificate(leafDER)
-	require.NoError(t, err)
+	leafCert, _ := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
 
 	accessLote := minimalLoTE("SE", x509Entity("https://access-ca.example.com", accessCACert))
 	accessLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/access-ca"
@@ -2085,28 +2074,7 @@ func TestEvaluate_X5C_WRPRCSignedByNonRegistrarDenies(t *testing.T) {
 	}
 	fabricated := mintTestWRPRC(t, accessCACert, accessCAKey, claims)
 
-	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	wrpacPolicyOID, err := x509.ParseOID(rpcert.OIDNCPLegalPerson)
-	require.NoError(t, err)
-	leafTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(42),
-		Subject: pkix.Name{
-			CommonName: "Intermediary WRPAC Leaf",
-			ExtraNames: []pkix.AttributeTypeAndValue{
-				{Type: asn1.ObjectIdentifier{2, 5, 4, 97}, Value: "LEIXG-INTERMEDIARY"},
-			},
-		},
-		NotBefore:   time.Now().Add(-time.Hour),
-		NotAfter:    time.Now().Add(24 * time.Hour),
-		KeyUsage:    x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		Policies:    []x509.OID{wrpacPolicyOID},
-	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, accessCACert, &leafKey.PublicKey, accessCAKey)
-	require.NoError(t, err)
-	leafCert, err := x509.ParseCertificate(leafDER)
-	require.NoError(t, err)
+	leafCert, _ := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
 
 	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
 		Subject: authzen.Subject{Type: "key", ID: "https://fronted-rp.example.com"},
@@ -2137,28 +2105,7 @@ func TestEvaluate_X5C_DirectKeyWithWRPRC(t *testing.T) {
 	accessCACert, accessCAKey := generateTestCA(t)
 	registrarCACert, registrarCAKey := generateTestCA(t)
 
-	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	wrpacPolicyOID, err := x509.ParseOID(rpcert.OIDNCPLegalPerson)
-	require.NoError(t, err)
-	leafTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(42),
-		Subject: pkix.Name{
-			CommonName: "Intermediary WRPAC Leaf",
-			ExtraNames: []pkix.AttributeTypeAndValue{
-				{Type: asn1.ObjectIdentifier{2, 5, 4, 97}, Value: "LEIXG-INTERMEDIARY"},
-			},
-		},
-		NotBefore:   time.Now().Add(-time.Hour),
-		NotAfter:    time.Now().Add(24 * time.Hour),
-		KeyUsage:    x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		Policies:    []x509.OID{wrpacPolicyOID},
-	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, accessCACert, &leafKey.PublicKey, accessCAKey)
-	require.NoError(t, err)
-	leafCert, err := x509.ParseCertificate(leafDER)
-	require.NoError(t, err)
+	leafCert, _ := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
 
 	// The leaf is listed DIRECTLY: the key-match path, not the CA path.
 	directLote := minimalLoTE("SE", x509Entity("https://fronted-rp.example.com", leafCert))

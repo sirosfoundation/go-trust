@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -102,7 +101,7 @@ func (v *anchoredWRPRCVerifier) VerifyWRPRC(_ context.Context, token []byte) (*r
 	if err != nil {
 		return nil, fmt.Errorf("wrprc: decoding JWS signature: %w", err)
 	}
-	if err := verifyWRPRCSignature(header.Alg, leaf.PublicKey, []byte(parts[0]+"."+parts[1]), sig); err != nil {
+	if err := VerifyJWSSignature(header.Alg, leaf.PublicKey, []byte(parts[0]+"."+parts[1]), sig); err != nil {
 		return nil, fmt.Errorf("wrprc: JWS signature: %w", err)
 	}
 
@@ -164,19 +163,19 @@ func parseWRPRCX5C(x5c []string) (*x509.Certificate, *x509.CertPool, error) {
 	return leaf, intermediates, nil
 }
 
-// verifyWRPRCSignature verifies a JWS signature per RFC 7518. The algorithm
-// set mirrors the LoTE JWS verifier (lote/jws_verify.go): the RSA and ECDSA
-// families registrars actually use per TS 119 182-1. HMAC algorithms are
-// absent on purpose: a symmetric MAC has no place in a chain-anchored
-// registrar certificate.
-func verifyWRPRCSignature(alg string, pub crypto.PublicKey, signingInput, sig []byte) error {
+// VerifyJWSSignature verifies a JWS signature per RFC 7518 — the shared
+// implementation the WRPRC verifier and the lote JWS verification both use.
+// The algorithm set is the RSA and ECDSA families registrars actually use per
+// TS 119 182-1. HMAC algorithms are absent on purpose: a symmetric MAC has no
+// place in a chain-anchored certificate.
+func VerifyJWSSignature(alg string, pub crypto.PublicKey, signingInput, sig []byte) error {
 	switch alg {
 	case "RS256", "RS384", "RS512":
 		rsaKey, ok := pub.(*rsa.PublicKey)
 		if !ok {
 			return fmt.Errorf("algorithm %s requires RSA public key", alg)
 		}
-		h := jwsAlgHash(alg)
+		h := JWSAlgHash(alg)
 		hh := h.New()
 		hh.Write(signingInput)
 		return rsa.VerifyPKCS1v15(rsaKey, h, hh.Sum(nil), sig) //nolint:gosec
@@ -185,7 +184,7 @@ func verifyWRPRCSignature(alg string, pub crypto.PublicKey, signingInput, sig []
 		if !ok {
 			return fmt.Errorf("algorithm %s requires RSA public key", alg)
 		}
-		h := jwsAlgHash(alg)
+		h := JWSAlgHash(alg)
 		hh := h.New()
 		hh.Write(signingInput)
 		pssOpts := &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: h}
@@ -211,7 +210,7 @@ func verifyWRPRCSignature(alg string, pub crypto.PublicKey, signingInput, sig []
 			return fmt.Errorf("algorithm %s requires curve %s, got %s",
 				alg, wantCurve.Params().Name, ecKey.Curve.Params().Name)
 		}
-		h := jwsAlgHash(alg)
+		h := JWSAlgHash(alg)
 		hh := h.New()
 		hh.Write(signingInput)
 		digest := hh.Sum(nil)
@@ -231,8 +230,8 @@ func verifyWRPRCSignature(alg string, pub crypto.PublicKey, signingInput, sig []
 	}
 }
 
-// jwsAlgHash maps a JWA algorithm name to its crypto.Hash (RFC 7518 §3).
-func jwsAlgHash(alg string) crypto.Hash {
+// JWSAlgHash maps a JWA algorithm name to its crypto.Hash (RFC 7518 §3).
+func JWSAlgHash(alg string) crypto.Hash {
 	switch alg {
 	case "RS256", "PS256", "ES256":
 		return crypto.SHA256
@@ -241,28 +240,4 @@ func jwsAlgHash(alg string) crypto.Hash {
 	default: // RS512, PS512, ES512
 		return crypto.SHA512
 	}
-}
-
-// mintWRPRCSignature signs the JWS signing input in the JOSE format
-// (test-only helper): r || s fixed-width big-endian per RFC 7518 §3.4.
-func mintWRPRCSignature(key *ecdsa.PrivateKey, alg string, signingInput []byte) ([]byte, error) {
-	var h crypto.Hash
-	switch alg {
-	case "ES256":
-		h = crypto.SHA256
-	default:
-		return nil, fmt.Errorf("test helper: unsupported algorithm %q", alg)
-	}
-	hh := h.New()
-	hh.Write(signingInput)
-	digest := hh.Sum(nil)
-	r, s, err := ecdsa.Sign(rand.Reader, key, digest)
-	if err != nil {
-		return nil, err
-	}
-	keyBytes := (elliptic.P256().Params().BitSize + 7) / 8
-	sig := make([]byte, 2*keyBytes)
-	r.FillBytes(sig[:keyBytes])
-	s.FillBytes(sig[keyBytes:])
-	return sig, nil
 }
