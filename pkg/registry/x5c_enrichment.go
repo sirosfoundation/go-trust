@@ -222,13 +222,17 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 		// The binding is the security property of this path, so its
 		// identifiers are REQUIRED here — the optional-skip semantics of the
 		// underlying helpers (empty means "not present, do not enforce") are
-		// for WRPRC-only flows. A chain-valid certificate with no extractable
-		// organization identifier must not adopt the WRPRC's identity by
-		// falling through to skip.
-		if result.WRPACOrgID == "" {
+		// for WRPRC-only flows. The binding identifier is the SUBJECT's
+		// semantic identifier: for a legal person the
+		// organizationIdentifier, for a natural person the personal
+		// identifier from serialNumber (ETSI TS 119 475 §5.1.5) — never an
+		// affiliated organization's identifier, which would bind a person's
+		// certificate to the organization's WRPRC.
+		bindingID, hasBindingID := rpcert.SemanticIdentifier(leaf)
+		if !hasBindingID || bindingID == "" {
 			result.Decision = false
 			result.FailureReason = map[string]interface{}{
-				"error": "the presenting certificate carries no organization_identifier; the WRPRC binding cannot be established",
+				"error": "the presenting certificate carries no usable binding identifier; the WRPRC binding cannot be established",
 			}
 			return result
 		}
@@ -239,10 +243,22 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 			}
 			return result
 		}
-		if err := rpcert.CheckWRPACWRPRCPresentationBinding(result.WRPACOrgID, ent); err != nil {
+		if err := rpcert.CheckWRPACWRPRCPresentationBinding(bindingID, ent); err != nil {
 			result.Decision = false
 			result.FailureReason = map[string]interface{}{
 				"error": "the presenting WRPAC does not bind to the WRPRC",
+				"wrprc": err.Error(),
+			}
+			return result
+		}
+		// The service-identifier binding (the Santesson convention,
+		// OIDWRPACServiceIdentifier): when both sides carry one they must
+		// match, or a certificate for service A reuses a WRPRC issued for
+		// service B within the same organization.
+		if err := rpcert.CheckWRPACWRPRCServiceBinding(result.WRPACServiceID, ent); err != nil {
+			result.Decision = false
+			result.FailureReason = map[string]interface{}{
+				"error": "the presenting WRPAC's service identifier does not bind to the WRPRC",
 				"wrprc": err.Error(),
 			}
 			return result

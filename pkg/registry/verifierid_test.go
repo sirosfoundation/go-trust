@@ -23,12 +23,13 @@ import (
 
 // vidCertOpts describes a leaf for the verifier_ids tests.
 type vidCertOpts struct {
-	orgID    string // organizationIdentifier (2.5.4.97)
-	serial   string // Subject serialNumber
-	policy   string // WRPAC policy OID, "" for none
-	dns      []string
-	uris     []string
-	noEmails bool // omit the contact SAN so WRPAC profile validation fails
+	orgID     string // organizationIdentifier (2.5.4.97)
+	serial    string // Subject serialNumber
+	policy    string // WRPAC policy OID, "" for none
+	serviceID string // WRPAC serviceIdentifier (0.4.0.19475.99.1), "" for none
+	dns       []string
+	uris      []string
+	noEmails  bool // omit the contact SAN so WRPAC profile validation fails
 }
 
 // makeVIDCert builds a parsed leaf, so organizationIdentifier is visible in
@@ -41,6 +42,12 @@ func makeVIDCert(t *testing.T, o vidCertOpts) *x509.Certificate {
 	subject := pkix.Name{Country: []string{"SE"}, Organization: []string{"Test AB"}, CommonName: "rp", SerialNumber: o.serial}
 	if o.orgID != "" {
 		subject.ExtraNames = []pkix.AttributeTypeAndValue{{Type: asn1.ObjectIdentifier{2, 5, 4, 97}, Value: o.orgID}}
+	}
+	if o.serviceID != "" {
+		subject.ExtraNames = append(subject.ExtraNames, pkix.AttributeTypeAndValue{
+			Type:  asn1.ObjectIdentifier{0, 4, 0, 19475, 99, 1},
+			Value: o.serviceID,
+		})
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().UnixNano()),

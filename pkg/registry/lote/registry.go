@@ -169,6 +169,11 @@ type indexedEntity struct {
 	// certPool contains X.509 certificates from this entity's digital identities,
 	// used as trust anchors for PKIX path validation of x5c requests.
 	certPool *x509.CertPool
+	// certs are the parsed certificates this entity lists, for exact-match
+	// identity comparison on the direct-key path: a submitted leaf whose key
+	// matches a listed key must BE a listed certificate — the key alone does
+	// not authenticate the certificate's identity fields.
+	certs []*x509.Certificate
 }
 
 // Pub-EAA service status URIs per ETSI TS 119 602 Annex H.
@@ -458,22 +463,54 @@ func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEn
 	}
 
 	if ent.keyHashes[keyHash] {
-		resp := r.buildSuccessResponse(subjectID, ent.territory, "key matches entity", credentialTypes)
-		// A directly listed key is not a licence to skip the enrichment
-		// gate: a request carrying a WRPRC (or policy OID / over-request
-		// constraints) must pass it on this path too, or listing the key
-		// directly would bypass the registry-level WRPRC evaluation.
-		if req.Resource.Type == "x5c" {
-			if certs, err := parseX5CCerts(req, r.config.CryptoExt); err == nil && len(certs) > 0 {
-				enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles, r.wrprcVerifier())
-				if !enrichment.Decision {
-
-					return enrichmentDenial(fmt.Sprintf("key matches entity %q but enrichment check failed", subjectID), enrichment, credentialTypes)
-
-				}
-				registry.ApplyEnrichmentToResponse(resp, enrichment)
+		if req.Resource.Type != "x5c" {
+			return r.buildSuccessResponse(subjectID, ent.territory, "key matches entity", credentialTypes)
+		}
+		// A malformed chain DENIES — never skips the gate on a parse
+		// failure, or [listed_leaf, "garbage"] would bypass the WRPRC
+		// evaluation entirely.
+		certs, err := parseX5CCerts(req, r.config.CryptoExt)
+		if err != nil || len(certs) == 0 {
+			reason := map[string]interface{}{
+				"admin": fmt.Sprintf("key matches entity %q but the x5c chain is malformed", subjectID),
+			}
+			if err != nil {
+				reason["parse_error"] = err.Error()
+			}
+			addCredentialTypesToReason(reason, credentialTypes)
+			return &authzen.EvaluationResponse{
+				Decision: false,
+				Context:  &authzen.EvaluationResponseContext{Reason: reason},
 			}
 		}
+		// The key match alone is not authentication of the certificate's
+		// IDENTITY: a listed key holder can submit a self-signed
+		// certificate with the same key but another organization's
+		// identifier, and the enrichment would bind to that organization's
+		// genuine WRPRC. The submitted leaf must BE a listed certificate —
+		// byte-exact — or chain to the entity's listed anchors, which the
+		// chain path below validates with the same enrichment gate.
+		if !containsExactCertificate(ent.certs, certs[0]) {
+			if resp := r.validateX5CChain(req, ent, credentialTypes); resp != nil {
+				return resp
+			}
+			reason := map[string]interface{}{
+				"admin": fmt.Sprintf("key matches entity %q but the submitted certificate is neither the listed certificate nor anchored by it", subjectID),
+			}
+			addCredentialTypesToReason(reason, credentialTypes)
+			return &authzen.EvaluationResponse{
+				Decision: false,
+				Context:  &authzen.EvaluationResponseContext{Reason: reason},
+			}
+		}
+		// The listed certificate itself: run the enrichment gate — a
+		// directly listed key is not a licence to skip the WRPRC evaluation.
+		enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles, r.wrprcVerifier())
+		if !enrichment.Decision {
+			return enrichmentDenial(fmt.Sprintf("key matches entity %q but enrichment check failed", subjectID), enrichment, credentialTypes)
+		}
+		resp := r.buildSuccessResponse(subjectID, ent.territory, "key matches entity", credentialTypes)
+		registry.ApplyEnrichmentToResponse(resp, enrichment)
 		return resp
 	}
 
@@ -691,6 +728,17 @@ func enrichmentDenial(adminMsg string, enrichment *registry.X5CEnrichmentResult,
 		Decision: false,
 		Context:  &authzen.EvaluationResponseContext{Reason: reason},
 	}
+}
+
+// containsExactCertificate reports whether candidate is byte-exact one of
+// the listed certificates (x509.Certificate.Equal compares the raw DER).
+func containsExactCertificate(listed []*x509.Certificate, candidate *x509.Certificate) bool {
+	for _, cert := range listed {
+		if cert.Equal(candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // wrprcVerifier returns the WRPRC verifier over the REGISTRAR-authorized
@@ -1055,6 +1103,7 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 								ie.certPool = x509.NewCertPool()
 							}
 							ie.certPool.AddCert(cert)
+							ie.certs = append(ie.certs, cert)
 							// Also add to the global pool for CA-anchored chain
 							// validation (issue #90).
 							if idx.globalCertPool == nil {

@@ -1024,16 +1024,16 @@ func TestEnrichX5CResponse_WRPRCSwappedPayloadDenies(t *testing.T) {
 }
 
 func TestEnrichX5CResponse_WRPRCUnboundIdentityFailsClosed(t *testing.T) {
-	// A chain-valid WRPAC-shaped certificate with NO organization_identifier
-	// must not adopt the WRPRC's identity: the binding is required on this
-	// path, not optional-skip.
+	// A chain-valid WRPAC-shaped certificate with no usable binding identifier
+	// (a legal-person certificate without organizationIdentifier) must not adopt
+	// the WRPRC's identity: the binding is required on this path, not optional-skip.
 	token, validator := mintWRPRC(t, wrprcClaims(""))
 	leaf := makeVIDCert(t, vidCertOpts{policy: rpcert.OIDNCPLegalPerson})
 	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
 	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
 	assert.False(t, result.Decision)
 	require.NotNil(t, result.FailureReason)
-	assert.Contains(t, result.FailureReason["error"], "no organization_identifier")
+	assert.Contains(t, result.FailureReason["error"], "no usable binding identifier")
 }
 
 func TestEnrichX5CResponse_WRPRCExpiredDenies(t *testing.T) {
@@ -1137,4 +1137,58 @@ func TestWRPRCAlgorithmCurvePairingEnforced(t *testing.T) {
 	_, err = verifier.VerifyWRPRC(context.Background(), []byte(token))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires curve P-256")
+}
+
+func TestEnrichX5CResponse_WRPRCNaturalPersonBindsByPersonalIdentifier(t *testing.T) {
+	// A natural-person WRPAC carries the personal identifier in serialNumber
+	// (ETSI TS 119 475 §5.1.5), not the organizationIdentifier: the binding
+	// must use the PERSON's identifier, and the matching personal WRPRC
+	// binds.
+	claims := wrprcClaims("")
+	claims["sub"] = "PNOSE-1234567890"
+	token, validator := mintWRPRC(t, claims)
+	leaf := makeVIDCert(t, vidCertOpts{serial: "PNOSE-1234567890", policy: rpcert.OIDNCPNaturalPerson})
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.True(t, result.Decision)
+	require.NotNil(t, result.WRPRCEntitlements)
+
+	// The same person's certificate must NOT bind an ORGANIZATION's WRPRC:
+	// the person is not the organization, whatever DN attributes they share.
+	orgClaims := wrprcClaims("")
+	orgClaims["sub"] = "LEIXG-SOME-ORG"
+	orgToken, orgValidator := mintWRPRC(t, orgClaims)
+	req = &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": orgToken}}
+	result = EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), orgValidator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.FailureReason)
+	assert.Contains(t, result.FailureReason["error"], "does not bind to the WRPRC")
+}
+
+func TestEnrichX5CResponse_WRPRCServiceIdentifierBinds(t *testing.T) {
+	// The service-identifier binding (OIDWRPACServiceIdentifier): within
+	// one organization, a certificate for service A must not receive a
+	// WRPRC issued for service B.
+	claims := wrprcClaims("")
+	claims["service_identifier"] = "https://services.example/a"
+	token, validator := mintWRPRC(t, claims)
+	leafForB := makeVIDCert(t, vidCertOpts{
+		orgID:     "LEIXG-FRONTED",
+		policy:    rpcert.OIDNCPLegalPerson,
+		serviceID: "https://services.example/b",
+	})
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, leafForB, rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.FailureReason)
+	assert.Contains(t, result.FailureReason["error"], "service identifier does not bind")
+
+	// The matching service on both sides binds.
+	leafForA := makeVIDCert(t, vidCertOpts{
+		orgID:     "LEIXG-FRONTED",
+		policy:    rpcert.OIDNCPLegalPerson,
+		serviceID: "https://services.example/a",
+	})
+	result = EnrichX5CResponseWithProfiles(req, leafForA, rpcert.DefaultProfileRegistry(), validator)
+	assert.True(t, result.Decision)
 }

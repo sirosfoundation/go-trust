@@ -2171,3 +2171,138 @@ func TestEvaluate_X5C_DirectKeyWithWRPRC(t *testing.T) {
 		t.Errorf("the WRPRC metadata must be applied on the direct-key path")
 	}
 }
+
+// TestEvaluate_X5C_DirectKeyForgedIdentityDenies pins the certificate-identity
+// attack on the direct-key path: a listed key holder submits a SELF-SIGNED
+// certificate with the same key but another organization's identifier, plus
+// that organization's genuine WRPRC. The key matches — the certificate is
+// not the listed one and chains to nothing listed — and the presentation
+// must deny, not bind to the victim organization's entitlements.
+func TestEvaluate_X5C_DirectKeyForgedIdentityDenies(t *testing.T) {
+	accessCACert, accessCAKey := generateTestCA(t)
+	registrarCACert, registrarCAKey := generateTestCA(t)
+
+	// The attacker's listed certificate: their own org id.
+	listedCert, listedKey := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
+
+	// The FORGED certificate: the same key, the victim's org id, self-signed.
+	forgedTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(99),
+		Subject: pkix.Name{
+			CommonName: "Forged Identity",
+			ExtraNames: []pkix.AttributeTypeAndValue{
+				{Type: asn1.ObjectIdentifier{2, 5, 4, 97}, Value: "LEIXG-VICTIM"},
+			},
+		},
+		NotBefore:   time.Now().Add(-time.Hour),
+		NotAfter:    time.Now().Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	forgedDER, err := x509.CreateCertificate(rand.Reader, forgedTemplate, forgedTemplate, &listedKey.PublicKey, listedKey)
+	require.NoError(t, err)
+	forgedCert, err := x509.ParseCertificate(forgedDER)
+	require.NoError(t, err)
+
+	directLote := minimalLoTE("SE", x509Entity("https://attacker.example.com", listedCert))
+	directLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/access-ca"
+	registrarLote := minimalLoTE("SE", x509Entity("https://registrar.example.com", registrarCACert))
+	registrarLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/registrar"
+	dir := t.TempDir()
+	reg, err := New(Config{
+		Name:             "forged-identity-test",
+		Sources:          []string{writeLoTE(t, dir, "direct.json", directLote), writeLoTE(t, dir, "registrar.json", registrarLote)},
+		WRPRCSchemeTypes: []string{"https://registry.example/schemes/registrar"},
+	})
+	require.NoError(t, err)
+
+	// The VICTIM organization's genuine WRPRC.
+	now := time.Now()
+	claims := map[string]interface{}{
+		"name":           "Victim Org GmbH",
+		"sub":            "LEIXG-VICTIM",
+		"entitlements":   []string{"urn:example:entitlement:non-qeaa-provider"},
+		"privacy_policy": "https://victim.example/privacy",
+		"iat":            now.Add(-time.Hour).Unix(),
+		"exp":            now.Add(30 * 24 * time.Hour).Unix(),
+	}
+	victimWRPRC := mintTestWRPRC(t, registrarCACert, registrarCAKey, claims)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://attacker.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "https://attacker.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(forgedCert.Raw),
+			},
+		},
+		Context: map[string]interface{}{"wrprc": victimWRPRC},
+	})
+	require.NoError(t, err)
+	if resp.Decision {
+		t.Errorf("expected deny: the forged certificate carries the listed key but not the listed identity")
+	}
+	if md, ok := resp.Context.TrustMetadata.(map[string]interface{}); ok {
+		if _, has := md["wrprc"]; has {
+			t.Errorf("the victim organization's entitlements must not surface for a forged identity")
+		}
+	}
+}
+
+// TestEvaluate_X5C_DirectKeyMalformedChainDenies pins the malformed-trailing-
+// certificate bypass: [listed_leaf, "garbage"] must deny — never skip the
+// enrichment gate on a parse failure.
+func TestEvaluate_X5C_DirectKeyMalformedChainDenies(t *testing.T) {
+	accessCACert, accessCAKey := generateTestCA(t)
+	registrarCACert, registrarCAKey := generateTestCA(t)
+
+	listedCert, _ := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
+
+	directLote := minimalLoTE("SE", x509Entity("https://fronted-rp.example.com", listedCert))
+	directLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/access-ca"
+	registrarLote := minimalLoTE("SE", x509Entity("https://registrar.example.com", registrarCACert))
+	registrarLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/registrar"
+	dir := t.TempDir()
+	reg, err := New(Config{
+		Name:             "malformed-chain-test",
+		Sources:          []string{writeLoTE(t, dir, "direct.json", directLote), writeLoTE(t, dir, "registrar.json", registrarLote)},
+		WRPRCSchemeTypes: []string{"https://registry.example/schemes/registrar"},
+	})
+	require.NoError(t, err)
+
+	// A WRPRC naming an intermediary the policy does not admit: only the
+	// enrichment gate denies it — a parse failure must not skip that gate.
+	now := time.Now()
+	claims := map[string]interface{}{
+		"name":         "Fronted RP GmbH",
+		"sub":          "LEIXG-FRONTED",
+		"entitlements": []string{"urn:example:entitlement:non-qeaa-provider"},
+		"iat":          now.Add(-time.Hour).Unix(),
+		"exp":          now.Add(30 * 24 * time.Hour).Unix(),
+		"act":          map[string]interface{}{"sub": "LEIXG-INTERMEDIARY"},
+	}
+	wrprc := mintTestWRPRC(t, registrarCACert, registrarCAKey, claims)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://fronted-rp.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "https://fronted-rp.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(listedCert.Raw),
+				"!!!garbage!!!",
+			},
+		},
+		Context: map[string]interface{}{"wrprc": wrprc},
+	})
+	require.NoError(t, err)
+	if resp.Decision {
+		t.Errorf("expected deny: a malformed trailing certificate must not bypass the WRPRC gate")
+	}
+	if admin, ok := resp.Context.Reason["admin"].(string); ok {
+		if !strings.Contains(admin, "malformed") {
+			t.Errorf("the denial should name the malformed chain, got: %s", admin)
+		}
+	}
+}
