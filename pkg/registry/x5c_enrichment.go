@@ -254,14 +254,19 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 		// The service-identifier binding (the Santesson convention,
 		// OIDWRPACServiceIdentifier): when both sides carry one they must
 		// match, or a certificate for service A reuses a WRPRC issued for
-		// service B within the same organization.
-		if err := rpcert.CheckWRPACWRPRCServiceBinding(result.WRPACServiceID, ent); err != nil {
-			result.Decision = false
-			result.FailureReason = map[string]interface{}{
-				"error": "the presenting WRPAC's service identifier does not bind to the WRPRC",
-				"wrprc": err.Error(),
+		// service B within the same organization. DIRECT presentations
+		// only: the helper distinguishes services of ONE organization, and
+		// an intermediated presentation legitimately carries the
+		// INTERMEDIARY's service identifier beside the FRONTED RP's.
+		if ent.ActingIntermediary == "" {
+			if err := rpcert.CheckWRPACWRPRCServiceBinding(result.WRPACServiceID, ent); err != nil {
+				result.Decision = false
+				result.FailureReason = map[string]interface{}{
+					"error": "the presenting WRPAC's service identifier does not bind to the WRPRC",
+					"wrprc": err.Error(),
+				}
+				return result
 			}
-			return result
 		}
 
 		// Over-request detection against the AUTHORITATIVE entitlements: the
@@ -281,6 +286,24 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 			}
 			if result.OverRequest.IsOverRequest && isStrictEntitlementCheck(req) {
 				denyOverRequest(result)
+				return result
+			}
+		} else if requestsWholeCredential(req) {
+			// A DCQL credential query without `claims` requests the WHOLE
+			// credential — a scope the registrar's attribute-level grants
+			// cannot represent, so the over-request comparison above cannot
+			// run. In strict mode that unrepresentable scope denies rather
+			// than passing as "nothing requested"; otherwise it is surfaced
+			// as a warning alongside the allow.
+			result.OverRequest = &rpcert.OverRequestResult{
+				OverRequested: []string{"<the entire credential>"},
+				IsOverRequest: true,
+			}
+			if isStrictEntitlementCheck(req) {
+				result.Decision = false
+				result.FailureReason = map[string]interface{}{
+					"error": "the request asks for a whole credential, which the WRPRC's attribute-level grants cannot represent",
+				}
 				return result
 			}
 		}
@@ -338,7 +361,12 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 	// Verifier identifiers: only from a certificate that passed every check
 	// above, including the matched profile's validation. A profile failure is
 	// otherwise only a warning, so it has to be tested for explicitly here.
-	if result.Decision && result.ProfileValidationError == "" {
+	// A VERIFIED intermediated WRPRC is exempt: the leaf is the
+	// INTERMEDIARY's certificate, and emitting its semantic identifier as
+	// the end RP's verifier ID would attribute the fronted RP's
+	// presentations to the intermediary.
+	intermediatedWRPRC := result.WRPRCEntitlements != nil && result.WRPRCEntitlements.ActingIntermediary != ""
+	if result.Decision && result.ProfileValidationError == "" && !intermediatedWRPRC {
 		result.VerifierIDs = deriveX5CVerifierIDs(req, leaf, result.IsIntermediaryRequest)
 	}
 
@@ -529,7 +557,8 @@ func ExtractRPIdentity(cert *x509.Certificate) map[string]interface{} {
 // extractRequestedAttributes extracts the list of attributes the RP is requesting.
 // It checks (in order of priority):
 //  1. request.Context["requested_attributes"] — explicit flat list
-//  2. action.Parameters["query"] — DCQL query, from which claim names are extracted
+//  2. the DCQL query — from action.Parameters OR request.Context (the
+//     manager accepts it in both places), from which claim names are extracted
 func extractRequestedAttributes(req *authzen.EvaluationRequest) []string {
 	// Check for explicit requested_attributes first
 	if req.Context != nil {
@@ -538,7 +567,8 @@ func extractRequestedAttributes(req *authzen.EvaluationRequest) []string {
 		}
 	}
 
-	// Fall back to extracting claim names from DCQL query in action parameters
+	// The DCQL query: action parameters first, then the request context —
+	// the manager's allowlist admits "query" in both.
 	if req.Action != nil && req.Action.Parameters != nil {
 		if queryRaw, ok := req.Action.Parameters["query"]; ok {
 			if dcql := rpcert.ParseDCQLQuery(queryRaw); dcql != nil {
@@ -546,8 +576,36 @@ func extractRequestedAttributes(req *authzen.EvaluationRequest) []string {
 			}
 		}
 	}
+	if req.Context != nil {
+		if queryRaw, ok := req.Context["query"]; ok {
+			if dcql := rpcert.ParseDCQLQuery(queryRaw); dcql != nil {
+				return dcql.ExtractRequestedClaimNames()
+			}
+		}
+	}
 
 	return nil
+}
+
+// requestsWholeCredential reports whether the request's DCQL carries a
+// credential query WITHOUT claims — a request for the entire credential,
+// which no attribute-level grant can represent.
+func requestsWholeCredential(req *authzen.EvaluationRequest) bool {
+	var queryRaw interface{}
+	if req.Action != nil && req.Action.Parameters != nil {
+		queryRaw = req.Action.Parameters["query"]
+	}
+	if queryRaw == nil && req.Context != nil {
+		queryRaw = req.Context["query"]
+	}
+	if queryRaw == nil {
+		return false
+	}
+	dcql := rpcert.ParseDCQLQuery(queryRaw)
+	if dcql == nil {
+		return false
+	}
+	return dcql.RequestsWholeCredential()
 }
 
 // denyOverRequest marks the enrichment result as a strict-mode over-request

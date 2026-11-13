@@ -1192,3 +1192,132 @@ func TestEnrichX5CResponse_WRPRCServiceIdentifierBinds(t *testing.T) {
 	result = EnrichX5CResponseWithProfiles(req, leafForA, rpcert.DefaultProfileRegistry(), validator)
 	assert.True(t, result.Decision)
 }
+
+func TestEnrichX5CResponse_WRPRCIntermediatedDistinctServiceIDsAllow(t *testing.T) {
+	// The service-identifier binding distinguishes services of ONE
+	// organization: an intermediated presentation legitimately carries
+	// the INTERMEDIARY's service identifier beside the FRONTED RP's, and
+	// distinct URIs must not deny a correctly bound act presentation.
+	claims := wrprcClaims("LEIXG-INTERMEDIARY")
+	claims["service_identifier"] = "https://fronted.example/services/rp"
+	token, validator := mintWRPRC(t, claims)
+	leaf := makeVIDCert(t, vidCertOpts{
+		orgID:     "LEIXG-INTERMEDIARY",
+		policy:    rpcert.OIDNCPLegalPerson,
+		serviceID: "https://intermediary.example/services/presentation",
+	})
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                token,
+		"allow_intermediaries": true,
+	}}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.True(t, result.Decision)
+}
+
+func TestEnrichX5CResponse_WRPRCWholeCredentialRequestStrictDenies(t *testing.T) {
+	// A DCQL credential query WITHOUT claims requests the whole credential —
+	// a scope the WRPRC's attribute-level grants cannot represent. Strict
+	// mode denies; otherwise the unrepresentable scope is a warning.
+	token, validator := mintWRPRC(t, wrprcClaims(""))
+	leaf := wrpacLeaf(t, "LEIXG-FRONTED")
+	query := map[string]interface{}{
+		"credentials": []interface{}{
+			map[string]interface{}{"id": "pid", "format": "dc+sd-jwt"},
+		},
+	}
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                    token,
+		"query":                    query,
+		"strict_entitlement_check": true,
+	}}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.FailureReason)
+	assert.Contains(t, result.FailureReason["error"], "whole credential")
+
+	// Without strict mode: allow, with the unrepresentable scope surfaced.
+	req.Context["strict_entitlement_check"] = false
+	result = EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.True(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	assert.True(t, result.OverRequest.IsOverRequest)
+}
+
+func TestEnrichX5CResponse_WRPRCContextQueryOverRequest(t *testing.T) {
+	// The DCQL query rides request.Context["query"] (the manager's allowlist
+	// admits it there too), not only action.Parameters: the over-request
+	// check must read it.
+	token, validator := mintWRPRC(t, wrprcClaims(""))
+	leaf := wrpacLeaf(t, "LEIXG-FRONTED")
+	query := map[string]interface{}{
+		"credentials": []interface{}{
+			map[string]interface{}{
+				"id":     "pid",
+				"format": "dc+sd-jwt",
+				"claims": []interface{}{
+					map[string]interface{}{"path": []interface{}{"given_name"}},
+					map[string]interface{}{"path": []interface{}{"family_name"}},
+				},
+			},
+		},
+	}
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                    token,
+		"query":                    query,
+		"strict_entitlement_check": true,
+	}}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	assert.Equal(t, []string{"family_name"}, result.OverRequest.OverRequested)
+}
+
+func TestEnrichX5CResponse_WRPRCIntermediatedOmitsVerifierIDs(t *testing.T) {
+	// The leaf on an intermediated presentation is the INTERMEDIARY's
+	// certificate: emitting its semantic identifier as the end RP's verifier
+	// ID would attribute the fronted RP's presentations to the intermediary.
+	claims := wrprcClaims("LEIXG-INTERMEDIARY")
+	token, validator := mintWRPRC(t, claims)
+	leaf := makeVIDCert(t, vidCertOpts{
+		orgID:  "LEIXG-INTERMEDIARY",
+		policy: rpcert.OIDNCPLegalPerson,
+		uris:   []string{"https://intermediary.example"},
+	})
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                token,
+		"allow_intermediaries": true,
+		"return_verifier_ids":  []string{"semantic"},
+	}}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.True(t, result.Decision)
+	assert.Empty(t, result.VerifierIDs, "an intermediated WRPRC must not derive verifier IDs from the intermediary's certificate")
+
+	// A DIRECT presentation still derives them.
+	directToken, directValidator := mintWRPRC(t, wrprcClaims(""))
+	req = &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":               directToken,
+		"return_verifier_ids": []string{"semantic"},
+	}}
+	result = EnrichX5CResponseWithProfiles(req, wrpacLeaf(t, "LEIXG-FRONTED"), rpcert.DefaultProfileRegistry(), directValidator)
+	assert.True(t, result.Decision)
+	assert.NotEmpty(t, result.VerifierIDs)
+}
+
+func TestVerifyWRPRC_CritHeaderRefused(t *testing.T) {
+	// RFC 7515 §4.1.11: a correctly signed token declaring a critical header
+	// parameter this verifier does not implement is refused.
+	tok, v := mintTestWRPRCTokenWithTyp(t, "rc-wrp+jwt", nil)
+	parts := split3(t, tok)
+	var header map[string]interface{}
+	err := json.Unmarshal(b64Decode(t, parts[0]), &header)
+	require.NoError(t, err)
+	header["crit"] = []string{"custom-ext"}
+	hdrJSON, err := json.Marshal(header)
+	require.NoError(t, err)
+	// The header change invalidates the signature, which is fine: the crit
+	// check fires before signature verification either way.
+	withCrit := base64.RawURLEncoding.EncodeToString(hdrJSON) + "." + parts[1] + "." + parts[2]
+	_, err = v.VerifyWRPRC(context.Background(), []byte(withCrit))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "critical header")
+}

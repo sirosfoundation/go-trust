@@ -66,12 +66,19 @@ func (v *anchoredWRPRCVerifier) VerifyWRPRC(_ context.Context, token []byte) (*r
 		return nil, fmt.Errorf("wrprc: decoding JWS header: %w", err)
 	}
 	var header struct {
-		Typ string   `json:"typ"`
-		Alg string   `json:"alg"`
-		X5C []string `json:"x5c"`
+		Typ  string   `json:"typ"`
+		Alg  string   `json:"alg"`
+		X5C  []string `json:"x5c"`
+		Crit []string `json:"crit"`
 	}
 	if err := json.Unmarshal(headerRaw, &header); err != nil {
 		return nil, fmt.Errorf("wrprc: parsing JWS header: %w", err)
+	}
+	// RFC 7515 §4.1.11: a JWS with a `crit` member a verifier does not
+	// understand and process MUST be rejected. This verifier implements no
+	// header extensions, so ANY crit member refuses the token.
+	if len(header.Crit) > 0 {
+		return nil, fmt.Errorf("wrprc: the JWS declares critical header parameters %v this verifier does not implement", header.Crit)
 	}
 	// GEN-5.2.2-01: the media type identifies the document. Compared exactly:
 	// Registrars emit the lowercase form and the latitude of a

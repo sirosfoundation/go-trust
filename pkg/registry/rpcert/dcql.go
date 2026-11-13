@@ -135,3 +135,19 @@ func ParseDCQLQuery(raw interface{}) *DCQLQuery {
 
 	return query
 }
+
+// RequestsWholeCredential reports whether the query contains a credential
+// query WITHOUT claims — a request for the entire credential, a scope no
+// attribute-level grant can represent. A query constrained by claim sets is
+// not a whole-credential request.
+func (q *DCQLQuery) RequestsWholeCredential() bool {
+	if q == nil {
+		return false
+	}
+	for _, cred := range q.Credentials {
+		if len(cred.Claims) == 0 && len(cred.ClaimSets) == 0 {
+			return true
+		}
+	}
+	return false
+}
