@@ -219,6 +219,26 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 				return result
 			}
 		}
+		// The binding is the security property of this path, so its
+		// identifiers are REQUIRED here — the optional-skip semantics of the
+		// underlying helpers (empty means "not present, do not enforce") are
+		// for WRPRC-only flows. A chain-valid certificate with no extractable
+		// organization identifier must not adopt the WRPRC's identity by
+		// falling through to skip.
+		if result.WRPACOrgID == "" {
+			result.Decision = false
+			result.FailureReason = map[string]interface{}{
+				"error": "the presenting certificate carries no organization_identifier; the WRPRC binding cannot be established",
+			}
+			return result
+		}
+		if ent.ActingIntermediary == "" && ent.Subject.ID == "" {
+			result.Decision = false
+			result.FailureReason = map[string]interface{}{
+				"error": "the WRPRC names no identifier to bind the presentation to",
+			}
+			return result
+		}
 		if err := rpcert.CheckWRPACWRPRCPresentationBinding(result.WRPACOrgID, ent); err != nil {
 			result.Decision = false
 			result.FailureReason = map[string]interface{}{
@@ -230,9 +250,19 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 
 		// Over-request detection against the AUTHORITATIVE entitlements: the
 		// registrar-issued credential queries in the WRPRC payload, not
-		// policy-configured attributes.
+		// policy-configured attributes. A WRPRC granting NO queries is an
+		// authoritative empty grant, not missing data: every requested
+		// attribute is an over-request.
 		if requestedAttrs := extractRequestedAttributes(req); len(requestedAttrs) > 0 {
-			result.OverRequest = rpcert.DetectOverRequest(ent, requestedAttrs)
+			if len(ent.AllowedAttributes) == 0 {
+				result.OverRequest = &rpcert.OverRequestResult{
+					Requested:     requestedAttrs,
+					OverRequested: requestedAttrs,
+					IsOverRequest: true,
+				}
+			} else {
+				result.OverRequest = rpcert.DetectOverRequest(ent, requestedAttrs)
+			}
 			if result.OverRequest.IsOverRequest && isStrictEntitlementCheck(req) {
 				result.Decision = false
 				result.FailureReason = map[string]interface{}{

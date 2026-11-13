@@ -62,6 +62,15 @@ type Config struct {
 	// role.
 	RoleSchemeTypes map[string][]string
 
+	// WRPRCSchemeTypes lists the LoTE types whose listed entities may issue
+	// WRPRCs (the national registrars). The WRPRC evaluation's trust anchors
+	// are exactly the certificates of entities listed under these types —
+	// never the global pool, which also holds Access CAs and every other
+	// role: an ordinary access-certificate holder must not be able to
+	// self-sign registration claims. Empty means no registrar anchors are
+	// configured, and a presented WRPRC fails closed.
+	WRPRCSchemeTypes []string
+
 	// RequireRole denies any request whose action does not resolve to LoTE
 	// types through RoleSchemeTypes (or name a LoTE type itself), whether the
 	// subject is listed directly or reached through a listed CA.
@@ -449,7 +458,31 @@ func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEn
 	}
 
 	if ent.keyHashes[keyHash] {
-		return r.buildSuccessResponse(subjectID, ent.territory, "key matches entity", credentialTypes)
+		resp := r.buildSuccessResponse(subjectID, ent.territory, "key matches entity", credentialTypes)
+		// A directly listed key is not a licence to skip the enrichment
+		// gate: a request carrying a WRPRC (or policy OID / over-request
+		// constraints) must pass it on this path too, or listing the key
+		// directly would bypass the registry-level WRPRC evaluation.
+		if req.Resource.Type == "x5c" {
+			if certs, err := parseX5CCerts(req, r.config.CryptoExt); err == nil && len(certs) > 0 {
+				enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles, r.wrprcVerifier())
+				if !enrichment.Decision {
+					reason := map[string]interface{}{
+						"admin": fmt.Sprintf("key matches entity %q but enrichment check failed", subjectID),
+					}
+					for k, v := range enrichment.FailureReason {
+						reason[k] = v
+					}
+					addCredentialTypesToReason(reason, credentialTypes)
+					return &authzen.EvaluationResponse{
+						Decision: false,
+						Context:  &authzen.EvaluationResponseContext{Reason: reason},
+					}
+				}
+				registry.ApplyEnrichmentToResponse(resp, enrichment)
+			}
+		}
+		return resp
 	}
 
 	// For x5c: attempt PKIX path validation if the entity has X.509 trust anchors.
@@ -618,7 +651,7 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 		// Post-chain-validation enrichment: cert policy OID check + RP identity extraction
 		enrichment := registry.EnrichX5CResponseWithProfiles(
 			req, certs[0], r.profiles,
-			registry.NewAnchoredWRPRCVerifier(r.index.globalCertPool),
+			r.wrprcVerifier(),
 		)
 		if !enrichment.Decision {
 			reason := map[string]interface{}{
@@ -661,6 +694,29 @@ func leafBindingFailure(req *authzen.EvaluationRequest, leaf *x509.Certificate, 
 		Decision: false,
 		Context:  &authzen.EvaluationResponseContext{Reason: reason},
 	}
+}
+
+// wrprcVerifier returns the WRPRC verifier over the REGISTRAR-authorized
+// anchors: the certificates of entities listed under the configured
+// WRPRCSchemeTypes. Never the global pool — that also holds Access CAs and
+// every other role, and an ordinary access-certificate holder must not be
+// able to self-sign registration claims that anchor through its own CA. An
+// empty configuration returns nil, and the enrichment fails a presented
+// WRPRC closed.
+//
+// Callers hold r.mu (read or write) — the index is immutable between
+// refreshes.
+func (r *Registry) wrprcVerifier() registry.WRPRCVerifier {
+	if len(r.config.WRPRCSchemeTypes) == 0 {
+		return nil
+	}
+	pool := x509.NewCertPool()
+	for _, t := range r.config.WRPRCSchemeTypes {
+		for _, cert := range r.index.certsByType[t] {
+			pool.AddCert(cert)
+		}
+	}
+	return registry.NewAnchoredWRPRCVerifier(pool)
 }
 
 // scopedRoots returns the CA pool an x5c chain may anchor to: the certificates
@@ -763,7 +819,7 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 	// Post-chain-validation enrichment (profile / WRPRC checks).
 	enrichment := registry.EnrichX5CResponseWithProfiles(
 		req, certs[0], r.profiles,
-		registry.NewAnchoredWRPRCVerifier(r.index.globalCertPool),
+		r.wrprcVerifier(),
 	)
 	if !enrichment.Decision {
 		reason := map[string]interface{}{

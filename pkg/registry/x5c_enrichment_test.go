@@ -1,9 +1,11 @@
 package registry
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -897,6 +899,14 @@ func wrprcClaims(act string) map[string]interface{} {
 	return claims
 }
 
+// wrpacLeaf mints a WRPAC-shaped leaf (the NCP-l-eudiwrp policy OID so the
+// wrpac profile matches it, the organizationIdentifier DN attribute) whose
+// profile extraction yields orgID.
+func wrpacLeaf(t *testing.T, orgID string) *x509.Certificate {
+	t.Helper()
+	return makeVIDCert(t, vidCertOpts{orgID: orgID, policy: rpcert.OIDNCPLegalPerson})
+}
+
 func TestEnrichX5CResponse_WRPRCNoValidatorFailsClosed(t *testing.T) {
 	token, _ := mintWRPRC(t, wrprcClaims(""))
 	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
@@ -921,7 +931,7 @@ func TestEnrichX5CResponse_WRPRCUnanchoredChainDenies(t *testing.T) {
 func TestEnrichX5CResponse_WRPRCDirectSurfaces(t *testing.T) {
 	token, validator := mintWRPRC(t, wrprcClaims(""))
 	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
-	result := EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, validator)
+	result := EnrichX5CResponseWithProfiles(req, wrpacLeaf(t, "LEIXG-FRONTED"), rpcert.DefaultProfileRegistry(), validator)
 	assert.True(t, result.Decision)
 	require.NotNil(t, result.WRPRCEntitlements)
 	assert.Equal(t, "LEIXG-FRONTED", result.WRPRCEntitlements.Subject.ID)
@@ -957,7 +967,7 @@ func TestEnrichX5CResponse_WRPRCIntermediaryAllowedVerified(t *testing.T) {
 		"wrprc":                token,
 		"allow_intermediaries": true,
 	}}
-	result := EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, validator)
+	result := EnrichX5CResponseWithProfiles(req, wrpacLeaf(t, "LEIXG-INTERMEDIARY"), rpcert.DefaultProfileRegistry(), validator)
 	assert.True(t, result.Decision)
 	assert.True(t, result.IsIntermediaryRequest)
 	require.NotNil(t, result.IntermediaryIdentity)
@@ -978,7 +988,7 @@ func TestEnrichX5CResponse_WRPRCOverRequestAuthoritative(t *testing.T) {
 		"strict_entitlement_check": true,
 		"allowed_attributes":       []string{"given_name", "family_name", "anything"},
 	}}
-	result := EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, validator)
+	result := EnrichX5CResponseWithProfiles(req, wrpacLeaf(t, "LEIXG-FRONTED"), rpcert.DefaultProfileRegistry(), validator)
 	assert.False(t, result.Decision)
 	require.NotNil(t, result.OverRequest)
 	assert.True(t, result.OverRequest.IsOverRequest)
@@ -986,7 +996,7 @@ func TestEnrichX5CResponse_WRPRCOverRequestAuthoritative(t *testing.T) {
 
 	// Without strict mode the over-request surfaces as a warning.
 	req.Context["strict_entitlement_check"] = false
-	result = EnrichX5CResponseWithProfiles(req, &x509.Certificate{}, nil, validator)
+	result = EnrichX5CResponseWithProfiles(req, wrpacLeaf(t, "LEIXG-FRONTED"), rpcert.DefaultProfileRegistry(), validator)
 	assert.True(t, result.Decision)
 	require.NotNil(t, result.OverRequest)
 	assert.True(t, result.OverRequest.IsOverRequest)
@@ -1011,4 +1021,120 @@ func TestEnrichX5CResponse_WRPRCSwappedPayloadDenies(t *testing.T) {
 	require.NotNil(t, result.FailureReason)
 	assert.Contains(t, result.FailureReason["error"], "failed validation")
 	assert.Nil(t, result.WRPRCEntitlements)
+}
+
+func TestEnrichX5CResponse_WRPRCUnboundIdentityFailsClosed(t *testing.T) {
+	// A chain-valid WRPAC-shaped certificate with NO organization_identifier
+	// must not adopt the WRPRC's identity: the binding is required on this
+	// path, not optional-skip.
+	token, validator := mintWRPRC(t, wrprcClaims(""))
+	leaf := makeVIDCert(t, vidCertOpts{policy: rpcert.OIDNCPLegalPerson})
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.FailureReason)
+	assert.Contains(t, result.FailureReason["error"], "no organization_identifier")
+}
+
+func TestEnrichX5CResponse_WRPRCExpiredDenies(t *testing.T) {
+	claims := wrprcClaims("")
+	claims["exp"] = time.Now().Add(-time.Hour).Unix()
+	token, validator := mintWRPRC(t, claims)
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, wrpacLeaf(t, "LEIXG-FRONTED"), rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	assert.Contains(t, result.FailureReason["wrprc"], "expired")
+}
+
+func TestEnrichX5CResponse_WRPRCNotYetValidDenies(t *testing.T) {
+	// iat beyond the 60-second skew: not yet valid, denied.
+	claims := wrprcClaims("")
+	claims["iat"] = time.Now().Add(10 * time.Minute).Unix()
+	claims["exp"] = time.Now().Add(30 * 24 * time.Hour).Unix()
+	token, validator := mintWRPRC(t, claims)
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, wrpacLeaf(t, "LEIXG-FRONTED"), rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	assert.Contains(t, result.FailureReason["wrprc"], "not yet valid")
+}
+
+func TestEnrichX5CResponse_WRPRCNoWindowDenies(t *testing.T) {
+	// No iat/exp at all: no validity window to evaluate, denied.
+	claims := wrprcClaims("")
+	delete(claims, "iat")
+	delete(claims, "exp")
+	token, validator := mintWRPRC(t, claims)
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": token}}
+	result := EnrichX5CResponseWithProfiles(req, wrpacLeaf(t, "LEIXG-FRONTED"), rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	assert.Contains(t, result.FailureReason["wrprc"], "no validity window")
+}
+
+func TestEnrichX5CResponse_WRPRCEmptyGrantIsAuthoritative(t *testing.T) {
+	// A WRPRC granting NO credential queries is an authoritative empty
+	// grant: every requested attribute is an over-request — even with
+	// policy-configured allowed_attributes present, which this path
+	// bypasses.
+	claims := wrprcClaims("")
+	delete(claims, "credentials")
+	token, validator := mintWRPRC(t, claims)
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                    token,
+		"requested_attributes":     []string{"given_name"},
+		"strict_entitlement_check": true,
+		"allowed_attributes":       []string{"given_name"},
+	}}
+	result := EnrichX5CResponseWithProfiles(req, wrpacLeaf(t, "LEIXG-FRONTED"), rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	assert.True(t, result.OverRequest.IsOverRequest)
+	assert.Equal(t, []string{"given_name"}, result.OverRequest.OverRequested)
+}
+
+func TestWRPRCAlgorithmCurvePairingEnforced(t *testing.T) {
+	// RFC 7518 §3.4 fixes the curve by the algorithm: an ES256 token signed
+	// by a P-384 key must not pass with a 96-byte signature.
+	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(42),
+		Subject:               pkix.Name{Organization: []string{"Registrar CA"}, CommonName: "registrar.example"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	caCert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	pool := x509.NewCertPool()
+	pool.AddCert(caCert)
+
+	header := map[string]interface{}{
+		"typ": "rc-wrp+jwt",
+		"alg": "ES256",
+		"x5c": []string{base64.StdEncoding.EncodeToString(caCert.Raw)},
+	}
+	hdrJSON, err := json.Marshal(header)
+	require.NoError(t, err)
+	hdrB64 := base64.RawURLEncoding.EncodeToString(hdrJSON)
+	payJSON, err := json.Marshal(wrprcClaims(""))
+	require.NoError(t, err)
+	payB64 := base64.RawURLEncoding.EncodeToString(payJSON)
+	signingInput := hdrB64 + "." + payB64
+	digest := sha256.Sum256([]byte(signingInput))
+	r, s, err := ecdsa.Sign(rand.Reader, key, digest[:])
+	require.NoError(t, err)
+	// r || s at the P-384 width — 96 bytes for an ES256-declared token.
+	sig := make([]byte, 96)
+	r.FillBytes(sig[:48])
+	s.FillBytes(sig[48:])
+	token := signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+
+	verifier := NewAnchoredWRPRCVerifier(pool)
+	_, err = verifier.VerifyWRPRC(context.Background(), []byte(token))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires curve P-256")
 }

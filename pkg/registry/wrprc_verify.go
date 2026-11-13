@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
 
@@ -116,6 +117,20 @@ func (v *anchoredWRPRCVerifier) VerifyWRPRC(_ context.Context, token []byte) (*r
 	if err := rpcert.CheckWRPRCValidityPeriod(ent); err != nil {
 		return nil, err
 	}
+	// The current window, not just the 12-month span of
+	// CheckWRPRCValidityPeriod: both timestamps must be present and the
+	// evaluation time must fall within them (60 seconds of iat latitude for
+	// clock drift, the same skew the producer side applies).
+	if ent.ValidFrom == nil || ent.ValidUntil == nil {
+		return nil, fmt.Errorf("wrprc: the certificate carries no validity window (iat/exp)")
+	}
+	now := time.Now()
+	if now.Add(60 * time.Second).Before(*ent.ValidFrom) {
+		return nil, fmt.Errorf("wrprc: not yet valid (iat %s)", ent.ValidFrom.Format(time.RFC3339))
+	}
+	if now.After(*ent.ValidUntil) {
+		return nil, fmt.Errorf("wrprc: expired (exp %s)", ent.ValidUntil.Format(time.RFC3339))
+	}
 	ent.Raw = trimmed
 	return ent, nil
 }
@@ -180,12 +195,28 @@ func verifyWRPRCSignature(alg string, pub crypto.PublicKey, signingInput, sig []
 		if !ok {
 			return fmt.Errorf("algorithm %s requires ECDSA public key", alg)
 		}
+		// RFC 7518 §3.4: the curve is fixed by the algorithm. Deriving the
+		// coordinate width from the key's own curve would let an ES256 token
+		// signed by a P-384 key pass with a 96-byte signature.
+		var wantCurve elliptic.Curve
+		switch alg {
+		case "ES256":
+			wantCurve = elliptic.P256()
+		case "ES384":
+			wantCurve = elliptic.P384()
+		default:
+			wantCurve = elliptic.P521()
+		}
+		if ecKey.Curve != wantCurve {
+			return fmt.Errorf("algorithm %s requires curve %s, got %s",
+				alg, wantCurve.Params().Name, ecKey.Curve.Params().Name)
+		}
 		h := jwsAlgHash(alg)
 		hh := h.New()
 		hh.Write(signingInput)
 		digest := hh.Sum(nil)
 		// ECDSA JWS signature is r || s (fixed-size big-endian) per RFC 7518 §3.4.
-		keyBytes := (ecKey.Curve.Params().BitSize + 7) / 8
+		keyBytes := (wantCurve.Params().BitSize + 7) / 8
 		if len(sig) != 2*keyBytes {
 			return fmt.Errorf("ECDSA signature has unexpected length %d (want %d)", len(sig), 2*keyBytes)
 		}
