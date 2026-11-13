@@ -3,6 +3,8 @@ package registry
 import (
 	"context"
 	"crypto/x509"
+	"strconv"
+	"strings"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
@@ -688,19 +690,22 @@ func extractWRPRC(req *authzen.EvaluationRequest) (token string, valid bool, pre
 // DCQL entries carry their query's.
 func requestedClaimGrants(req *authzen.EvaluationRequest) []rpcert.ClaimPathGrant {
 	var requested []rpcert.ClaimPathGrant
+	seen := map[string]bool{}
 	add := func(format string, path []string) {
 		if len(path) == 0 {
 			return
 		}
-		// Deduplicate by DIRECT comparison, never a joined-string key: a
-		// dotted key merges ["address", "street"] with ["address.street"],
-		// and the merged-away literal claim would escape the exact-path
-		// check.
-		for _, existing := range requested {
-			if existing.Format == format && rpcert.EqualClaimPath(existing.Path, path) {
-				return
-			}
+		// Deduplicate through a key that is injective BY CONSTRUCTION —
+		// every field length-prefixed — so ["address", "street"] and
+		// ["address.street"] never merge, and the cost stays LINEAR in the
+		// requested-claim count: a quadratic scan would let a hostile
+		// 20,000-claim request force ~200 million comparisons before the
+		// request can be denied.
+		key := claimPathKey(format, path)
+		if seen[key] {
+			return
 		}
+		seen[key] = true
 		requested = append(requested, rpcert.ClaimPathGrant{Format: format, Path: path})
 	}
 	if req.Context != nil {
@@ -720,6 +725,24 @@ func requestedClaimGrants(req *authzen.EvaluationRequest) []rpcert.ClaimPathGran
 		}
 	}
 	return requested
+}
+
+// claimPathKey builds an injective string key for a (format, path) claim
+// grant: every field length-prefixed as <len>:<content>, so no two distinct
+// pairs produce the same key — the parse is deterministic at every step —
+// and deduplication stays linear in the requested-claim count.
+func claimPathKey(format string, path []string) string {
+	var b strings.Builder
+	writeField := func(field string) {
+		b.WriteString(strconv.Itoa(len(field)))
+		b.WriteByte(':')
+		b.WriteString(field)
+	}
+	writeField(format)
+	for _, segment := range path {
+		writeField(segment)
+	}
+	return b.String()
 }
 
 // dcqlQueries yields the raw DCQL query values the request carries, from

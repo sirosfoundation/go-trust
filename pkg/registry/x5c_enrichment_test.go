@@ -11,6 +11,7 @@ import (
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/url"
 	"strings"
@@ -1545,4 +1546,31 @@ func TestApplyEnrichmentToResponse_IncludesExactClaimPathGrants(t *testing.T) {
 	assert.Equal(t, []string{"org.iso.18013.5.1", "age_over_18"}, paths[0]["path"])
 	// The flat display names remain beside them.
 	assert.Equal(t, []string{"org.iso.18013.5.1"}, wrprc["allowed_attributes"])
+}
+
+func TestEnrichX5CResponse_WRPRCLargeRequestedSetStaysLinear(t *testing.T) {
+	// A hostile request listing 20,000 distinct claims must cost linear
+	// work, not the ~200 million comparisons a quadratic deduplication
+	// scan would force — and the over-request still denies in strict mode.
+	token, validator := mintWRPRC(t, wrprcClaims(""))
+	leaf := wrpacLeaf(t, "LEIXG-FRONTED")
+	claims := make([]string, 0, 20_000)
+	for i := 0; i < 20_000; i++ {
+		claims = append(claims, fmt.Sprintf("hostile_claim_%d", i))
+	}
+	claims = append(claims, "given_name")
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                    token,
+		"requested_attributes":     claims,
+		"strict_entitlement_check": true,
+	}}
+	started := time.Now()
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	elapsed := time.Since(started)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	assert.True(t, result.OverRequest.IsOverRequest)
+	// Linear work: the 20,000-claim request completes in well under a
+	// second (a quadratic scan would take orders of magnitude longer).
+	assert.Less(t, elapsed, 5*time.Second, "the requested-set handling must stay linear")
 }
