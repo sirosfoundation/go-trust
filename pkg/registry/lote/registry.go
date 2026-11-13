@@ -390,6 +390,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	for _, ent := range candidates {
 		resp := r.evaluateEntity(req, ent, subjectID, credentialTypes)
 		if resp.Decision {
+			setEntityDisplayName(resp, ent)
 			return resp, nil
 		}
 		if denied == nil {
@@ -778,6 +779,52 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 		credentialTypes)
 	registry.ApplyEnrichmentToResponse(resp, enrichment)
 	return resp
+}
+
+// setEntityDisplayName gives a positive response the listed entity's own name
+// (direct matches only: on the CA-anchored path the listed entity is the issuing
+// CA, not the requesting verifier, so the subject's origin is the better label):
+// the trade name when the list carries one, else the legal name, preferring
+// English and otherwise the first entry.
+func setEntityDisplayName(resp *authzen.EvaluationResponse, ent *indexedEntity) {
+	if resp == nil || !resp.Decision || ent == nil {
+		return
+	}
+	info := ent.entity.TrustedEntityInformation
+	for _, names := range []etsi119602.NameSet{info.TETradeName, info.TEName} {
+		name := registry.SanitizeDisplayName(preferredName(names))
+		if name == "" {
+			continue
+		}
+		if resp.Context == nil {
+			resp.Context = &authzen.EvaluationResponseContext{}
+		}
+		resp.Context.DisplayName = name
+		l10n := make(map[string]string, len(names))
+		for _, n := range names {
+			if lang := strings.ToLower(strings.TrimSpace(n.Lang)); lang != "" {
+				if _, dup := l10n[lang]; !dup {
+					l10n[lang] = n.Value
+				}
+			}
+		}
+		resp.Context.DisplayNameL10n = registry.SanitizeDisplayNameL10n(l10n)
+		return
+	}
+}
+
+func preferredName(names etsi119602.NameSet) string {
+	for _, n := range names {
+		if strings.EqualFold(n.Lang, "en") && strings.TrimSpace(n.Value) != "" {
+			return n.Value
+		}
+	}
+	for _, n := range names {
+		if strings.TrimSpace(n.Value) != "" {
+			return n.Value
+		}
+	}
+	return ""
 }
 
 // findMatchingEntityForChain identifies which listed entity's cert pool the given

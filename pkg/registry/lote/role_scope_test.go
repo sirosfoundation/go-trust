@@ -279,3 +279,49 @@ func TestRoleScope_RequireRoleDirectEntity(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Decision, "without require_role a role-less request stays unscoped")
 }
+
+func TestDisplayName_FromListedEntity(t *testing.T) {
+	caCert, caKey := generateTestCA(t)
+	leaf := base64.StdEncoding.EncodeToString(generateLeafCert(t, caCert, caKey).Raw)
+
+	named := x509Entity("urn:named", caCert)
+	named.TrustedEntityInformation.TEName = etsi119602.NameSet{{Lang: "sv", Value: "Acme Bank AB"}, {Lang: "en", Value: "Acme Bank Ltd"}}
+	trade := simpleEntity("urn:trade")
+	trade.TrustedEntityInformation.TEName = etsi119602.NameSet{{Lang: "en", Value: "Legal Name"}}
+	trade.TrustedEntityInformation.TETradeName = etsi119602.NameSet{{Lang: "sv", Value: "Handelsnamn"}}
+	plain := simpleEntity("urn:plain")
+
+	l := minimalLoTE("SE", named, trade, plain)
+	l.ListAndSchemeInformation.LoTEType = etsi119602.LoTETypePIDProviders
+	reg, err := New(Config{Sources: []string{writeLoTE(t, t.TempDir(), "l.json", l)}})
+	require.NoError(t, err)
+
+	ask := func(id string, chain bool) *authzen.EvaluationResponse {
+		req := &authzen.EvaluationRequest{Subject: authzen.Subject{Type: "key", ID: id}, Resource: authzen.Resource{ID: id}}
+		if chain {
+			req.Resource = authzen.Resource{Type: "x5c", ID: id, Key: []interface{}{leaf}}
+		}
+		resp, err := reg.Evaluate(context.Background(), req)
+		require.NoError(t, err)
+		return resp
+	}
+
+	// direct match by identifier (resolution-only), English preferred
+	r := ask("urn:named", false)
+	require.True(t, r.Decision)
+	assert.Equal(t, "Acme Bank Ltd", r.Context.DisplayName)
+	assert.Equal(t, map[string]string{"sv": "Acme Bank AB", "en": "Acme Bank Ltd"}, r.Context.DisplayNameL10n)
+	tradeResp := ask("urn:trade", false)
+	assert.Equal(t, "Handelsnamn", tradeResp.Context.DisplayName, "trade name preferred, first entry when no English")
+	assert.Equal(t, map[string]string{"sv": "Handelsnamn"}, tradeResp.Context.DisplayNameL10n, "the l10n set is the one display_name came from")
+	plainResp := ask("urn:plain", false)
+	assert.Empty(t, plainResp.Context.DisplayName, "entity without a name: member absent")
+	assert.Empty(t, plainResp.Context.DisplayNameL10n)
+
+	// CA-anchored chain for an unlisted subject: the CA's name must not label
+	// the verifier; the manager falls back to the subject's origin.
+	r = ask("https://some-rp.example", true)
+	require.True(t, r.Decision, "%v", r.Context)
+	assert.Empty(t, r.Context.DisplayName)
+	assert.Empty(t, r.Context.DisplayNameL10n)
+}
