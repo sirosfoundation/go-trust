@@ -21,7 +21,7 @@ type enrichingRegistry struct {
 }
 
 func (e *enrichingRegistry) Evaluate(_ context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
-	enrichment := EnrichX5CResponseWithProfiles(req, e.leaf, rpcert.DefaultProfileRegistry())
+	enrichment := EnrichX5CResponseWithProfiles(req, e.leaf, rpcert.DefaultProfileRegistry(), nil)
 	resp := &authzen.EvaluationResponse{Decision: enrichment.Decision}
 	ApplyEnrichmentToResponse(resp, enrichment)
 	return resp, nil

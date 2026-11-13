@@ -9,6 +9,77 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// ─── CheckWRPACWRPRCPresentationBinding ──────────────────────────────────────
+
+func TestPresentationBinding_DirectMatch(t *testing.T) {
+	// No `act` claim — the direct case, delegated to the RPRC_16 binding.
+	ent := &RPEntitlements{Subject: WRPRCSubject{ID: "LEIXG-123"}}
+	assert.NoError(t, CheckWRPACWRPRCPresentationBinding("LEIXG-123", ent))
+}
+
+func TestPresentationBinding_DirectMismatch(t *testing.T) {
+	ent := &RPEntitlements{Subject: WRPRCSubject{ID: "LEIXG-999"}}
+	err := CheckWRPACWRPRCPresentationBinding("LEIXG-123", ent)
+	var bindErr *BindingError
+	require.True(t, errors.As(err, &bindErr))
+}
+
+func TestPresentationBinding_IntermediatedMatch(t *testing.T) {
+	// The WRPRC names the intermediary in `act`; the presenting WRPAC is the
+	// INTERMEDIARY's access certificate and binds to it, not to the fronted
+	// RP named in `sub`.
+	ent := &RPEntitlements{
+		Subject:            WRPRCSubject{ID: "LEIXG-FRONTED-RP"},
+		ActingIntermediary: "LEIXG-INTERMEDIARY",
+	}
+	assert.NoError(t, CheckWRPACWRPRCPresentationBinding("LEIXG-INTERMEDIARY", ent))
+}
+
+func TestPresentationBinding_IntermediatedMismatch(t *testing.T) {
+	ent := &RPEntitlements{
+		Subject:            WRPRCSubject{ID: "LEIXG-FRONTED-RP"},
+		ActingIntermediary: "LEIXG-RECORDED-INTERMEDIARY",
+	}
+	err := CheckWRPACWRPRCPresentationBinding("LEIXG-SOMEONE-ELSE", ent)
+	require.Error(t, err)
+
+	var bindErr *IntermediaryBindingError
+	require.True(t, errors.As(err, &bindErr))
+	assert.Equal(t, "LEIXG-SOMEONE-ELSE", bindErr.WRPACOrgID)
+	assert.Equal(t, "LEIXG-RECORDED-INTERMEDIARY", bindErr.ActingIntermediary)
+	assert.Contains(t, err.Error(), "LEIXG-SOMEONE-ELSE")
+	assert.Contains(t, err.Error(), "LEIXG-RECORDED-INTERMEDIARY")
+}
+
+func TestPresentationBinding_IntermediatedWithDirectOrgIDFails(t *testing.T) {
+	// The fronted RP's own org ID presenting an intermediated WRPRC must NOT
+	// pass: the registrar issued the certificate to the intermediary, and
+	// the fronted RP presenting it itself is exactly the confusion the
+	// binding exists to prevent.
+	ent := &RPEntitlements{
+		Subject:            WRPRCSubject{ID: "LEIXG-FRONTED-RP"},
+		ActingIntermediary: "LEIXG-INTERMEDIARY",
+	}
+	err := CheckWRPACWRPRCPresentationBinding("LEIXG-FRONTED-RP", ent)
+	var bindErr *IntermediaryBindingError
+	require.True(t, errors.As(err, &bindErr))
+}
+
+func TestPresentationBinding_EmptyWRPACOrgID(t *testing.T) {
+	// No org ID extracted — the check cannot enforce; both shapes pass.
+	direct := &RPEntitlements{Subject: WRPRCSubject{ID: "LEIXG-999"}}
+	assert.NoError(t, CheckWRPACWRPRCPresentationBinding("", direct))
+	intermediated := &RPEntitlements{
+		Subject:            WRPRCSubject{ID: "LEIXG-999"},
+		ActingIntermediary: "LEIXG-888",
+	}
+	assert.NoError(t, CheckWRPACWRPRCPresentationBinding("", intermediated))
+}
+
+func TestPresentationBinding_NilWRPRC(t *testing.T) {
+	assert.NoError(t, CheckWRPACWRPRCPresentationBinding("LEIXG-123", nil))
+}
+
 // ─── CheckWRPACWRPRCBinding ──────────────────────────────────────────────────
 
 func TestCheckWRPACWRPRCBinding_Match(t *testing.T) {

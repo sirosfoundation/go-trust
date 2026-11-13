@@ -5,9 +5,12 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
+	"encoding/json"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -1796,4 +1799,510 @@ func TestEvaluate_PubEAA_MixedServices_OnlyNotifiedKeyAccepted(t *testing.T) {
 	respDeny, err := reg.Evaluate(context.Background(), makeReq(keyAbsent))
 	require.NoError(t, err)
 	assert.False(t, respDeny.Decision, "absent-status service key must NOT be trusted")
+}
+
+// mintWRPACTestLeaf mints the intermediary's WRPAC-shaped leaf under the
+// given Access CA: the NCP-l-eudiwrp policy OID (so the wrpac profile
+// matches it) and the organizationIdentifier DN attribute carrying the
+// intermediary's org id, so the presentation binding has identifiers.
+func mintWRPACTestLeaf(t *testing.T, caCert *x509.Certificate, caKey *ecdsa.PrivateKey) (*x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	wrpacPolicyOID, err := x509.ParseOID(rpcert.OIDNCPLegalPerson)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(42),
+		Subject: pkix.Name{
+			CommonName: "Intermediary WRPAC Leaf",
+			ExtraNames: []pkix.AttributeTypeAndValue{
+				{Type: asn1.ObjectIdentifier{2, 5, 4, 97}, Value: "LEIXG-INTERMEDIARY"},
+			},
+		},
+		NotBefore:   time.Now().Add(-time.Hour),
+		NotAfter:    time.Now().Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		Policies:    []x509.OID{wrpacPolicyOID},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, caCert, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+	leafCert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return leafCert, leafKey
+}
+
+// mintTestWRPRC mints a WRPRC JWT (typ rc-wrp+jwt, ES256) signed by the given
+// CA, carrying the given claims.
+func mintTestWRPRC(t *testing.T, caCert *x509.Certificate, caKey *ecdsa.PrivateKey, claims map[string]interface{}) string {
+	t.Helper()
+	header := map[string]interface{}{
+		"typ": "rc-wrp+jwt",
+		"alg": "ES256",
+		"x5c": []string{base64.StdEncoding.EncodeToString(caCert.Raw)},
+	}
+	hdrJSON, err := json.Marshal(header)
+	require.NoError(t, err)
+	hdrB64 := base64.RawURLEncoding.EncodeToString(hdrJSON)
+	payJSON, err := json.Marshal(claims)
+	require.NoError(t, err)
+	payB64 := base64.RawURLEncoding.EncodeToString(payJSON)
+	signingInput := hdrB64 + "." + payB64
+	// The JOSE signature format: r || s, fixed-width big-endian (RFC 7518 §3.4).
+	digest := sha256.Sum256([]byte(signingInput))
+	r, s, err := ecdsa.Sign(rand.Reader, caKey, digest[:])
+	require.NoError(t, err)
+	sig := make([]byte, 64)
+	r.FillBytes(sig[:32])
+	s.FillBytes(sig[32:])
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+}
+
+// TestEvaluate_X5C_CAAnchored_WithWRPRC proves the EAAP presentation end to
+// end at the registry level: the LoTE lists both the Access CA (anchoring the
+// WRPAC the request is signed with) and the registrar CA (anchoring the
+// fronted RP's WRPRC riding the request context), and the decision surfaces
+// the WRPRC's entitlements in the trust metadata.
+func TestEvaluate_X5C_CAAnchored_WithWRPRC(t *testing.T) {
+	accessCACert, accessCAKey := generateTestCA(t)
+	registrarCACert, registrarCAKey := generateTestCA(t)
+
+	// The WRPAC leaf under the Access CA.
+	leafCert, _ := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
+
+	// The LoTE lists BOTH CAs.
+	// Two lists, two roles: the Access CA list and the registrar list. The
+	// WRPRC anchors come only from the registrar-designated type — never the
+	// global pool, which also holds the Access CA.
+	accessLote := minimalLoTE("SE", x509Entity("https://access-ca.example.com", accessCACert))
+	accessLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/access-ca"
+	registrarLote := minimalLoTE("SE", x509Entity("https://registrar.example.com", registrarCACert))
+	registrarLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/registrar"
+	dir := t.TempDir()
+	reg, err := New(Config{
+		Name:             "ca-wrprc-test",
+		Sources:          []string{writeLoTE(t, dir, "access.json", accessLote), writeLoTE(t, dir, "registrar.json", registrarLote)},
+		WRPRCSchemeTypes: []string{"https://registry.example/schemes/registrar"},
+	})
+	require.NoError(t, err)
+
+	// The WRPRC: the fronted RP, an acting intermediary, and a credential
+	// query allowing given_name.
+	now := time.Now()
+	claims := map[string]interface{}{
+		"name":           "Fronted RP GmbH",
+		"sub":            "LEIXG-FRONTED",
+		"sub_ln":         "Fronted RP GmbH",
+		"country":        "SE",
+		"entitlements":   []string{"urn:example:entitlement:non-qeaa-provider"},
+		"privacy_policy": "https://fronted.example/privacy",
+		"iat":            now.Add(-time.Hour).Unix(),
+		"exp":            now.Add(30 * 24 * time.Hour).Unix(),
+		"act":            map[string]interface{}{"sub": "LEIXG-INTERMEDIARY"},
+		"credentials": []map[string]interface{}{
+			{"format": "dc+sd-jwt", "claims": []map[string]interface{}{{"path": []string{"given_name"}}}},
+		},
+	}
+	wrprc := mintTestWRPRC(t, registrarCACert, registrarCAKey, claims)
+
+	baseReq := authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://fronted-rp.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "https://fronted-rp.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(leafCert.Raw),
+				base64.StdEncoding.EncodeToString(accessCACert.Raw),
+			},
+		},
+		Context: map[string]interface{}{
+			"wrprc": wrprc,
+		},
+	}
+
+	// The WRPRC names an acting intermediary and the policy does not admit
+	// intermediaries: deny.
+	resp, err := reg.Evaluate(context.Background(), &baseReq)
+	require.NoError(t, err)
+	if resp.Decision {
+		t.Errorf("expected deny: the WRPRC names an acting intermediary but allow_intermediaries is unset")
+	}
+
+	// With intermediaries admitted: allow, with the verified intermediary
+	// metadata and the fronted RP's entitlements surfaced.
+	allowedReq := baseReq
+	allowedReq.Context = map[string]interface{}{
+		"wrprc":                wrprc,
+		"allow_intermediaries": true,
+	}
+	resp, err = reg.Evaluate(context.Background(), &allowedReq)
+	require.NoError(t, err)
+	if !resp.Decision {
+		t.Fatalf("expected allow; reason: %v", resp.Context.Reason)
+	}
+	md, ok := resp.Context.TrustMetadata.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected trust metadata, got %T", resp.Context.TrustMetadata)
+	}
+	wrprcMD, ok := md["wrprc"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected wrprc trust metadata, got %T", md["wrprc"])
+	}
+	if got := wrprcMD["fronted_rp_id"]; got != "LEIXG-FRONTED" {
+		t.Errorf("fronted_rp_id: got %v, want LEIXG-FRONTED", got)
+	}
+	if got := wrprcMD["acting_intermediary"]; got != "LEIXG-INTERMEDIARY" {
+		t.Errorf("acting_intermediary: got %v, want LEIXG-INTERMEDIARY", got)
+	}
+
+	// A WRPRC from an UNLISTED registrar: the chain does not anchor, deny.
+	rogueCACert, rogueCAKey := generateTestCA(t)
+	rogueWRPRC := mintTestWRPRC(t, rogueCACert, rogueCAKey, claims)
+	rogueReq := allowedReq
+	rogueReq.Context = map[string]interface{}{
+		"wrprc":                rogueWRPRC,
+		"allow_intermediaries": true,
+	}
+	resp, err = reg.Evaluate(context.Background(), &rogueReq)
+	require.NoError(t, err)
+	if resp.Decision {
+		t.Errorf("expected deny: the WRPRC's registrar CA is not listed in the LoTE")
+	}
+}
+
+// TestEvaluate_X5C_CAAnchored_WithTamperedWRPRC proves the registry-level
+// defence: an authentic registrar header with the payload swapped under it
+// fails the signature check, even though the chain anchors in the LoTE.
+func TestEvaluate_X5C_CAAnchored_WithTamperedWRPRC(t *testing.T) {
+	accessCACert, accessCAKey := generateTestCA(t)
+	registrarCACert, registrarCAKey := generateTestCA(t)
+
+	leafCert, _ := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
+
+	accessLote := minimalLoTE("SE", x509Entity("https://access-ca.example.com", accessCACert))
+	accessLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/access-ca"
+	registrarLote := minimalLoTE("SE", x509Entity("https://registrar.example.com", registrarCACert))
+	registrarLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/registrar"
+	dir := t.TempDir()
+	reg, err := New(Config{
+		Name:             "tampered-wrprc-test",
+		Sources:          []string{writeLoTE(t, dir, "access.json", accessLote), writeLoTE(t, dir, "registrar.json", registrarLote)},
+		WRPRCSchemeTypes: []string{"https://registry.example/schemes/registrar"},
+	})
+	require.NoError(t, err)
+
+	now := time.Now()
+	claims := map[string]interface{}{
+		"name":           "Fronted RP GmbH",
+		"sub":            "LEIXG-FRONTED",
+		"entitlements":   []string{"urn:example:entitlement:non-qeaa-provider"},
+		"privacy_policy": "https://fronted.example/privacy",
+		"iat":            now.Add(-time.Hour).Unix(),
+		"exp":            now.Add(30 * 24 * time.Hour).Unix(),
+	}
+	authentic := mintTestWRPRC(t, registrarCACert, registrarCAKey, claims)
+
+	// Swap the payload under the authentic header+signature.
+	parts := strings.Split(authentic, ".")
+	forged := map[string]interface{}{
+		"name":           "Attacker GmbH",
+		"sub":            "LEIXG-ATTACKER",
+		"entitlements":   []string{"urn:example:entitlement:everything"},
+		"privacy_policy": "https://attacker.example/privacy",
+		"iat":            now.Add(-time.Hour).Unix(),
+		"exp":            now.Add(30 * 24 * time.Hour).Unix(),
+	}
+	forgedJSON, err := json.Marshal(forged)
+	require.NoError(t, err)
+	tampered := parts[0] + "." + base64.RawURLEncoding.EncodeToString(forgedJSON) + "." + parts[2]
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://fronted-rp.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "https://fronted-rp.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(leafCert.Raw),
+				base64.StdEncoding.EncodeToString(accessCACert.Raw),
+			},
+		},
+		Context: map[string]interface{}{
+			"wrprc":                tampered,
+			"allow_intermediaries": true,
+		},
+	})
+	require.NoError(t, err)
+	if resp.Decision {
+		t.Errorf("expected deny: the payload was swapped under an authentic registrar header")
+	}
+	if md, ok := resp.Context.TrustMetadata.(map[string]interface{}); ok {
+		if _, has := md["wrprc"]; has {
+			t.Errorf("a tampered WRPRC must not surface trust metadata")
+		}
+	}
+}
+
+// TestEvaluate_X5C_WRPRCSignedByNonRegistrarDenies pins the registrar
+// scoping: the Access CA is listed (so the WRPAC chain anchors), but it is
+// NOT a registrar-designated type — a WRPRC signed by its key must not pass,
+// or an ordinary access-certificate holder could self-sign registration
+// claims.
+func TestEvaluate_X5C_WRPRCSignedByNonRegistrarDenies(t *testing.T) {
+	accessCACert, accessCAKey := generateTestCA(t)
+
+	accessLote := minimalLoTE("SE", x509Entity("https://access-ca.example.com", accessCACert))
+	accessLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/access-ca"
+	dir := t.TempDir()
+	reg, err := New(Config{
+		Name:             "non-registrar-test",
+		Sources:          []string{writeLoTE(t, dir, "access.json", accessLote)},
+		WRPRCSchemeTypes: []string{"https://registry.example/schemes/registrar"},
+	})
+	require.NoError(t, err)
+
+	// A WRPRC signed by the Access CA itself: the chain would anchor in the
+	// GLOBAL pool, but the registrar-scoped pool excludes it.
+	now := time.Now()
+	claims := map[string]interface{}{
+		"name":           "Fabricated RP",
+		"sub":            "LEIXG-FRONTED",
+		"entitlements":   []string{"urn:example:entitlement:non-qeaa-provider"},
+		"privacy_policy": "https://fronted.example/privacy",
+		"iat":            now.Add(-time.Hour).Unix(),
+		"exp":            now.Add(30 * 24 * time.Hour).Unix(),
+		"act":            map[string]interface{}{"sub": "LEIXG-INTERMEDIARY"},
+	}
+	fabricated := mintTestWRPRC(t, accessCACert, accessCAKey, claims)
+
+	leafCert, _ := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://fronted-rp.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "https://fronted-rp.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(leafCert.Raw),
+				base64.StdEncoding.EncodeToString(accessCACert.Raw),
+			},
+		},
+		Context: map[string]interface{}{
+			"wrprc":                fabricated,
+			"allow_intermediaries": true,
+		},
+	})
+	require.NoError(t, err)
+	if resp.Decision {
+		t.Errorf("expected deny: the WRPRC is signed by the Access CA, which is listed but not registrar-designated")
+	}
+}
+
+// TestEvaluate_X5C_DirectKeyWithWRPRC pins the direct-key gate: a key listed
+// directly on an entity must not bypass the WRPRC evaluation — a request
+// carrying a WRPRC that names an intermediary the policy does not admit is
+// denied on the key-match path too.
+func TestEvaluate_X5C_DirectKeyWithWRPRC(t *testing.T) {
+	accessCACert, accessCAKey := generateTestCA(t)
+	registrarCACert, registrarCAKey := generateTestCA(t)
+
+	leafCert, _ := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
+
+	// The leaf is listed DIRECTLY: the key-match path, not the CA path.
+	directLote := minimalLoTE("SE", x509Entity("https://fronted-rp.example.com", leafCert))
+	directLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/access-ca"
+	registrarLote := minimalLoTE("SE", x509Entity("https://registrar.example.com", registrarCACert))
+	registrarLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/registrar"
+	dir := t.TempDir()
+	reg, err := New(Config{
+		Name:             "direct-key-wrprc-test",
+		Sources:          []string{writeLoTE(t, dir, "direct.json", directLote), writeLoTE(t, dir, "registrar.json", registrarLote)},
+		WRPRCSchemeTypes: []string{"https://registry.example/schemes/registrar"},
+	})
+	require.NoError(t, err)
+
+	now := time.Now()
+	claims := map[string]interface{}{
+		"name":           "Fronted RP GmbH",
+		"sub":            "LEIXG-FRONTED",
+		"entitlements":   []string{"urn:example:entitlement:non-qeaa-provider"},
+		"privacy_policy": "https://fronted.example/privacy",
+		"iat":            now.Add(-time.Hour).Unix(),
+		"exp":            now.Add(30 * 24 * time.Hour).Unix(),
+		"act":            map[string]interface{}{"sub": "LEIXG-INTERMEDIARY"},
+	}
+	wrprc := mintTestWRPRC(t, registrarCACert, registrarCAKey, claims)
+
+	baseReq := authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://fronted-rp.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "https://fronted-rp.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(leafCert.Raw),
+			},
+		},
+		Context: map[string]interface{}{"wrprc": wrprc},
+	}
+
+	// The key matches directly, but the WRPRC names an intermediary the
+	// policy does not admit: the enrichment gate denies the key-match path.
+	resp, err := reg.Evaluate(context.Background(), &baseReq)
+	require.NoError(t, err)
+	if resp.Decision {
+		t.Errorf("expected deny: the direct-key match must not bypass the WRPRC gate")
+	}
+
+	// Admitted: allow, with the WRPRC evaluation's metadata applied.
+	allowedReq := baseReq
+	allowedReq.Context = map[string]interface{}{
+		"wrprc":                wrprc,
+		"allow_intermediaries": true,
+	}
+	resp, err = reg.Evaluate(context.Background(), &allowedReq)
+	require.NoError(t, err)
+	if !resp.Decision {
+		t.Fatalf("expected allow; reason: %v", resp.Context.Reason)
+	}
+	md, ok := resp.Context.TrustMetadata.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected trust metadata on the direct-key path, got %T", resp.Context.TrustMetadata)
+	}
+	if _, ok := md["wrprc"]; !ok {
+		t.Errorf("the WRPRC metadata must be applied on the direct-key path")
+	}
+}
+
+// TestEvaluate_X5C_DirectKeyForgedIdentityDenies pins the certificate-identity
+// attack on the direct-key path: a listed key holder submits a SELF-SIGNED
+// certificate with the same key but another organization's identifier, plus
+// that organization's genuine WRPRC. The key matches — the certificate is
+// not the listed one and chains to nothing listed — and the presentation
+// must deny, not bind to the victim organization's entitlements.
+func TestEvaluate_X5C_DirectKeyForgedIdentityDenies(t *testing.T) {
+	accessCACert, accessCAKey := generateTestCA(t)
+	registrarCACert, registrarCAKey := generateTestCA(t)
+
+	// The attacker's listed certificate: their own org id.
+	listedCert, listedKey := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
+
+	// The FORGED certificate: the same key, the victim's org id, self-signed.
+	forgedTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(99),
+		Subject: pkix.Name{
+			CommonName: "Forged Identity",
+			ExtraNames: []pkix.AttributeTypeAndValue{
+				{Type: asn1.ObjectIdentifier{2, 5, 4, 97}, Value: "LEIXG-VICTIM"},
+			},
+		},
+		NotBefore:   time.Now().Add(-time.Hour),
+		NotAfter:    time.Now().Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	forgedDER, err := x509.CreateCertificate(rand.Reader, forgedTemplate, forgedTemplate, &listedKey.PublicKey, listedKey)
+	require.NoError(t, err)
+	forgedCert, err := x509.ParseCertificate(forgedDER)
+	require.NoError(t, err)
+
+	directLote := minimalLoTE("SE", x509Entity("https://attacker.example.com", listedCert))
+	directLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/access-ca"
+	registrarLote := minimalLoTE("SE", x509Entity("https://registrar.example.com", registrarCACert))
+	registrarLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/registrar"
+	dir := t.TempDir()
+	reg, err := New(Config{
+		Name:             "forged-identity-test",
+		Sources:          []string{writeLoTE(t, dir, "direct.json", directLote), writeLoTE(t, dir, "registrar.json", registrarLote)},
+		WRPRCSchemeTypes: []string{"https://registry.example/schemes/registrar"},
+	})
+	require.NoError(t, err)
+
+	// The VICTIM organization's genuine WRPRC.
+	now := time.Now()
+	claims := map[string]interface{}{
+		"name":           "Victim Org GmbH",
+		"sub":            "LEIXG-VICTIM",
+		"entitlements":   []string{"urn:example:entitlement:non-qeaa-provider"},
+		"privacy_policy": "https://victim.example/privacy",
+		"iat":            now.Add(-time.Hour).Unix(),
+		"exp":            now.Add(30 * 24 * time.Hour).Unix(),
+	}
+	victimWRPRC := mintTestWRPRC(t, registrarCACert, registrarCAKey, claims)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://attacker.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "https://attacker.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(forgedCert.Raw),
+			},
+		},
+		Context: map[string]interface{}{"wrprc": victimWRPRC},
+	})
+	require.NoError(t, err)
+	if resp.Decision {
+		t.Errorf("expected deny: the forged certificate carries the listed key but not the listed identity")
+	}
+	if md, ok := resp.Context.TrustMetadata.(map[string]interface{}); ok {
+		if _, has := md["wrprc"]; has {
+			t.Errorf("the victim organization's entitlements must not surface for a forged identity")
+		}
+	}
+}
+
+// TestEvaluate_X5C_DirectKeyMalformedChainDenies pins the malformed-trailing-
+// certificate bypass: [listed_leaf, "garbage"] must deny — never skip the
+// enrichment gate on a parse failure.
+func TestEvaluate_X5C_DirectKeyMalformedChainDenies(t *testing.T) {
+	accessCACert, accessCAKey := generateTestCA(t)
+	registrarCACert, registrarCAKey := generateTestCA(t)
+
+	listedCert, _ := mintWRPACTestLeaf(t, accessCACert, accessCAKey)
+
+	directLote := minimalLoTE("SE", x509Entity("https://fronted-rp.example.com", listedCert))
+	directLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/access-ca"
+	registrarLote := minimalLoTE("SE", x509Entity("https://registrar.example.com", registrarCACert))
+	registrarLote.ListAndSchemeInformation.LoTEType = "https://registry.example/schemes/registrar"
+	dir := t.TempDir()
+	reg, err := New(Config{
+		Name:             "malformed-chain-test",
+		Sources:          []string{writeLoTE(t, dir, "direct.json", directLote), writeLoTE(t, dir, "registrar.json", registrarLote)},
+		WRPRCSchemeTypes: []string{"https://registry.example/schemes/registrar"},
+	})
+	require.NoError(t, err)
+
+	// A WRPRC naming an intermediary the policy does not admit: only the
+	// enrichment gate denies it — a parse failure must not skip that gate.
+	now := time.Now()
+	claims := map[string]interface{}{
+		"name":         "Fronted RP GmbH",
+		"sub":          "LEIXG-FRONTED",
+		"entitlements": []string{"urn:example:entitlement:non-qeaa-provider"},
+		"iat":          now.Add(-time.Hour).Unix(),
+		"exp":          now.Add(30 * 24 * time.Hour).Unix(),
+		"act":          map[string]interface{}{"sub": "LEIXG-INTERMEDIARY"},
+	}
+	wrprc := mintTestWRPRC(t, registrarCACert, registrarCAKey, claims)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://fronted-rp.example.com"},
+		Resource: authzen.Resource{
+			Type: "x5c",
+			ID:   "https://fronted-rp.example.com",
+			Key: []interface{}{
+				base64.StdEncoding.EncodeToString(listedCert.Raw),
+				"!!!garbage!!!",
+			},
+		},
+		Context: map[string]interface{}{"wrprc": wrprc},
+	})
+	require.NoError(t, err)
+	if resp.Decision {
+		t.Errorf("expected deny: a malformed trailing certificate must not bypass the WRPRC gate")
+	}
+	if admin, ok := resp.Context.Reason["admin"].(string); ok {
+		if !strings.Contains(admin, "malformed") {
+			t.Errorf("the denial should name the malformed chain, got: %s", admin)
+		}
+	}
 }

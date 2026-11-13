@@ -204,6 +204,17 @@ type ETSIRegistryConfig struct {
 	// as a duration string (e.g. "6h"). Empty or zero disables background
 	// refresh, leaving the registry on whatever it loaded at startup.
 	RefreshInterval string `yaml:"refresh_interval,omitempty"`
+	// WRPRCServiceTypes lists the TSL service types whose services' certificates
+	// may anchor a WRPRC registrar chain (the national registrars). The WRPRC
+	// evaluation's trust anchors are exactly those services' certificates —
+	// never the unfiltered pool, which mixes Access CAs and every other role:
+	// an ordinary access-certificate holder must not be able to self-sign
+	// registration claims. Empty means no registrar anchors are configured,
+	// and a presented WRPRC fails closed.
+	WRPRCServiceTypes []string `yaml:"wrprc_service_types,omitempty"`
+	// WRPRCServiceStatuses restricts the WRPRC registrar services further by
+	// status. Empty means granted-status services only (the policy default).
+	WRPRCServiceStatuses []string `yaml:"wrprc_service_statuses,omitempty"`
 }
 
 // WhitelistRegistryConfig contains whitelist registry configuration.
@@ -403,6 +414,14 @@ type LoTERegistryConfig struct {
 	// entities may act in that role. An action name that is itself a LoTE type
 	// URI needs no entry.
 	RoleSchemeTypes map[string][]string `yaml:"role_scheme_types,omitempty"`
+	// WRPRCSchemeTypes lists the LoTE types whose listed entities may issue
+	// WRPRCs (the national registrars). The WRPRC evaluation's trust anchors
+	// are exactly the certificates of entities listed under these types —
+	// never the global pool, which also holds Access CAs and every other
+	// role: an ordinary access-certificate holder must not be able to
+	// self-sign registration claims. Empty means no registrar anchors are
+	// configured, and a presented WRPRC fails closed.
+	WRPRCSchemeTypes []string `yaml:"wrprc_scheme_types,omitempty"`
 	// RequireRole denies requests, for directly listed entities as well as
 	// CA-anchored chains, without a role that resolves to LoTE types.
 	RequireRole bool `yaml:"require_role,omitempty"`
@@ -545,7 +564,13 @@ type ETSIPolicyConfig struct {
 	StrictEntitlementCheck bool `yaml:"strict_entitlement_check,omitempty"`
 
 	// AllowIntermediaries accepts intermediary/broker presentation requests
-	// and surfaces intermediary metadata. Defaults to false.
+	// and surfaces intermediary metadata. For a request carrying a WRPRC
+	// (request context wrprc — the ETSI TS 119 472-2 s6.3.2.2
+	// registration_cert member's content), this flag gates intermediated
+	// presentations: a WRPRC naming an acting intermediary (ETSI TS 119 475
+	// Table 10 act) is denied unless this is true, and when true the
+	// presenting WRPAC must bind to the recorded intermediary. Defaults to
+	// false.
 	AllowIntermediaries bool `yaml:"allow_intermediaries,omitempty"`
 }
 

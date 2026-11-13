@@ -24,6 +24,7 @@ import (
 
 	"github.com/sirosfoundation/g119612/pkg/etsi119602"
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
+	"github.com/sirosfoundation/go-trust/pkg/registry"
 	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
 )
 
@@ -236,12 +237,12 @@ func TestFetchRawSource_LocalFile(t *testing.T) {
 // ─── parseX5CChainRaw ────────────────────────────────────────────────────────
 
 func TestParseX5CChainRaw_Empty(t *testing.T) {
-	_, _, err := parseX5CChainRaw(nil)
+	_, _, err := registry.ParseJWSX5CChain(nil)
 	assert.Error(t, err)
 }
 
 func TestParseX5CChainRaw_InvalidBase64(t *testing.T) {
-	_, _, err := parseX5CChainRaw([]string{"not!valid%%base64"})
+	_, _, err := registry.ParseJWSX5CChain([]string{"not!valid%%base64"})
 	assert.Error(t, err)
 }
 
@@ -250,7 +251,7 @@ func TestParseX5CChainRaw_SingleCert(t *testing.T) {
 	cert := selfSignedCert(t, key, "leaf", time.Now().Add(time.Hour))
 	b64 := base64.StdEncoding.EncodeToString(cert.Raw)
 
-	leaf, ints, err := parseX5CChainRaw([]string{b64})
+	leaf, ints, err := registry.ParseJWSX5CChain([]string{b64})
 	require.NoError(t, err)
 	assert.Equal(t, "leaf", leaf.Subject.CommonName)
 	assert.NotNil(t, ints)

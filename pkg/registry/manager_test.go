@@ -973,3 +973,55 @@ func TestRegistryManager_DecisionLogging_AllowAtDebug(t *testing.T) {
 	require.NotNil(t, entry, "expected 'trust decision: allow' log entry")
 	assert.Equal(t, logging.DebugLevel, entry.level, "allow decisions should log at Debug level")
 }
+
+// capturingRegistry records the request context a registry actually received.
+type capturingRegistry struct {
+	mockRegistry
+	mu         sync.Mutex
+	sawContext map[string]interface{}
+}
+
+func (c *capturingRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	c.mu.Lock()
+	c.sawContext = map[string]interface{}{}
+	for k, v := range req.Context {
+		c.sawContext[k] = v
+	}
+	c.mu.Unlock()
+	return c.mockRegistry.Evaluate(ctx, req)
+}
+
+func TestRegistryManager_Evaluate_PassesWRPRCToRegistries(t *testing.T) {
+	// The fronted RP's registration certificate is client-suppliable data:
+	// the manager must not strip it from the request context, or the whole
+	// EAAP evaluation path never fires for a real API request.
+	mgr := NewRegistryManager(FirstMatch, 10*time.Second)
+	reg := &capturingRegistry{mockRegistry: mockRegistry{
+		name:          "capturing",
+		resourceTypes: []string{"x5c"},
+		healthy:       true,
+		evaluateResponse: &authzen.EvaluationResponse{
+			Decision: true,
+		},
+	}}
+	mgr.Register(reg)
+
+	req := &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "https://fronted.example"},
+		Resource: authzen.Resource{Type: "x5c", ID: "https://fronted.example", Key: []interface{}{"k"}},
+		Context: map[string]interface{}{
+			"wrprc":              "header.payload.signature",
+			"strict_entitlement": true, // a policy key: must NOT pass through
+		},
+	}
+	_, err := mgr.Evaluate(context.Background(), req)
+	require.NoError(t, err)
+
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	require.NotNil(t, reg.sawContext)
+	assert.Equal(t, "header.payload.signature", reg.sawContext["wrprc"],
+		"the WRPRC must survive the manager's context sanitization")
+	assert.NotContains(t, reg.sawContext, "strict_entitlement",
+		"a key outside the client-suppliable allowlist must still be stripped")
+}
