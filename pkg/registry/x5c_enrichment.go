@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"crypto/x509"
+	"strings"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
 	"github.com/sirosfoundation/go-trust/pkg/registry/rpcert"
@@ -187,7 +188,19 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 	// AUTHORITATIVE: the registrar-issued entitlements supersede the
 	// policy-configured allowed_attributes, and the verified binding
 	// supersedes the unvalidated intermediary_x5c metadata.
-	if wrprcToken := extractWRPRC(req); wrprcToken != "" {
+	//
+	// A PRESENT but malformed member never falls back to the legacy path:
+	// wrprc: {} or null or "" is a request that names a registration
+	// certificate and fails to carry one — denied, not reinterpreted.
+	wrprcToken, wrprcValid, wrprcPresent := extractWRPRC(req)
+	if wrprcPresent {
+		if !wrprcValid {
+			result.Decision = false
+			result.FailureReason = map[string]interface{}{
+				"error": "the wrprc member is malformed: expected a non-empty registration certificate string",
+			}
+			return result
+		}
 		if wrprcValidator == nil {
 			result.Decision = false
 			result.FailureReason = map[string]interface{}{
@@ -290,22 +303,18 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 			}
 		}
 
-		// Over-request detection against the AUTHORITATIVE entitlements: the
-		// registrar-issued credential queries in the WRPRC payload, not
-		// policy-configured attributes. A WRPRC granting NO queries is an
-		// authoritative empty grant, not missing data: every requested
-		// attribute is an over-request.
-		if requestedAttrs := extractRequestedAttributes(req); len(requestedAttrs) > 0 {
-			var overReq *rpcert.OverRequestResult
-			if len(ent.AllowedAttributes) == 0 {
-				overReq = &rpcert.OverRequestResult{
-					Requested:     requestedAttrs,
-					OverRequested: requestedAttrs,
-					IsOverRequest: true,
-				}
-			} else {
-				overReq = rpcert.DetectOverRequest(ent, requestedAttrs)
-			}
+		// Over-request detection against the AUTHORITATIVE entitlements at
+		// their native granularity: the registrar's granted claim paths,
+		// exact-path and format-scoped — flattening [namespace, element] to
+		// namespace would let a grant for one element authorize the whole
+		// namespace. The requested set is the union of EVERY representation
+		// the request carries — the flat requested_attributes list and the
+		// DCQL queries' claim paths — so one representation cannot hide a
+		// beyond-grant request inside another. A WRPRC granting NO queries
+		// is an authoritative empty grant: every requested claim is an
+		// over-request.
+		if requested := requestedClaimGrants(req); len(requested) > 0 {
+			overReq := rpcert.DetectOverRequestPaths(ent, requested)
 			// A clean attribute comparison must not erase the
 			// whole-credential warning recorded above.
 			if overReq.IsOverRequest || result.OverRequest == nil {
@@ -329,6 +338,8 @@ func EnrichX5CResponseWithProfiles(req *authzen.EvaluationRequest, leaf *x509.Ce
 			}
 		}
 	} else {
+		// The legacy path: the request carried no wrprc member at all (the
+		// pre-EAAP shape) — a present-but-malformed one was denied above.
 		// Over-request detection: compare requested attributes against entitlements
 		requestedAttrs := extractRequestedAttributes(req)
 		allowedAttrs := extractAllowedAttributes(req)
@@ -632,21 +643,76 @@ func denyOverRequest(result *X5CEnrichmentResult) {
 
 // extractWRPRC extracts the serialized fronted relying party's WRPRC
 // (the TS 119 472-2 §6.3.2.2 `registration_cert` member's content) from
-// request.Context["wrprc"]. Empty when the request carries none — the
-// pre-EAAP request shape.
-func extractWRPRC(req *authzen.EvaluationRequest) string {
+// request.Context["wrprc"], distinguishing ABSENT from PRESENT-but-invalid:
+// absent is the pre-EAAP request shape (the legacy path); a present member
+// that is not a non-empty string is malformed and must not be reinterpreted
+// as an absence.
+func extractWRPRC(req *authzen.EvaluationRequest) (token string, valid bool, present bool) {
 	if req.Context == nil {
-		return ""
+		return "", false, false
 	}
 	v, ok := req.Context["wrprc"]
 	if !ok {
-		return ""
+		return "", false, false
 	}
 	s, ok := v.(string)
-	if !ok {
-		return ""
+	if !ok || s == "" {
+		return "", false, true
 	}
-	return s
+	return s, true, true
+}
+
+// requestedClaimGrants builds the requested claim set from EVERY
+// representation the request carries — the flat requested_attributes list
+// and the DCQL queries' claim paths (action parameters or request context,
+// both allowlisted) — so one representation cannot hide a beyond-grant
+// request inside another. The flat entries carry no credential format; the
+// DCQL entries carry their query's.
+func requestedClaimGrants(req *authzen.EvaluationRequest) []rpcert.ClaimPathGrant {
+	var requested []rpcert.ClaimPathGrant
+	seen := map[string]bool{}
+	add := func(format string, path []string) {
+		key := format + "\x00" + strings.Join(path, ".")
+		if seen[key] || len(path) == 0 {
+			return
+		}
+		seen[key] = true
+		requested = append(requested, rpcert.ClaimPathGrant{Format: format, Path: path})
+	}
+	if req.Context != nil {
+		for _, name := range extractStringSliceFromContext(req.Context, "requested_attributes") {
+			if name != "" {
+				add("", []string{name})
+			}
+		}
+	}
+	for _, raw := range dcqlQueries(req) {
+		if dcql := rpcert.ParseDCQLQuery(raw); dcql != nil {
+			for _, cred := range dcql.Credentials {
+				for _, claim := range cred.Claims {
+					add(cred.Format, claim.Path)
+				}
+			}
+		}
+	}
+	return requested
+}
+
+// dcqlQueries yields the raw DCQL query values the request carries, from
+// action parameters and from the request context.
+func dcqlQueries(req *authzen.EvaluationRequest) []interface{} {
+	var out []interface{}
+	if req.Action != nil && req.Action.Parameters != nil {
+		if q, ok := req.Action.Parameters["query"]; ok {
+			out = append(out, q)
+		}
+	}
+	if req.Context != nil {
+		if q, ok := req.Context["query"]; ok {
+			out = append(out, q)
+		}
+	}
+	return out
 }
 
 // extractAllowedAttributes extracts the RP's entitled attributes

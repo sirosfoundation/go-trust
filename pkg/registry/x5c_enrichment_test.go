@@ -1359,3 +1359,115 @@ func TestEnrichX5CResponse_WRPRCMixedQueryWholeCredentialStrictDenies(t *testing
 	assert.True(t, result.OverRequest.IsOverRequest)
 	assert.Equal(t, []string{"<the entire credential>"}, result.OverRequest.OverRequested)
 }
+
+func TestEnrichX5CResponse_MalformedWRPRCMemberDenies(t *testing.T) {
+	// A PRESENT but malformed wrprc member never falls back to the legacy
+	// path: it is a request that names a registration certificate and fails
+	// to carry one.
+	leaf := wrpacLeaf(t, "LEIXG-FRONTED")
+	for name, value := range map[string]interface{}{
+		"empty string": "",
+		"object":       map[string]interface{}{},
+		"null":         nil,
+		"number":       42,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := &authzen.EvaluationRequest{Context: map[string]interface{}{"wrprc": value}}
+			result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), nil)
+			assert.False(t, result.Decision)
+			require.NotNil(t, result.FailureReason)
+			assert.Contains(t, result.FailureReason["error"], "malformed")
+			assert.Nil(t, result.WRPRCEntitlements)
+		})
+	}
+	// Truly absent: the legacy path, unchanged.
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{}}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), nil)
+	assert.True(t, result.Decision)
+}
+
+func TestEnrichX5CResponse_WRPRCRepresentationUnionCannotHide(t *testing.T) {
+	// A grant for given_name; a DCQL query requesting family_name; a flat
+	// requested_attributes claiming only given_name. The union of BOTH
+	// representations is what the request asks for: family_name is beyond
+	// the grant, and strict mode denies — the flat list cannot hide it.
+	token, validator := mintWRPRC(t, wrprcClaims(""))
+	leaf := wrpacLeaf(t, "LEIXG-FRONTED")
+	query := map[string]interface{}{
+		"credentials": []interface{}{
+			map[string]interface{}{
+				"id":     "pid",
+				"format": "dc+sd-jwt",
+				"claims": []interface{}{
+					map[string]interface{}{"path": []interface{}{"family_name"}},
+				},
+			},
+		},
+	}
+	req := &authzen.EvaluationRequest{Context: map[string]interface{}{
+		"wrprc":                    token,
+		"query":                    query,
+		"requested_attributes":     []string{"given_name"},
+		"strict_entitlement_check": true,
+	}}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	assert.Contains(t, result.OverRequest.OverRequested, "family_name")
+}
+
+func TestEnrichX5CResponse_WRPRCNestedClaimPathsExact(t *testing.T) {
+	// The registrar's mdoc grant names ONE element of a namespace:
+	// [org.iso.18013.5.1, age_over_18]. Flattening both sides to the
+	// namespace would let the grant authorize [ns, portrait]; the
+	// comparison is exact-path.
+	claims := wrprcClaims("")
+	claims["credentials"] = []map[string]interface{}{
+		{
+			"format": "mso_mdoc",
+			"claims": []map[string]interface{}{
+				{"path": []string{"org.iso.18013.5.1", "age_over_18"}},
+			},
+		},
+	}
+	token, validator := mintWRPRC(t, claims)
+	leaf := wrpacLeaf(t, "LEIXG-FRONTED")
+	base := map[string]interface{}{
+		"wrprc":                    token,
+		"strict_entitlement_check": true,
+	}
+	// The request for a DIFFERENT element of the same namespace: beyond the
+	// grant, strict denies.
+	base["query"] = map[string]interface{}{
+		"credentials": []interface{}{
+			map[string]interface{}{
+				"id":     "mdoc",
+				"format": "mso_mdoc",
+				"claims": []interface{}{
+					map[string]interface{}{"path": []string{"org.iso.18013.5.1", "portrait"}},
+				},
+			},
+		},
+	}
+	req := &authzen.EvaluationRequest{Context: base}
+	result := EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.False(t, result.Decision)
+	require.NotNil(t, result.OverRequest)
+	assert.Contains(t, result.OverRequest.OverRequested, "org.iso.18013.5.1.portrait")
+
+	// The exact granted element: allowed.
+	base["query"] = map[string]interface{}{
+		"credentials": []interface{}{
+			map[string]interface{}{
+				"id":     "mdoc",
+				"format": "mso_mdoc",
+				"claims": []interface{}{
+					map[string]interface{}{"path": []string{"org.iso.18013.5.1", "age_over_18"}},
+				},
+			},
+		},
+	}
+	req = &authzen.EvaluationRequest{Context: base}
+	result = EnrichX5CResponseWithProfiles(req, leaf, rpcert.DefaultProfileRegistry(), validator)
+	assert.True(t, result.Decision)
+}
