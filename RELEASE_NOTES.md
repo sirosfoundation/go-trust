@@ -4,6 +4,22 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.30.0:start -->
+## [v0.30.0] - 2026-11-14
+
+### Added
+
+- **WRPRC evaluation in the x5c enrichment pipeline**: The wallet-side trust evaluation of intermediated presentations is now implemented. A new `WRPRCVerifier` validates the registrar chain against configured roots and verifies the JWS signature. The enrichment pipeline validates the `registration_cert` member, binds it to the presenting WRPAC (enforcing ARF RPRC_16 for direct presentations and ETSI TS 119 475 V1.2.1 Table 10 `act` for intermediated ones), and surfaces the fronted RP's identity and entitlements as trust metadata for wallet consent UI. Over-request detection now runs against the authoritative registrar-issued credential queries rather than policy-configured attributes. Intermediated presentations require explicit `allow_intermediaries` configuration. (#257)
+
+### Fixed
+
+- **`require_role` now correctly denies directly listed entities without a role**: Previously, when `require_role` was set, directly listed entities (not on the CA-anchored path) were incorrectly accepted against every list type because `roleTypes()` returned nil for missing/unmapped actions and `typeAllowed(nil, …)` returned true. The evaluator now denies up front when `require_role` is set and the role does not resolve to LoTE types, returning the reason `the request names no role this registry can scope by (RequireRole)`. Note that with `require_role` set, the National Register fallback is no longer reached for role-less requests. (#254)
+
+### Changed
+
+- Dependency updates: `github.com/SUNET/vc` to 0.8.0 (includes fixes for SD-JWT-VC mandatory claim checking in array elements and DCQL path handling for atomic parents) and `github.com/gematik/zero-lab/go/brainpool` to 1.3.0 (fixes JWK coordinate length per RFC 7518). (#252)
+<!-- release-notes:v0.30.0:end -->
+
 <!-- release-notes:v0.29.2:start -->
 ## [v0.29.2] - 2026-11-12
 
