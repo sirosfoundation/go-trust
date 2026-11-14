@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- WRPRC evaluation in the x5c enrichment pipeline — the wallet-side trust
+  evaluation of an ETSI TS 119 475 registration certificate presented by an
+  intermediary (`pkg/registry/wrprc_verify.go`, request context `wrprc`,
+  the content of the ETSI TS 119 472-2 s6.3.2.2 `registration_cert` member)
+  - `WRPRCVerifier` / `NewAnchoredWRPRCVerifier`: anchors the registrar chain
+    in the configured roots AND verifies the JWS signature under the anchored
+    leaf's key (RFC 7518 alg/curve pairings enforced; any `crit` member
+    refused); the validity window is enforced at evaluation time
+  - `CheckWRPACWRPRCPresentationBinding`: the presenting WRPAC binds to the
+    WRPRC for the presentation actually made — the direct RPRC_16 organization
+    binding, or the Table 10 `act` intermediary binding for intermediated
+    presentations (`allow_intermediaries` gates those)
+  - The registrar's grants are enforced at their NATIVE granularity:
+    `AllowedClaimPaths` (format-scoped, exact-path) — flattening to
+    `path[0]` would let a grant for one element authorize a namespace — and
+    the request's claims are the union of `requested_attributes` and the
+    DCQL queries' paths, so one representation cannot hide another
+  - Registrar-scoped trust anchors: `registries.lote.wrprc_scheme_types` and
+    `registries.etsi.wrprc_service_types`/`wrprc_service_statuses` — never
+    the global pool (an ordinary access-certificate holder must not be able
+    to self-sign registration claims); unconfigured means fail-closed
+  - The verified fronted-RP identity, entitlements, exact claim-path grants
+    and intermediary metadata surface in the response trust metadata under
+    `wrprc`
+
 - `verifier_ids` is now emitted by the `whitelist` (pinned-key path: `x509_san_dns`/
   `x509_san_uri` after `VerifyLeafBinding`; system-CA path: also `semantic`),
   `system_cert_pool` and `mdoc_rical` registries, using the same derivation as
