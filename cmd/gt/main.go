@@ -864,6 +864,7 @@ func configureRegistriesFromConfig(cfg *config.Config, registryMgr *registry.Reg
 			Description:             ricalCfg.Description,
 			RicalProviderURL:        ricalCfg.RicalProviderURL,
 			RicalRootCertificatePEM: ricalCfg.RicalRootCertificatePEM,
+			IgnoreTrustConstraints:  ricalCfg.IgnoreTrustConstraints,
 			CryptoExt:               cryptoExt,
 		}
 

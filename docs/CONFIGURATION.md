@@ -268,6 +268,7 @@ mDOC RICAL registry (reader authentication trust)
 | `registries.mdocrical.rical_root_certificate_pem` | — | string |  |
 | `registries.mdocrical.cache_ttl` | — | string |  |
 | `registries.mdocrical.http_timeout` | — | string |  |
+| `registries.mdocrical.ignore_trust_constraints` | — | boolean | IgnoreTrustConstraints treats any present RICAL trust constraint as satisfied (the behaviour before they were enforced). Not compliant with ISO/IEC 18013-5 F.3.2.6; off by default. |
 
 ## registries.vical
 
