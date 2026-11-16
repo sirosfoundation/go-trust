@@ -437,27 +437,6 @@ func parseX5CChain(key interface{}, ext *gocryptoutil.Extensions) ([]*x509.Certi
 	return certs, nil
 }
 
-// findFirstMatchingCertificateInfo returns the first (bottom-up, i.e.
-// closest-to-leaf) CertificateInfo in the RICAL whose certificate appears
-// in the presented chain, per F.3.2.6: "The CertificateInfo element of the
-// first certificate (bottom-up) in the certificate chain included in the
-// RICAL shall be used to determine and apply the associated Trust
-// Constraints."
-func findFirstMatchingCertificateInfo(chain []*x509.Certificate, infos []RICALCertificateInfo, ext *gocryptoutil.Extensions) (*RICALCertificateInfo, int) {
-	for _, cert := range chain {
-		for i := range infos {
-			infoCert, err := registry.ParseCertificate(infos[i].Certificate, ext)
-			if err != nil {
-				continue
-			}
-			if cert.Equal(infoCert) {
-				return &infos[i], i
-			}
-		}
-	}
-	return nil, -1
-}
-
 // validateChainAgainstAnchors builds a root pool from every CertificateInfo
 // in the RICAL and validates the presented chain against it, using the
 // presented chain's own intermediates to help complete the path. Returns
@@ -496,7 +475,7 @@ func validateChainAgainstAnchors(chain []*x509.Certificate, infos []RICALCertifi
 		// non-anchor cert just because it's listed, which is a different
 		// (and much weaker) trust question than "does this chain lead to a
 		// CA the RICAL vouches for". Non-CA entries are still reachable via
-		// findFirstMatchingCertificateInfo's exact chain-member match.
+		// resolveCertificateInfo's verified-path match.
 		if !cert.IsCA {
 			continue
 		}
@@ -527,8 +506,8 @@ func validateChainAgainstAnchors(chain []*x509.Certificate, infos []RICALCertifi
 //
 // Per F.3.2.6, "the CertificateInfo element of the first certificate
 // (bottom-up) in the certificate chain included in the RICAL" should be
-// used - findFirstMatchingCertificateInfo implements that literally, but
-// it only ever matches when a reader's own leaf or intermediate
+// used, taken in verified-path order (leaf first) rather than the order the
+// presenter listed the chain in. That only matches an intermediate when a reader's own leaf or intermediate
 // certificate is individually enrolled in the RICAL. In practice a reader
 // presents only its own leaf (plus any intermediates) and never the
 // self-signed root a RICAL provider lists as the trust anchor - the whole
@@ -551,29 +530,21 @@ func resolveCertificateInfo(chain []*x509.Certificate, infos []RICALCertificateI
 		return nil, -1, 0, err
 	}
 
-	if matched, idx := findFirstMatchingCertificateInfo(chain, infos, ext); matched != nil {
-		// Only apply reader/intermediate-specific constraints if the matching
-		// certificate is actually part of a verified path.
-		infoCert, err := registry.ParseCertificate(matched.Certificate, ext)
-		if err == nil {
-			for _, verifiedChain := range verifiedChains {
-				for k, c := range verifiedChain {
-					if c.Equal(infoCert) {
-						return matched, idx, intermediatesBelow(k), nil
-					}
-				}
-			}
+	// Walk each verified path bottom-up (leaf first) so the entry nearest the
+	// leaf governs, whatever order the presenter listed the chain in. The
+	// path's root is always a RICAL entry, so this ends at the anchor.
+	parsed := make([]*x509.Certificate, len(infos))
+	for i := range infos {
+		if c, err := registry.ParseCertificate(infos[i].Certificate, ext); err == nil {
+			parsed[i] = c
 		}
 	}
 	for _, verifiedChain := range verifiedChains {
-		root := verifiedChain[len(verifiedChain)-1]
-		for i := range infos {
-			infoCert, err := registry.ParseCertificate(infos[i].Certificate, ext)
-			if err != nil {
-				continue
-			}
-			if root.Equal(infoCert) {
-				return &infos[i], i, intermediatesBelow(len(verifiedChain) - 1), nil
+		for k, c := range verifiedChain {
+			for i, infoCert := range parsed {
+				if infoCert != nil && c.Equal(infoCert) {
+					return &infos[i], i, intermediatesBelow(k), nil
+				}
 			}
 		}
 	}

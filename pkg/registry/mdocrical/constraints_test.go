@@ -102,6 +102,9 @@ func TestConstraintSatisfied(t *testing.T) {
 		{"pathLen zero, direct", TrustConstraint{PathLen: &zero}, plain, 0, true},
 		{"pathLen zero, one intermediate", TrustConstraint{PathLen: &zero}, plain, 1, false},
 		{"certificateProfiles cannot be established", TrustConstraint{CertificateProfiles: []string{"urn:x"}}, plain, 0, false},
+		{"present empty certificateProfiles is not unrestricted", TrustConstraint{CertificateProfiles: []string{}}, plain, 0, false},
+		{"present empty eku allows nothing", TrustConstraint{EKU: []string{}}, both, 0, false},
+		{"present empty eku, leaf without eku", TrustConstraint{EKU: []string{}}, plain, 0, false},
 		{"unknown extension", TrustConstraint{Extensions: ext}, plain, 0, false},
 		{"all members must hold", TrustConstraint{Policies: []string{oidPolicyA}, EKU: []string{oidEKUB}}, both, 0, false},
 	}
@@ -184,6 +187,70 @@ func TestEvaluate_EnforcesTrustConstraints(t *testing.T) {
 	}
 	if !run(t, RICALCertificateInfo{}, false, bad) {
 		t.Error("no constraints: unchanged")
+	}
+}
+
+// The entry nearest the leaf on the verified path governs, whatever order the
+// presenter listed the chain in: [leaf, R, I] must not select the unconstrained
+// root R over the constrained intermediate I.
+func TestEvaluate_GoverningEntryFollowsVerifiedPath(t *testing.T) {
+	ricalRoot, ricalRootKey := generateCA(t, "Test RICAL Root")
+	signerCert, signerKey := generateLeaf(t, ricalRoot, ricalRootKey, "Test RICAL Signer", 2)
+	root, rootKey := generateCA(t, "Reader Root")
+
+	ikey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
+		SerialNumber: big.NewInt(30), Subject: pkix.Name{CommonName: "Reader Intermediate"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+	}, root, &ikey.PublicKey, rootKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inter, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := leafWith(t, inter, ikey, 31, nil, nil)
+
+	rical := &RICAL{
+		Version: "1.0", Provider: "p", Date: time.Now().UTC().Format(time.RFC3339),
+		Type: "org.iso.18013.5.1.reader_authentication",
+		CertificateInfos: []RICALCertificateInfo{
+			{Certificate: root.Raw, SerialNumber: root.SerialNumber, SKI: root.SubjectKeyId},
+			{Certificate: inter.Raw, SerialNumber: inter.SerialNumber, SKI: inter.SubjectKeyId,
+				TrustConstraints: []TrustConstraint{{Policies: []string{oidPolicyA}}}},
+		},
+	}
+	mock := newMockRicalServer(t, buildSignedRical(t, rical, signerCert, signerKey))
+	defer mock.Close()
+	reg, err := New(&Config{
+		RicalProviderURL: mock.URL(), RicalRootCertificatePEM: certPEM(ricalRoot),
+		AllowHTTP: true, AllowPrivateIPs: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, chain := range map[string][]*x509.Certificate{
+		"leaf, inter, root": {bad, inter, root},
+		"leaf, root, inter": {bad, root, inter},
+	} {
+		key := make([]interface{}, len(chain))
+		for i, c := range chain {
+			key[i] = certBase64(c)
+		}
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Resource: authzen.Resource{Type: "x5c", Key: key},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.Decision {
+			t.Errorf("%s: leaf violating the intermediate's constraint must be denied", name)
+		}
 	}
 }
 

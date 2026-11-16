@@ -49,7 +49,7 @@ func trustConstraintsSatisfied(constraints []TrustConstraint, leaf *x509.Certifi
 //   - eku: the leaf must carry at least one EKU and every one must be listed;
 //   - pathLen: at most that many intermediate CAs between the CA and the leaf.
 func constraintSatisfied(c TrustConstraint, leaf *x509.Certificate, intermediates int) bool {
-	if len(c.Extensions) > 0 || len(c.CertificateProfiles) > 0 {
+	if len(c.Extensions) > 0 || c.CertificateProfiles != nil {
 		return false
 	}
 	if len(c.Policies) > 0 {
@@ -63,7 +63,7 @@ func constraintSatisfied(c TrustConstraint, leaf *x509.Certificate, intermediate
 			}
 		}
 	}
-	if len(c.EKU) > 0 {
+	if c.EKU != nil {
 		ekus, ok := leafEKUs(leaf)
 		if !ok || len(ekus) == 0 {
 			return false
