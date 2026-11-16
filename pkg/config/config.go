@@ -366,6 +366,10 @@ type MDOCRICALRegistryConfig struct {
 	RicalRootCertificatePEM string `yaml:"rical_root_certificate_pem,omitempty"`
 	CacheTTL                string `yaml:"cache_ttl,omitempty"`
 	HTTPTimeout             string `yaml:"http_timeout,omitempty"`
+	// IgnoreTrustConstraints treats any present RICAL trust constraint as
+	// satisfied (the behaviour before they were enforced). Not compliant with
+	// ISO/IEC 18013-5 F.3.2.6; off by default.
+	IgnoreTrustConstraints bool `yaml:"ignore_trust_constraints,omitempty"`
 }
 
 // VICALRegistryConfig contains VICAL (Verified Issuer Certificate Authority

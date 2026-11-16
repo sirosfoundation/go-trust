@@ -88,6 +88,11 @@ type Config struct {
 	// event's live document at geneva2026.mdoc.online) already omit it in
 	// practice. See validateChainAgainstAnchors's doc comment for details.
 	CryptoExt *gocryptoutil.Extensions
+
+	// IgnoreTrustConstraints restores the earlier behaviour of treating any
+	// present TrustConstraint as satisfied. It is not compliant with F.3.2.6
+	// and exists only for deployments that depend on it.
+	IgnoreTrustConstraints bool
 }
 
 // TrustConstraint mirrors the RICAL structure's TrustConstraint (F.3.2.3).
@@ -96,6 +101,9 @@ type TrustConstraint struct {
 	EKU                 []string `cbor:"eku,omitempty"`
 	PathLen             *uint64  `cbor:"pathLen,omitempty"`
 	CertificateProfiles []string `cbor:"certificateProfiles,omitempty"`
+	// Extensions are application-specific constraint types. None are
+	// understood here, so a constraint carrying any is not satisfied (F.3.2.6).
+	Extensions map[string]cbor.RawMessage `cbor:"extensions,omitempty"`
 }
 
 // RICALCertificateInfo mirrors the RICAL structure's RICALCertificateInfo
@@ -110,8 +118,12 @@ type RICALCertificateInfo struct {
 	AKI              []byte            `cbor:"aki,omitempty"`
 	Type             string            `cbor:"type,omitempty"`
 	TrustConstraints []TrustConstraint `cbor:"trustConstraints,omitempty"`
-	Name             string            `cbor:"name,omitempty"`
-	IssuingCountry   string            `cbor:"issuingCountry,omitempty"`
+	// MisspeltTrustConstraints reads the key as it is spelled in the F.3.2.2
+	// CDDL ("trustContraints"), so a provider following that text cannot
+	// silently drop its constraints; constraints() merges both.
+	MisspeltTrustConstraints []TrustConstraint `cbor:"trustContraints,omitempty"`
+	Name                     string            `cbor:"name,omitempty"`
+	IssuingCountry           string            `cbor:"issuingCountry,omitempty"`
 }
 
 // RICAL mirrors the RICAL structure per F.3.2.1.
@@ -203,13 +215,13 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		return r.denyWithReason(fmt.Sprintf("failed to get RICAL: %v", err)), nil
 	}
 
-	matchedInfo, matchIdx, err := resolveCertificateInfo(chain, rical.CertificateInfos, r.config.CryptoExt)
+	matchedInfo, matchIdx, intermediates, err := resolveCertificateInfo(chain, rical.CertificateInfos, r.config.CryptoExt)
 	if err != nil {
 		return r.denyWithReason(fmt.Sprintf("certificate path validation failed: %v", err)), nil
 	}
 
-	if len(matchedInfo.TrustConstraints) > 0 {
-		if !anyTrustConstraintSatisfied(matchedInfo.TrustConstraints) {
+	if constraints := matchedInfo.constraints(); len(constraints) > 0 && !r.config.IgnoreTrustConstraints {
+		if !trustConstraintsSatisfied(constraints, chain[0], intermediates) {
 			return r.denyWithReason("no trust constraint satisfied for reader certificate"), nil
 		}
 	}
@@ -533,10 +545,10 @@ func validateChainAgainstAnchors(chain []*x509.Certificate, infos []RICALCertifi
 // TrustConstraints tighter than the anchor's own), but when none exists,
 // fall back to whichever RICAL trust-anchor entry the chain actually
 // validated against.
-func resolveCertificateInfo(chain []*x509.Certificate, infos []RICALCertificateInfo, ext *gocryptoutil.Extensions) (*RICALCertificateInfo, int, error) {
+func resolveCertificateInfo(chain []*x509.Certificate, infos []RICALCertificateInfo, ext *gocryptoutil.Extensions) (*RICALCertificateInfo, int, int, error) {
 	verifiedChains, err := validateChainAgainstAnchors(chain, infos, ext)
 	if err != nil {
-		return nil, -1, err
+		return nil, -1, 0, err
 	}
 
 	if matched, idx := findFirstMatchingCertificateInfo(chain, infos, ext); matched != nil {
@@ -545,9 +557,9 @@ func resolveCertificateInfo(chain []*x509.Certificate, infos []RICALCertificateI
 		infoCert, err := registry.ParseCertificate(matched.Certificate, ext)
 		if err == nil {
 			for _, verifiedChain := range verifiedChains {
-				for _, c := range verifiedChain {
+				for k, c := range verifiedChain {
 					if c.Equal(infoCert) {
-						return matched, idx, nil
+						return matched, idx, intermediatesBelow(k), nil
 					}
 				}
 			}
@@ -561,25 +573,14 @@ func resolveCertificateInfo(chain []*x509.Certificate, infos []RICALCertificateI
 				continue
 			}
 			if root.Equal(infoCert) {
-				return &infos[i], i, nil
+				return &infos[i], i, intermediatesBelow(len(verifiedChain) - 1), nil
 			}
 		}
 	}
 	// Should be unreachable: validateChainAgainstAnchors only builds its
 	// root pool from parseable RICAL entries, so a successful Verify's
 	// root must be one of them.
-	return nil, -1, fmt.Errorf("chain validated but its root isn't a RICAL entry")
-}
-
-// anyTrustConstraintSatisfied is a placeholder: this specification (per
-// F.3.2.3) does not define any concrete TrustConstraint semantics - it's
-// left to ecosystem/domain profiles. Until this org profiles concrete
-// constraints for the Geneva event (or another), a present-but-unprofiled
-// TrustConstraint is treated as satisfied by default (fail-open on meaning
-// we don't understand yet, not fail-closed) - revisit once real
-// TrustConstraints are actually published by an event RICAL provider.
-func anyTrustConstraintSatisfied(constraints []TrustConstraint) bool {
-	return len(constraints) > 0
+	return nil, -1, 0, fmt.Errorf("chain validated but its root isn't a RICAL entry")
 }
 
 // extractX5ChainFromProtectedHeader reads the signer chain from a decoded

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `mdocrical`: RICAL trust constraints are now enforced (ISO/IEC 18013-5 F.3.2.6) instead
+  of any present constraint counting as satisfied (#260). A constraint holds when the
+  reader certificate has every listed `policies` OID, only `eku` OIDs from the list (and at
+  least one), and at most `pathLen` intermediates below the CA; one that carries
+  `extensions` or `certificateProfiles` (not determinable here) is not satisfied, and at
+  least one constraint of the governing entry must hold. The CDDL's own spelling of the
+  key (`trustContraints`) is read as well. `ignore_trust_constraints: true` restores the
+  old behaviour for deployments that depend on it (not compliant)
+
 ### Added
 
 - WRPRC evaluation in the x5c enrichment pipeline — the wallet-side trust
