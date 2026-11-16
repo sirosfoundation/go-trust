@@ -905,6 +905,35 @@ Rules:
 - **Policies and routing.** `return_verifier_ids` belongs to a policy, and a policy is selected by exact `action.name`. Adding a `policies:` section for some actions does not change the others as long as `default_policy` and `fail_closed_on_unknown_action` are left unset: an action with no policy is evaluated by every registry, without constraints, exactly as without a `policies:` section (a one-time warning is logged per unknown action name). Setting `default_policy` applies that policy to every unlisted action and to requests with no `action.name` at all; setting `fail_closed_on_unknown_action: true` denies unlisted *named* actions, but not requests with no `action.name`, which still use `default_policy` or unconstrained evaluation. A policy with no `registries`, `allowed_key_types` or `require_key_binding` does not narrow which registries are asked or which requests are accepted. A ready-to-use snippet for a PDP serving a `whitelist` registry is in [`docs/examples/gdc-verifier-ids-policies.yaml`](docs/examples/gdc-verifier-ids-policies.yaml); a test pins that it only adds `verifier_ids`.
 - Not offered: `did_scid`, `service` and `spki_sha256` are not implemented yet and are rejected in `return_verifier_ids`.
 
+### Trust Anchors for Offline Presentation (`trust_anchors`)
+
+Proximity presentation (ISO/IEC 18013-5) is often offline, so a reader app needs the issuer roots (VICAL) and a wallet needs the reader roots (RICAL) without asking the PDP each time. A policy can opt in to receiving them in the evaluation response:
+
+```yaml
+policies:
+  policies:
+    proximity:
+      registries: [iaca-vical, geneva-rical]
+      constraints:
+        return_trust_anchors: [vical, rical]   # unknown type names are rejected at startup
+```
+
+The `vical` and `mdocrical` registries then add `context.trust_anchors` to a positive decision, one entry per list:
+
+```json
+{"registry": "iaca-vical", "type": "vical", "version": "sha256:…", "issued_at": "2026-11-10T00:00:00Z",
+ "next_update": "2026-11-17T00:00:00Z", "ttl_seconds": 3600,
+ "anchors": [{"x5c": "<base64 DER>", "doc_types": ["org.iso.18013.5.1.mDL"], "issuing_country": "SE"}]}
+```
+
+- **Opt-in, server-controlled.** Without `return_trust_anchors` nothing changes, and a client cannot enable it: the setting is taken from the policy only.
+- **Preload.** A client warms its cache with a *resolution-only* request (no `resource.type`/`resource.key`) whose `subject.id` is the registry name and whose `action.name` selects the policy. The registry answers with `decision: true` and the anchors; if the policy did not enable the type, or `subject.id` names no list, the request is denied and carries no anchors. Composite registries do not take part in preload.
+- **TTL.** `ttl_seconds` counts from receipt and is the time to the list's `nextUpdate` (24 hours when the list has none), never beyond its `notAfter`; if `nextUpdate` has passed but the list is still valid, 15 minutes. A client must not use the anchors past it. A list past `notAfter`, or one whose dates cannot be read, contributes nothing. `version` is a hash of the anchors, so an unchanged list can be skipped.
+- **The fields of the source list.** A VICAL anchor carries `doc_types` (the scope of trust), `certificate_profiles`, `issuing_authority` and `issuing_country`. A RICAL anchor carries `ski`, `aki`, `type`, `name`, `issuing_country`, `is_trust_anchor` (only when the entry says true) and `trust_constraints`; the first entry that matches bottom-up governs (F.3.2.6) and at least one of its constraints must hold. A constraint with `unsupported_extensions: true` carries extensions the PDP cannot evaluate, or an empty `eku`/`certificate_profiles` member: a client must treat it as not satisfied. All entries of a RICAL are exported, including non-CA entries that only carry constraints.
+- **Offline is a conservative subset.** Offline chain validation against these anchors has no profile or policy-OID enrichment and no over-request checks, so it may deny what online evaluation allows, never the reverse. The anchors travel over the same authenticated channel as the decision; the provider's own signature is not carried.
+- **Bounds.** At most 1000 anchors per list; `excluded` counts what was left out.
+- **Strategies.** `first_match` and `sequential` return the matching registry's own response, so its `trust_anchors` are included. `all`, `best_match` and composites merge the member from positive children only.
+
 ## Deployment
 
 ### Docker

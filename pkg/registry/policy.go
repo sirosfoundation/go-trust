@@ -69,6 +69,13 @@ type PolicyConstraints struct {
 	// Entries are emitted only for an allow decision whose identifier was
 	// verified; unknown type names are rejected at config load.
 	ReturnVerifierIDs []string `json:"return_verifier_ids,omitempty" yaml:"return_verifier_ids,omitempty"`
+
+	// ReturnTrustAnchors lists the trust anchor list types (vical, rical) to
+	// return in response.Context.TrustAnchors, for offline (proximity)
+	// validation. Empty (the default) returns none. Only the VICAL and RICAL
+	// registries produce them, only for an allow decision or a resolution-only
+	// preload; unknown type names are rejected at config load.
+	ReturnTrustAnchors []string `json:"return_trust_anchors,omitempty" yaml:"return_trust_anchors,omitempty"`
 }
 
 // Validate rejects unknown return_verifier_ids type names.
@@ -77,6 +84,12 @@ func (c PolicyConstraints) Validate() error {
 		if !authzen.IsSupportedVerifierIDType(t) {
 			return fmt.Errorf("return_verifier_ids: unknown verifier id type %q (supported: %s)",
 				t, strings.Join(authzen.SupportedVerifierIDTypes(), ", "))
+		}
+	}
+	for _, t := range c.ReturnTrustAnchors {
+		if !authzen.IsSupportedTrustAnchorType(t) {
+			return fmt.Errorf("return_trust_anchors: unknown trust anchor type %q (supported: %s)",
+				t, strings.Join(authzen.SupportedTrustAnchorTypes(), ", "))
 		}
 	}
 	return nil

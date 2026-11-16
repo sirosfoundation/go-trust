@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Trust anchors for offline presentation (#223): a policy that sets
+  `constraints.return_trust_anchors: [vical, rical]` receives
+  `context.trust_anchors` from the `vical` and `mdocrical` registries on a positive
+  decision, and can preload them with a resolution-only request naming the registry.
+  Each list carries its anchors with the fields of the source list (VICAL `docType`
+  scope; RICAL `ski`/`aki` and trust constraints, with unsupported ones flagged), a
+  content `version` and a `ttl_seconds` from the list's `nextUpdate` (24 h default,
+  clamped to `notAfter`). Off by default; nothing is returned for an expired list
+
 - WRPRC evaluation in the x5c enrichment pipeline — the wallet-side trust
   evaluation of an ETSI TS 119 475 registration certificate presented by an
   intermediary (`pkg/registry/wrprc_verify.go`, request context `wrprc`,

@@ -1320,9 +1320,10 @@ func configurePoliciesFromConfig(cfg *config.Config, registryMgr *registry.Regis
 		// Convert constraints
 		if policyCfg.Constraints != nil {
 			policy.Constraints = registry.PolicyConstraints{
-				AllowedKeyTypes:   policyCfg.Constraints.AllowedKeyTypes,
-				RequireKeyBinding: policyCfg.Constraints.RequireKeyBinding,
-				ReturnVerifierIDs: policyCfg.Constraints.ReturnVerifierIDs,
+				AllowedKeyTypes:    policyCfg.Constraints.AllowedKeyTypes,
+				RequireKeyBinding:  policyCfg.Constraints.RequireKeyBinding,
+				ReturnVerifierIDs:  policyCfg.Constraints.ReturnVerifierIDs,
+				ReturnTrustAnchors: policyCfg.Constraints.ReturnTrustAnchors,
 			}
 		}
 

@@ -202,6 +202,9 @@ func New(cfg *Config) (*Registry, error) {
 // trust-anchor-flagged CertificateInfo entries, applying TrustConstraints
 // from the first (bottom-up) matching entry, per F.3.2.6.
 func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	if req.IsResolutionOnlyRequest() {
+		return r.evaluateTrustAnchorPreload(ctx, req)
+	}
 	chain, err := parseX5CChain(req.Resource.Key, r.config.CryptoExt)
 	if err != nil {
 		return r.denyWithReason(fmt.Sprintf("invalid X5C chain: %v", err)), nil
@@ -239,6 +242,9 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	// The reader certificate chained to a RICAL trust anchor, so its content is
 	// authenticated; derive the relying party's identifiers from the leaf.
 	registry.AddVerifierIDs(resp, req, registry.DeriveCertVerifierIDs(req, chain[0], true))
+	if set, ok := r.trustAnchorSet(rical); ok {
+		registry.AddTrustAnchorSet(resp, req, set)
+	}
 	return resp, nil
 }
 

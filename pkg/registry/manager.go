@@ -365,6 +365,12 @@ func (m *RegistryManager) applyPolicyToRequest(req *authzen.EvaluationRequest, p
 		req.Context[authzen.VerifierIDsPolicyContextKey] = policyCtx.Policy.Constraints.ReturnVerifierIDs
 	}
 
+	// Trust anchor lists the policy enables, read by the VICAL and RICAL
+	// registries through TrustAnchorTypesEnabled.
+	if len(policyCtx.Policy.Constraints.ReturnTrustAnchors) > 0 {
+		req.Context[authzen.TrustAnchorsPolicyContextKey] = policyCtx.Policy.Constraints.ReturnTrustAnchors
+	}
+
 	// Apply OIDF constraints
 	if policyCtx.Policy.OIDFed != nil {
 		oidfed := policyCtx.Policy.OIDFed
@@ -737,7 +743,7 @@ func (m *RegistryManager) getApplicableRegistriesWithPolicy(req *authzen.Evaluat
 		}
 
 		// For resolution-only requests, include registries that support resolution-only
-		if isResolutionOnly && reg.SupportsResolutionOnly() {
+		if isResolutionOnly && supportsResolutionOnly(reg, req) {
 			applicable = append(applicable, reg)
 			continue
 		}

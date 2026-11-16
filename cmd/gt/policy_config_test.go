@@ -90,9 +90,10 @@ func TestConfigurePoliciesFromConfigCopiesEveryField(t *testing.T) {
 			Description: "every constraint set",
 			Registries:  []string{"etsi"},
 			Constraints: &config.PolicyConstraintsConfig{
-				AllowedKeyTypes:   []string{"x5c"},
-				RequireKeyBinding: true,
-				ReturnVerifierIDs: []string{"semantic", "x509_san_dns"},
+				AllowedKeyTypes:    []string{"x5c"},
+				RequireKeyBinding:  true,
+				ReturnVerifierIDs:  []string{"semantic", "x509_san_dns"},
+				ReturnTrustAnchors: []string{"vical", "rical"},
 			},
 			ETSI: &config.ETSIPolicyConfig{
 				ServiceTypes:           []string{"http://uri.etsi.org/TrstSvc/Svctype/CA/QC"},

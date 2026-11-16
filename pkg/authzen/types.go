@@ -90,6 +90,114 @@ type EvaluationResponseContext struct {
 	// or of next_update in an entry, means "unknown": the caller applies its own
 	// conservative cap.
 	TrustData []TrustData `json:"trust_data,omitempty"`
+	// TrustAnchors carries the trust anchor lists (VICAL, RICAL) a client may
+	// cache to validate proximity (ISO/IEC 18013-5) presentations offline. It
+	// is present only when the policy enables it (constraints.return_trust_anchors)
+	// and the decision is true; each entry is valid for its ttl_seconds.
+	TrustAnchors []TrustAnchorSet `json:"trust_anchors,omitempty"`
+}
+
+// Trust anchor list types a PDP can return in EvaluationResponseContext.TrustAnchors.
+// Clients ignore types they do not know.
+const (
+	// TrustAnchorTypeVICAL is a Verified Issuer Certificate Authority List
+	// (ISO/IEC 18013-5 C.1.7.1): the issuer roots a reader trusts.
+	TrustAnchorTypeVICAL = "vical"
+	// TrustAnchorTypeRICAL is a Reader Issuer Certificate Authority List
+	// (ISO/IEC 18013-5 Annex F): the reader roots a wallet trusts.
+	TrustAnchorTypeRICAL = "rical"
+)
+
+// TrustAnchorsPolicyContextKey carries the policy's enabled trust anchor types
+// to the registries. Server-controlled: a client cannot set it.
+const TrustAnchorsPolicyContextKey = "return_trust_anchors"
+
+// SupportedTrustAnchorTypes lists the trust anchor list types go-trust can return.
+func SupportedTrustAnchorTypes() []string {
+	return []string{TrustAnchorTypeVICAL, TrustAnchorTypeRICAL}
+}
+
+// IsSupportedTrustAnchorType reports whether t is a type go-trust can return.
+func IsSupportedTrustAnchorType(t string) bool {
+	for _, s := range SupportedTrustAnchorTypes() {
+		if s == t {
+			return true
+		}
+	}
+	return false
+}
+
+// TrustAnchorSet is one registry's trust anchor list, for offline use.
+// @Description A trust anchor list a client may cache until its ttl expires
+type TrustAnchorSet struct {
+	// Registry is the configured name of the registry the list came from.
+	Registry string `json:"registry" example:"iaca-vical"`
+	// Type is the list type: "vical" or "rical".
+	Type string `json:"type" example:"vical"`
+	// Version identifies the verified content ("sha256:" and a hex digest), so
+	// a client can skip re-reading a list that has not changed.
+	Version string `json:"version"`
+	// IssuedAt is the list's own date (RFC 3339), when the source carries one.
+	IssuedAt string `json:"issued_at,omitempty"`
+	// NextUpdate is the list's declared nextUpdate (RFC 3339), when it has one.
+	NextUpdate string `json:"next_update,omitempty"`
+	// TTLSeconds is how long the client may use the anchors, counted from
+	// receipt. It is the time to nextUpdate (24 hours when the list declares
+	// none), never beyond the list's notAfter, and 15 minutes when nextUpdate
+	// has passed but the list is still valid. A client must not use the anchors
+	// past it.
+	TTLSeconds int64 `json:"ttl_seconds"`
+	// Anchors are the certificates of the list, each with the scoping fields
+	// of the source list.
+	Anchors []TrustAnchor `json:"anchors"`
+	// Excluded is the number of list entries left out to bound the response
+	// size. An offline verifier given a truncated list is stricter than online
+	// evaluation, never more permissive.
+	Excluded int `json:"excluded,omitempty"`
+}
+
+// TrustAnchor is one certificate of a VICAL or RICAL with the fields of its
+// source entry. Fields that a list type does not have are omitted.
+// @Description One trust anchor certificate with the scoping of its source list
+type TrustAnchor struct {
+	// X5C is the certificate, base64 (standard) DER.
+	X5C string `json:"x5c"`
+	// DocTypes (VICAL): the document types the issuer is trusted for.
+	DocTypes []string `json:"doc_types,omitempty"`
+	// CertificateProfiles (VICAL): the certificate profiles of the entry.
+	CertificateProfiles []string `json:"certificate_profiles,omitempty"`
+	// IssuingAuthority and IssuingCountry describe the entry's issuer.
+	IssuingAuthority string `json:"issuing_authority,omitempty"`
+	IssuingCountry   string `json:"issuing_country,omitempty"`
+	// SKI and AKI (RICAL) are the base64 subject and authority key identifiers.
+	// A client needs them to find the first matching entry bottom-up, whose
+	// trust constraints govern (ISO/IEC 18013-5 F.3.2.6).
+	SKI string `json:"ski,omitempty"`
+	AKI string `json:"aki,omitempty"`
+	// IsTrustAnchor (RICAL) is true only when the source entry marks the
+	// certificate a trust anchor; the field is being dropped from the standard,
+	// so its absence says nothing.
+	IsTrustAnchor *bool `json:"is_trust_anchor,omitempty"`
+	// Type and Name (RICAL) are the entry's own type and name.
+	Type string `json:"type,omitempty"`
+	Name string `json:"name,omitempty"`
+	// TrustConstraints (RICAL): at least one must be fully satisfied for a
+	// reader certificate chained to this entry to be trusted.
+	TrustConstraints []TrustAnchorConstraint `json:"trust_constraints,omitempty"`
+}
+
+// TrustAnchorConstraint is a RICAL TrustConstraint (F.3.2.3).
+// @Description A RICAL trust constraint
+type TrustAnchorConstraint struct {
+	Policies            []string `json:"policies,omitempty"`
+	EKU                 []string `json:"eku,omitempty"`
+	PathLen             *uint64  `json:"path_len,omitempty"`
+	CertificateProfiles []string `json:"certificate_profiles,omitempty"`
+	// UnsupportedExtensions is true when the source constraint carries
+	// application-specific extensions the PDP does not understand, or a
+	// present but empty eku or certificate_profiles member. A client
+	// must treat the constraint as not satisfied (F.3.2.6).
+	UnsupportedExtensions bool `json:"unsupported_extensions,omitempty"`
 }
 
 // TrustData describes the freshness of one registry's data.
