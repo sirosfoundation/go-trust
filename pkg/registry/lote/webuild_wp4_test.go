@@ -331,3 +331,61 @@ func TestWebuildWP4_LoTLResolvesClassicTSLPointers(t *testing.T) {
 		assert.Truef(t, resp.Decision, "%s: service certificate not trusted through the LoTL: %v", f, resp.Context)
 	}
 }
+
+// A granted entity must never be labelled with another entity's name (#249).
+//
+// buildIndex merges entities that share TEInformationURI[0] within one scheme
+// type, keeping the first entry's TrustedEntityInformation and pooling the
+// rest's keys and certificates. In this list .../WalletProvider/NL is a
+// per-country scheme URI shared by seven Dutch wallet providers, so a key or
+// certificate match against any of them resolves to the merged entry — and
+// display_name, read off that entry, names whichever entity came first.
+//
+// display_name overrides the verifier's own client_name in the wallet's label
+// chain, so naming the wrong organisation is worse than naming none: the
+// correct label is suppressed in favour of a different company's. Absence is
+// a documented, supported outcome; a wrong name is not.
+func TestWebuildWP4_DisplayNameNeverNamesAnotherEntity(t *testing.T) {
+	const sharedID = "WalletProvider/NL"
+
+	wallets := loadWebuildLoTE(t, "wallet-providers.xml")
+	reg, err := lote.New(lote.Config{
+		Now:     webuildNow,
+		Sources: []string{filepath.Join(webuildDir, "wallet-providers.xml")},
+	})
+	require.NoError(t, err)
+
+	checked := 0
+	for _, ent := range wallets.TrustedEntitiesList {
+		uris := ent.TrustedEntityInformation.TEInformationURI
+		if len(uris) == 0 || !strings.Contains(uris[0].URIValue, sharedID) {
+			continue
+		}
+		own := ent.TrustedEntityInformation.TEName.Get("en", "")
+		if len(ent.TrustedEntityServices) == 0 {
+			continue
+		}
+		certs := ent.TrustedEntityServices[0].ServiceInformation.ServiceDigitalIdentity.X509Certificates
+		if len(certs) == 0 {
+			continue
+		}
+
+		id := uris[0].URIValue
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Subject:  authzen.Subject{Type: "key", ID: id},
+			Resource: authzen.Resource{Type: "x5c", ID: id, Key: []interface{}{certs[0].Val}},
+		})
+		require.NoError(t, err)
+		require.Truef(t, resp.Decision, "%q: own service certificate not trusted", own)
+		require.NotNil(t, resp.Context)
+
+		checked++
+		if resp.Context.DisplayName == "" {
+			continue // absence is fine — the wallet falls back to its own label chain
+		}
+		assert.Equalf(t, own, resp.Context.DisplayName,
+			"matched %q but the response labels it %q — a different listed entity pooled under %s",
+			own, resp.Context.DisplayName, sharedID)
+	}
+	require.Greaterf(t, checked, 1, "expected several entities pooled under %s", sharedID)
+}
