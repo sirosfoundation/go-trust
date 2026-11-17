@@ -174,6 +174,16 @@ type indexedEntity struct {
 	// matches a listed key must BE a listed certificate — the key alone does
 	// not authenticate the certificate's identity fields.
 	certs []*x509.Certificate
+	// namesByKeyHash records, per indexed digital identity, the human-facing
+	// name of the entity that contributed it. buildIndex pools entities that
+	// share an identifier into one entry, so `entity`'s own name is the name
+	// of whichever entity was indexed first — not of whoever holds the key
+	// that matched. The decision names the holder, so it names them from here.
+	namesByKeyHash map[string]string
+	// pooled is true when more than one listed entity merged into this entry,
+	// which leaves `entity`'s name ambiguous for any decision that does not
+	// rest on a specific digital identity.
+	pooled bool
 }
 
 // Pub-EAA service status URIs per ETSI TS 119 602 Annex H.
@@ -441,7 +451,10 @@ func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEn
 		context := &authzen.EvaluationResponseContext{
 			TrustMetadata: ent.entity,
 		}
-		if name := displayNameOf(ent); name != "" {
+		// No key is checked here, so there is no digital identity to name a
+		// pooled entry by: displayNameOf withholds the name rather than
+		// guessing between the entities sharing this identifier.
+		if name := displayNameOf(ent, ""); name != "" {
 			context.DisplayName = name
 		}
 		return &authzen.EvaluationResponse{
@@ -468,7 +481,7 @@ func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEn
 
 	if ent.keyHashes[keyHash] {
 		if req.Resource.Type != "x5c" {
-			return r.buildSuccessResponseFor(ent, subjectID, ent.territory, "key matches entity", credentialTypes)
+			return r.buildSuccessResponseFor(ent, keyHash, subjectID, ent.territory, "key matches entity", credentialTypes)
 		}
 		// A malformed chain DENIES — never skips the gate on a parse
 		// failure, or [listed_leaf, "garbage"] would bypass the WRPRC
@@ -513,7 +526,7 @@ func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEn
 		if !enrichment.Decision {
 			return enrichmentDenial(fmt.Sprintf("key matches entity %q but enrichment check failed", subjectID), enrichment, credentialTypes)
 		}
-		resp := r.buildSuccessResponseFor(ent, subjectID, ent.territory, "key matches entity", credentialTypes)
+		resp := r.buildSuccessResponseFor(ent, keyHash, subjectID, ent.territory, "key matches entity", credentialTypes)
 		registry.ApplyEnrichmentToResponse(resp, enrichment)
 		return resp
 	}
@@ -605,18 +618,14 @@ func (r *Registry) Refresh(ctx context.Context) error {
 	return r.refresh()
 }
 
-// buildSuccessResponse creates a successful EvaluationResponse with credential_types
-// from the request context included for audit purposes.
-func (r *Registry) buildSuccessResponse(subjectID, territory, detail string, credentialTypes []string) *authzen.EvaluationResponse {
-	return r.buildSuccessResponseFor(nil, subjectID, territory, detail, credentialTypes)
-}
-
-// buildSuccessResponseFor builds a successful response, naming the entity
-// that produced it: when ent carries a human-facing name (#249), the
-// response's context carries it as display_name — the wallet consent UI's
-// verifier label, presentation only, never a trust input. Nil ent: the
-// response carries no name (the expected common case).
-func (r *Registry) buildSuccessResponseFor(ent *indexedEntity, subjectID, territory, detail string, credentialTypes []string) *authzen.EvaluationResponse {
+// buildSuccessResponseFor builds a successful response with credential_types
+// from the request context included for audit purposes, naming the entity the
+// decision is about: when a name is established for it (#249), the response's
+// context carries it as display_name — the wallet consent UI's verifier label,
+// presentation only, never a trust input. keyHash is the digital identity the
+// decision rests on, empty when it rests on none. Nil ent, or a name that
+// cannot be attributed, leaves the response unnamed.
+func (r *Registry) buildSuccessResponseFor(ent *indexedEntity, keyHash, subjectID, territory, detail string, credentialTypes []string) *authzen.EvaluationResponse {
 	reason := map[string]interface{}{
 		"admin": fmt.Sprintf("%s %q in LoTE (territory: %s)", detail, subjectID, territory),
 	}
@@ -625,7 +634,7 @@ func (r *Registry) buildSuccessResponseFor(ent *indexedEntity, subjectID, territ
 	context := &authzen.EvaluationResponseContext{
 		Reason: reason,
 	}
-	if name := displayNameOf(ent); name != "" {
+	if name := displayNameOf(ent, keyHash); name != "" {
 		context.DisplayName = name
 	}
 	return &authzen.EvaluationResponse{
@@ -634,20 +643,55 @@ func (r *Registry) buildSuccessResponseFor(ent *indexedEntity, subjectID, territ
 	}
 }
 
-// displayNameOf picks the entity's human-facing name (#249): the TEName
-// (language-preferred, the NameSet's own fallback chain), else the
-// TETradeName. Empty when the entity carries no name - the common case.
-func displayNameOf(ent *indexedEntity) string {
+// displayNameOf picks the human-facing name of the entity a decision is about
+// (#249). keyHash is the digital identity the decision rests on: the name of
+// the entity that contributed it is the only name the response may carry,
+// because entities sharing an identifier are pooled into one entry and the
+// entry's own name is the first-indexed entity's. With no such identity, a
+// pooled entry is ambiguous and stays unnamed — absence is a supported
+// outcome, and naming a different organisation than the one the user is
+// transacting with would be worse than none, since display_name overrides
+// the verifier's own label downstream.
+func displayNameOf(ent *indexedEntity, keyHash string) string {
 	if ent == nil {
 		return ""
 	}
+	if keyHash != "" {
+		if name, ok := ent.namesByKeyHash[keyHash]; ok {
+			return name
+		}
+	}
+	if ent.pooled {
+		return ""
+	}
+	return entityName(ent.entity)
+}
+
+// entityName is one entity's human-facing name (#249): the TEName, else the
+// TETradeName. Empty when it carries neither - the common case.
+func entityName(ent etsi119602.TrustedEntity) string {
 	// The preferred language is English, matching the verifier label chain's
 	// own locale handling on the consumer side; NameSet.Get falls back to
 	// any language's value when the preferred one is absent.
-	if name := ent.entity.TrustedEntityInformation.TEName.Get("en", ""); name != "" {
+	if name := ent.TrustedEntityInformation.TEName.Get("en", ""); name != "" {
 		return name
 	}
-	return ent.entity.TrustedEntityInformation.TETradeName.Get("en", "")
+	return ent.TrustedEntityInformation.TETradeName.Get("en", "")
+}
+
+// anchorKeyHash is the indexed hash of the trust anchor a validated chain
+// terminates at, so a chain anchored by a pooled entry is named by the entity
+// that actually listed the anchor (#249). Empty when the root cannot be hashed.
+func anchorKeyHash(chains [][]*x509.Certificate) string {
+	if len(chains) == 0 || len(chains[0]) == 0 {
+		return ""
+	}
+	root := chains[0][len(chains[0])-1]
+	pubDER, err := x509.MarshalPKIXPublicKey(root.PublicKey)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(pubDER))
 }
 
 // extractCredentialTypes extracts credential_types from the request context.
@@ -709,7 +753,7 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 		opts.Intermediates = intermediates
 	}
 
-	if _, err := certs[0].Verify(opts); err == nil {
+	if chains, err := certs[0].Verify(opts); err == nil {
 		// Post-chain-validation enrichment: cert policy OID check + RP identity extraction
 		enrichment := registry.EnrichX5CResponseWithProfiles(
 			req, certs[0], r.profiles,
@@ -720,7 +764,7 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 			return enrichmentDenial(fmt.Sprintf("x5c chain valid for entity %q but enrichment check failed", ent.entityID), enrichment, credentialTypes)
 
 		}
-		resp := r.buildSuccessResponseFor(ent, ent.entityID, ent.territory, "x5c chain validates against trust anchor for entity", credentialTypes)
+		resp := r.buildSuccessResponseFor(ent, anchorKeyHash(chains), ent.entityID, ent.territory, "x5c chain validates against trust anchor for entity", credentialTypes)
 		registry.ApplyEnrichmentToResponse(resp, enrichment)
 		return resp
 	}
@@ -905,7 +949,7 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 
 	}
 
-	resp := r.buildSuccessResponseFor(matchedEnt, req.Subject.ID, territory,
+	resp := r.buildSuccessResponseFor(matchedEnt, "", req.Subject.ID, territory,
 		fmt.Sprintf("x5c chain validates against CA-anchored entity %q for subject", matchedID),
 		credentialTypes)
 	registry.ApplyEnrichmentToResponse(resp, enrichment)
@@ -1079,11 +1123,12 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 			}
 			if ie == nil {
 				ie = &indexedEntity{
-					entity:     ent,
-					entityID:   id,
-					territory:  territory,
-					schemeType: schemeType,
-					keyHashes:  make(map[string]bool),
+					entity:         ent,
+					entityID:       id,
+					territory:      territory,
+					schemeType:     schemeType,
+					keyHashes:      make(map[string]bool),
+					namesByKeyHash: make(map[string]string),
 				}
 				idx.variants[id] = append(idx.variants[id], ie)
 				idx.all = append(idx.all, ie)
@@ -1096,6 +1141,9 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 					append([]etsi119602.TrustedEntityService(nil), ie.entity.TrustedEntityServices...),
 					ent.TrustedEntityServices...)
 				ie.entity = merged
+				// The merge keeps the first entry's TrustedEntityInformation,
+				// so the entry's own name no longer identifies one entity.
+				ie.pooled = true
 			}
 
 			// Index service digital identities.
@@ -1118,8 +1166,16 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 				}
 				sdi := svc.ServiceInformation.ServiceDigitalIdentity
 				hashes := hashServiceDigitalIdentity(sdi, ext)
+				name := entityName(ent)
 				for _, h := range hashes {
 					ie.keyHashes[h] = true
+					// Attribute the identity to the entity that listed it, so
+					// a match names that entity and not the pooled entry's.
+					if name != "" {
+						if _, seen := ie.namesByKeyHash[h]; !seen {
+							ie.namesByKeyHash[h] = name
+						}
+					}
 					if idx.byKeyHash[h] == nil {
 						idx.byKeyHash[h] = make(map[string]bool)
 					}

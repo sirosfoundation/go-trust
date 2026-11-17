@@ -380,12 +380,42 @@ func TestWebuildWP4_DisplayNameNeverNamesAnotherEntity(t *testing.T) {
 		require.NotNil(t, resp.Context)
 
 		checked++
-		if resp.Context.DisplayName == "" {
-			continue // absence is fine — the wallet falls back to its own label chain
-		}
+		// The decision rests on this entity's own listed certificate, so the
+		// identity is attributable and the name must be its own. Another
+		// pooled entity's name is the regression this pins: display_name
+		// overrides the verifier's own label downstream, so a wrong name
+		// suppresses the right one.
 		assert.Equalf(t, own, resp.Context.DisplayName,
-			"matched %q but the response labels it %q — a different listed entity pooled under %s",
+			"matched %q but the response labels it %q — pooled under %s",
 			own, resp.Context.DisplayName, sharedID)
 	}
 	require.Greaterf(t, checked, 1, "expected several entities pooled under %s", sharedID)
+}
+
+// A pooled identifier names nobody when no digital identity was checked (#249).
+//
+// Resolution-only grants on the identifier alone, which several entities
+// share, so there is nothing to attribute a name to. Withholding it is the
+// supported outcome — the wallet falls back to its own label chain — whereas
+// naming the first-indexed entity would present one organisation's name for
+// a decision that was never about it.
+func TestWebuildWP4_DisplayNameAbsentForPooledResolution(t *testing.T) {
+	const sharedID = "http://uri.etsi.org/19602/ListOfTrustedEntities/WalletProvider/NL"
+
+	reg, err := lote.New(lote.Config{
+		Now:     webuildNow,
+		Sources: []string{filepath.Join(webuildDir, "wallet-providers.xml")},
+	})
+	require.NoError(t, err)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: sharedID},
+		Resource: authzen.Resource{Type: "jwk", ID: sharedID},
+		Action:   &authzen.Action{Name: "resolve"},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Decision)
+	require.NotNil(t, resp.Context)
+	assert.Empty(t, resp.Context.DisplayName,
+		"a pooled identifier resolved without a key match must name nobody")
 }
