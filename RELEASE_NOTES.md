@@ -4,6 +4,13 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.30.1:start -->
+## [v0.30.1] - 2026-11-16
+
+### Fixed
+- **mdocrical: RICAL trust constraints now enforced per ISO/IEC 18013-5 F.3.2.6** (#261). Previously any present constraint was accepted and unknown extensions were silently dropped. Now reader certificates must satisfy at least one complete constraint (policies, EKU, path length) from their governing `CertificateInfo`, and unknown constraint types (`extensions`, `certificateProfiles`) cause verification to fail closed. This is a **behavior change**: RICALs with constraints will now reject non-compliant readers. Set `registries.mdocrical.ignore_trust_constraints: true` to restore the previous non-compliant behavior if needed during migration.
+<!-- release-notes:v0.30.1:end -->
+
 <!-- release-notes:v0.30.0:start -->
 ## [v0.30.0] - 2026-11-14
 
