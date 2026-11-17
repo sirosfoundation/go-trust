@@ -2306,3 +2306,37 @@ func TestEvaluate_X5C_DirectKeyMalformedChainDenies(t *testing.T) {
 		}
 	}
 }
+
+// TestEvaluate_ResponseCarriesDisplayName (#249): a granted entity's human-facing
+// name (the TEName) rides the response context as display_name — the wallet consent
+// UI's verifier label, presentation only. Pinning: absence would silently revert the
+// consumer chain to the raw client_id label, and nothing else would fail.
+func TestEvaluate_ResponseCarriesDisplayName(t *testing.T) {
+	dir := t.TempDir()
+	path := writeLoTE(t, dir, "lote.json", testLoTE())
+
+	reg, err := New(Config{Sources: []string{path}})
+	require.NoError(t, err)
+
+	resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "https://issuer.example.com"},
+		Resource: authzen.Resource{
+			Type: "jwk",
+			ID:   "https://issuer.example.com",
+			Key: []interface{}{
+				map[string]interface{}{
+					"kty": "EC",
+					"crv": "P-256",
+					"x":   "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+					"y":   "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+				},
+			},
+		},
+		Action: &authzen.Action{Name: "issuer"},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Decision)
+	require.NotNil(t, resp.Context)
+	assert.Equal(t, "Test Issuer", resp.Context.DisplayName,
+		"the TEName rides the context as display_name")
+}

@@ -90,6 +90,18 @@ type EvaluationResponseContext struct {
 	// or of next_update in an entry, means "unknown": the caller applies its own
 	// conservative cap.
 	TrustData []TrustData `json:"trust_data,omitempty"`
+	// DisplayName is the registry-sourced human-facing name of the trust
+	// subject (#249): the wallet consent UI's verifier label. It is present
+	// only when the registry entry that produced the decision carries one
+	// (a LoTE TrustedEntity's TEName/TETradeName, an OpenID Federation leaf's
+	// RP client_name / OP organization_name) — for most registries and
+	// policies this is the expected ABSENT case, and absence is not an error.
+	// It is presentation only, never a trust input: `decision` alone decides.
+	// When present and non-empty, the consumer (the wallet SDKs' label
+	// chain: display_name → client metadata's client_name → the client_id's
+	// domain → the raw client_id, which is demoted to a details view)
+	// overrides the verifier's own display name with it.
+	DisplayName string `json:"display_name,omitempty" example:"Acme Bank AB"`
 }
 
 // TrustData describes the freshness of one registry's data.
