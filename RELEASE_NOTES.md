@@ -4,6 +4,20 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.31.0:start -->
+## [v0.31.0] - 2026-11-17
+
+### Added
+- Registry-sourced `display_name` now appears in AuthZEN evaluation response context, providing human-readable names for entities based on registry data (#249)
+- New `display_name_l10n` field provides localized entity names keyed by language tag, enabling internationalized display of entity identities
+
+### Fixed
+- Entity display names now correctly identify the entity whose identity matched rather than incorrectly naming a pooled registry entry (#249)
+- CA-anchored trust paths no longer incorrectly display the subject's name after its issuing CA, preventing confusing identity attribution (#249)
+- Display name combining strategies now properly preserve `display_name` fields when merging registry entries (#249)
+- Added length validation for origin strings used in display name fallback logic to prevent unbounded values
+<!-- release-notes:v0.31.0:end -->
+
 <!-- release-notes:v0.30.1:start -->
 ## [v0.30.1] - 2026-11-16
 
