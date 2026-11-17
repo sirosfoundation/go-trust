@@ -82,7 +82,10 @@ type EvaluationResponseContext struct {
 	// the registry's own name for the entity when it has one, otherwise the
 	// normalized domain name of the subject's origin when one can be derived.
 	// Present only on positive decisions. Presentation only: never a trust
-	// input, and absence is not an error.
+	// input, and absence is not an error. The wallet's label chain is
+	// display_name, then client metadata's client_name, then the client_id's
+	// domain, then the raw client_id (demoted to a details view); a present
+	// display_name overrides the verifier's own label.
 	DisplayName string `json:"display_name,omitempty" example:"Acme Bank AB"`
 	// DisplayNameL10n carries the registry's names for the subject by language
 	// tag (lower-case BCP 47, e.g. "en", "sv"), for clients that pick a language

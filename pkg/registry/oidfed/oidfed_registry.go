@@ -805,12 +805,16 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 				reason["credential_type_validation"] = "validated"
 			}
 		}
+		context := &authzen.EvaluationResponseContext{
+			Reason:        reason,
+			TrustMetadata: trustMetadata,
+		}
+		if name := r.displayNameOf(chain); name != "" {
+			context.DisplayName = name // #249: presentation only, never a trust input
+		}
 		return &authzen.EvaluationResponse{
 			Decision: true,
-			Context: &authzen.EvaluationResponseContext{
-				Reason:        reason,
-				TrustMetadata: trustMetadata,
-			},
+			Context:  context,
 		}, nil
 	}
 
@@ -865,6 +869,11 @@ func (r *OIDFedRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationRe
 			Reason:        reasonData,
 			TrustMetadata: trustMetadata,
 		},
+	}
+	// The leaf's human-facing name (#249), when it carries one: presentation
+	// only - the wallet consent UI's verifier label, never a trust input.
+	if name := r.displayNameOf(chain); name != "" {
+		resp.Context.DisplayName = name
 	}
 	// The Entity ID is returned only when the validated chain's leaf statement
 	// is about the entity as the request named it, byte-for-byte. An entity ID
@@ -1296,6 +1305,28 @@ func (r *OIDFedRegistry) getPresentTrustMarks(chain oidfed.TrustChain) []string 
 		marks[i] = tm.TrustMarkType
 	}
 	return marks
+}
+
+// displayNameOf picks the federation leaf's human-facing name (#249): the
+// relying-party client_name (the verifier role's own label), else the OP's
+// organization_name — both standard OpenID Federation metadata members.
+// Empty when the leaf carries none: the expected common case, and absence
+// is not an error (the wallet falls back to its own label chain).
+func (r *OIDFedRegistry) displayNameOf(chain oidfed.TrustChain) string {
+	if len(chain) == 0 {
+		return ""
+	}
+	leaf := chain[0]
+	if leaf.Metadata == nil {
+		return ""
+	}
+	if leaf.Metadata.RelyingParty != nil && leaf.Metadata.RelyingParty.ClientName != "" {
+		return leaf.Metadata.RelyingParty.ClientName
+	}
+	if leaf.Metadata.OpenIDProvider != nil && leaf.Metadata.OpenIDProvider.OrganizationName != "" {
+		return leaf.Metadata.OpenIDProvider.OrganizationName
+	}
+	return ""
 }
 
 // buildTrustMetadata builds the trust_metadata for a response.

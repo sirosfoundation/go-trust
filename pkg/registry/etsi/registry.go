@@ -126,6 +126,19 @@ type TSLConfig struct {
 	// a reference is dropped.
 	AllowStale bool
 
+	// WRPRCServiceTypes lists the TSL service types whose services'
+	// certificates may anchor a WRPRC registrar chain (the national
+	// registrars). The WRPRC evaluation's trust anchors are exactly those
+	// services' certificates — never the unfiltered pool, which mixes Access
+	// CAs and every other role: an ordinary access-certificate holder must
+	// not be able to self-sign registration claims. Empty means no
+	// registrar anchors are configured, and a presented WRPRC fails closed.
+	WRPRCServiceTypes []string
+
+	// WRPRCServiceStatuses restricts the WRPRC registrar services further by
+	// status. Empty means granted-status services only (the policy default).
+	WRPRCServiceStatuses []string
+
 	// Now returns the current time for freshness checks. Defaults to time.Now.
 	Now func() time.Time
 
@@ -859,6 +872,14 @@ func (r *TSLRegistry) buildFilteredCertPool(req *authzen.EvaluationRequest) (*x5
 		return r.certPool, "unfiltered"
 	}
 
+	return r.buildFilteredCertPoolFor(serviceTypes, serviceStatuses)
+}
+
+// buildFilteredCertPoolFor builds a certificate pool from the loaded TSLs'
+// services matching the given types and statuses. Empty statuses mean the
+// policy default (granted services only). Callers with no TSLs loaded must
+// not call this — the request variant falls back to the PEM bundle instead.
+func (r *TSLRegistry) buildFilteredCertPoolFor(serviceTypes, serviceStatuses []string) (*x509.CertPool, string) {
 	// Build a TSPServicePolicy with the requested constraints
 	policy := etsi119612.NewTSPServicePolicy()
 	if len(serviceTypes) > 0 {
@@ -901,6 +922,24 @@ func (r *TSLRegistry) buildFilteredCertPool(req *authzen.EvaluationRequest) (*x5
 
 	filterDesc := fmt.Sprintf("filtered(service_types=%v, service_statuses=%v)", serviceTypes, serviceStatuses)
 	return filteredPool, filterDesc
+}
+
+// wrprcVerifier returns the WRPRC verifier over REGISTRAR-authorized anchors:
+// TSL services of the configured WRPRC service types (and statuses). Never
+// the unfiltered pool — that mixes Access CAs and every other role, and an
+// ordinary access-certificate holder must not be able to self-sign
+// registration claims that anchor through its own CA. An empty configuration
+// — or no loaded TSLs to filter from — returns nil, and the enrichment fails
+// a presented WRPRC closed.
+func (r *TSLRegistry) wrprcVerifier() registry.WRPRCVerifier {
+	if len(r.config.WRPRCServiceTypes) == 0 || len(r.tsls) == 0 {
+		return nil
+	}
+	pool, _ := r.buildFilteredCertPoolFor(r.config.WRPRCServiceTypes, r.config.WRPRCServiceStatuses)
+	if pool == nil {
+		return nil
+	}
+	return registry.NewAnchoredWRPRCVerifier(pool)
 }
 
 // extractCredentialTypes extracts credential_types from request context.
@@ -1179,7 +1218,10 @@ func (r *TSLRegistry) Evaluate(ctx context.Context, req *authzen.EvaluationReque
 	addCredentialTypesToReason(reason, credentialTypes)
 
 	// Post-chain-validation enrichment: cert policy OID check + RP identity extraction
-	enrichment := registry.EnrichX5CResponseWithProfiles(req, certs[0], r.profiles)
+	enrichment := registry.EnrichX5CResponseWithProfiles(
+		req, certs[0], r.profiles,
+		r.wrprcVerifier(),
+	)
 	if !enrichment.Decision {
 		for k, v := range enrichment.FailureReason {
 			reason[k] = v

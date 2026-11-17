@@ -80,8 +80,20 @@ func TestMergeDisplayName(t *testing.T) {
 	neg := &authzen.EvaluationResponse{Decision: false, Context: &authzen.EvaluationResponseContext{DisplayName: "Denier"}}
 
 	resp := &authzen.EvaluationResponse{Decision: true}
-	mergeDisplayName(resp, []*authzen.EvaluationResponse{pos("Zed"), neg, pos("Alpha"), pos("")})
+	mergeDisplayName(resp, []*authzen.EvaluationResponse{pos("Alpha"), neg, pos("Alpha"), pos("")})
 	assert.Equal(t, "Alpha", resp.Context.DisplayName)
+
+	// agreeing children with different names: no single subject to label
+	split := &authzen.EvaluationResponse{Decision: true}
+	mergeDisplayName(split, []*authzen.EvaluationResponse{pos("Zed"), pos("Alpha")})
+	assert.Nil(t, split.Context)
+
+	// the l10n set travels with the name it describes
+	l10n := &authzen.EvaluationResponse{Decision: true}
+	withL10n := pos("Alpha")
+	withL10n.Context.DisplayNameL10n = map[string]string{"sv": "Alfa"}
+	mergeDisplayName(l10n, []*authzen.EvaluationResponse{pos("Alpha"), withL10n})
+	assert.Equal(t, map[string]string{"sv": "Alfa"}, l10n.Context.DisplayNameL10n)
 
 	denied := &authzen.EvaluationResponse{Decision: false}
 	mergeDisplayName(denied, []*authzen.EvaluationResponse{pos("Alpha")})
@@ -158,7 +170,7 @@ func TestDisplayNameL10nTravelsWithTheName(t *testing.T) {
 	}
 	resp := &authzen.EvaluationResponse{Decision: true}
 	mergeDisplayName(resp, []*authzen.EvaluationResponse{
-		pos("Zed", map[string]string{"en": "Zed"}),
+		pos("Alpha", nil),
 		pos("Alpha", map[string]string{"en": "Alpha", "sv": "Alfa"}),
 	})
 	assert.Equal(t, "Alpha", resp.Context.DisplayName)

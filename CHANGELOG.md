@@ -7,14 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `mdocrical`: RICAL trust constraints are now enforced (ISO/IEC 18013-5 F.3.2.6) instead
+  of any present constraint counting as satisfied (#260). A constraint holds when the
+  reader certificate has every listed `policies` OID, only `eku` OIDs from the list (and at
+  least one), and at most `pathLen` intermediates below the CA; one that carries
+  `extensions` or `certificateProfiles` (not determinable here) is not satisfied, and at
+  least one constraint of the governing entry must hold. The CDDL's own spelling of the
+  key (`trustContraints`) is read as well. `ignore_trust_constraints: true` restores the
+  old behaviour for deployments that depend on it (not compliant)
+
 ### Added
 
 - Evaluation response `context.display_name` and `display_name_l10n` (language tag to
   name) (#249): the `lote` registry's own name
-  for the matched entity (trade name, else legal name, direct matches only), otherwise the normalized
+  for the matched entity (legal name, else trade name), otherwise the normalized
   origin domain of `subject.id` (https/http URL, `did:web`, `x509_san_dns`/
   `x509_san_uri` client_id). Positive decisions only, sanitised, no policy switch;
   carried through the `all`/`best_match` strategies and composite registries
+
+- WRPRC evaluation in the x5c enrichment pipeline — the wallet-side trust
+  evaluation of an ETSI TS 119 475 registration certificate presented by an
+  intermediary (`pkg/registry/wrprc_verify.go`, request context `wrprc`,
+  the content of the ETSI TS 119 472-2 s6.3.2.2 `registration_cert` member)
+  - `WRPRCVerifier` / `NewAnchoredWRPRCVerifier`: anchors the registrar chain
+    in the configured roots AND verifies the JWS signature under the anchored
+    leaf's key (RFC 7518 alg/curve pairings enforced; any `crit` member
+    refused); the validity window is enforced at evaluation time
+  - `CheckWRPACWRPRCPresentationBinding`: the presenting WRPAC binds to the
+    WRPRC for the presentation actually made — the direct RPRC_16 organization
+    binding, or the Table 10 `act` intermediary binding for intermediated
+    presentations (`allow_intermediaries` gates those)
+  - The registrar's grants are enforced at their NATIVE granularity:
+    `AllowedClaimPaths` (format-scoped, exact-path) — flattening to
+    `path[0]` would let a grant for one element authorize a namespace — and
+    the request's claims are the union of `requested_attributes` and the
+    DCQL queries' paths, so one representation cannot hide another
+  - Registrar-scoped trust anchors: `registries.lote.wrprc_scheme_types` and
+    `registries.etsi.wrprc_service_types`/`wrprc_service_statuses` — never
+    the global pool (an ordinary access-certificate holder must not be able
+    to self-sign registration claims); unconfigured means fail-closed
+  - The verified fronted-RP identity, entitlements, exact claim-path grants
+    and intermediary metadata surface in the response trust metadata under
+    `wrprc`
+
 - `verifier_ids` is now emitted by the `whitelist` (pinned-key path: `x509_san_dns`/
   `x509_san_uri` after `VerifyLeafBinding`; system-CA path: also `semantic`),
   `system_cert_pool` and `mdoc_rical` registries, using the same derivation as

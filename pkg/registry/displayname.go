@@ -178,28 +178,42 @@ func applyDisplayName(req *authzen.EvaluationRequest, resp *authzen.EvaluationRe
 	}
 }
 
-// mergeDisplayName carries a registry-supplied display name from the positive
-// children into the aggregate of a multi-registry strategy or composite. Children
-// finish in no particular order, so the child with the lexically smallest name
-// wins to keep responses reproducible; its display_name_l10n travels with it so
-// the two members always describe the same entity. A name only ever comes from a
-// decision that said true.
+// mergeDisplayName carries a child registry's display_name (#249) onto an
+// aggregated response. The strategies that combine several registries build a
+// fresh context out of the children's results, so without this the name is
+// dropped before it reaches the wallet even when exactly one registry named
+// the trust subject.
+//
+// Only an unambiguous name travels. When the agreeing children carry more than
+// one distinct name the aggregate has no single subject to label, so it stays
+// unnamed: display_name overrides the verifier's own label downstream, and
+// presenting one of several disagreeing names would suppress the right one.
+// Absence is a supported outcome (applyDisplayName then falls back to the
+// origin domain), and a name only a denying child carried never travels at
+// all, because children is the set that agreed with the decision. The
+// display_name_l10n of the first child that carries the name travels with it,
+// so the two members always describe the same entity.
 func mergeDisplayName(resp *authzen.EvaluationResponse, children []*authzen.EvaluationResponse) {
 	if resp == nil || !resp.Decision {
 		return
 	}
+
 	var best *authzen.EvaluationResponseContext
 	for _, c := range children {
 		if c == nil || !c.Decision || c.Context == nil || c.Context.DisplayName == "" {
 			continue
 		}
-		if best == nil || c.Context.DisplayName < best.DisplayName {
+		if best != nil && c.Context.DisplayName != best.DisplayName {
+			return
+		}
+		if best == nil || (best.DisplayNameL10n == nil && c.Context.DisplayNameL10n != nil) {
 			best = c.Context
 		}
 	}
 	if best == nil {
 		return
 	}
+
 	if resp.Context == nil {
 		resp.Context = &authzen.EvaluationResponseContext{}
 	}
