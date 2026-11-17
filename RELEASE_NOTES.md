@@ -4,6 +4,15 @@
      `release-notes:<tag>` markers; edit the prose inside a fence freely —
      regeneration only ever rewrites the fence it was asked to rewrite. -->
 
+<!-- release-notes:v0.31.0:start -->
+## [v0.31.0] - 2026-11-17
+
+### Added
+- **`display_name` and `display_name_l10n` in the evaluation response context** (#249, #255). A positive decision carries a human-facing name for the trust subject, for wallet consent UIs: the `lote` registry's own name for the matched entity (legal name, else trade name), otherwise the normalized origin domain of `subject.id` (https/http URL, `did:web`, `x509_san_dns`/`x509_san_uri` client_id). `display_name_l10n` maps lower-case language tags to the registry's names. Names are sanitised and presentation-only: never a trust input, and absence is not an error. There is no policy switch.
+  - A name is attributed only to the entity whose digital identity matched; pooled entries that cannot be attributed stay unnamed, and the CA-anchored path never names the subject after its CA.
+  - The `all`/`best_match` strategies and composite registries carry the name through when the agreeing registries give one name; conflicting names fall back to the origin domain.
+<!-- release-notes:v0.31.0:end -->
+
 <!-- release-notes:v0.30.1:start -->
 ## [v0.30.1] - 2026-11-16
 
