@@ -83,15 +83,16 @@ func TestMergeDisplayName_OneNamedContributorAmongUnnamed(t *testing.T) {
 }
 
 // Two registries that agree on the decision but disagree on the name leave
-// the aggregate unnamed: there is no single subject to label, and picking one
-// would suppress the other in the wallet's label chain.
+// the aggregate without either registry's name: there is no single subject to
+// label, and picking one would suppress the other in the wallet's label chain.
+// The manager then names the subject by its origin domain.
 func TestMergeDisplayName_ConflictingNamesLeaveItAbsent(t *testing.T) {
 	resp := dnEval(t, AllRegistries,
 		&dnStub{name: "a", decision: true, display: "Acme Bank AB"},
 		&dnStub{name: "b", decision: true, display: "Another Org Ltd"},
 	)
 	require.True(t, resp.Decision)
-	assert.Empty(t, dnOf(resp))
+	assert.Equal(t, "rp.example.com", dnOf(resp), "neither registry's name travels; the origin domain does")
 }
 
 // A name carried by a registry that DENIED must never reach the response,
@@ -103,7 +104,7 @@ func TestMergeDisplayName_DenyingRegistryNameNeverTravels(t *testing.T) {
 		&dnStub{name: "allower", decision: true},
 	)
 	require.True(t, resp.Decision, "all-registries allows when any registry allows")
-	assert.Empty(t, dnOf(resp))
+	assert.Equal(t, "rp.example.com", dnOf(resp), "the denier's name never travels; the origin domain does")
 }
 
 // The composite registry aggregates the same way and must carry the name too.

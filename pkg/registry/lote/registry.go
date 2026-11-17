@@ -179,7 +179,7 @@ type indexedEntity struct {
 	// share an identifier into one entry, so `entity`'s own name is the name
 	// of whichever entity was indexed first — not of whoever holds the key
 	// that matched. The decision names the holder, so it names them from here.
-	namesByKeyHash map[string]string
+	namesByKeyHash map[string]etsi119602.NameSet
 	// pooled is true when more than one listed entity merged into this entry,
 	// which leaves `entity`'s name ambiguous for any decision that does not
 	// rest on a specific digital identity.
@@ -454,9 +454,7 @@ func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEn
 		// No key is checked here, so there is no digital identity to name a
 		// pooled entry by: displayNameOf withholds the name rather than
 		// guessing between the entities sharing this identifier.
-		if name := displayNameOf(ent, ""); name != "" {
-			context.DisplayName = name
-		}
+		setDisplayName(context, ent, "")
 		return &authzen.EvaluationResponse{
 			Decision: true,
 			Context:  context,
@@ -634,9 +632,7 @@ func (r *Registry) buildSuccessResponseFor(ent *indexedEntity, keyHash, subjectI
 	context := &authzen.EvaluationResponseContext{
 		Reason: reason,
 	}
-	if name := displayNameOf(ent, keyHash); name != "" {
-		context.DisplayName = name
-	}
+	setDisplayName(context, ent, keyHash)
 	return &authzen.EvaluationResponse{
 		Decision: true,
 		Context:  context,
@@ -652,31 +648,52 @@ func (r *Registry) buildSuccessResponseFor(ent *indexedEntity, keyHash, subjectI
 // outcome, and naming a different organisation than the one the user is
 // transacting with would be worse than none, since display_name overrides
 // the verifier's own label downstream.
-func displayNameOf(ent *indexedEntity, keyHash string) string {
+func displayNameOf(ent *indexedEntity, keyHash string) etsi119602.NameSet {
 	if ent == nil {
-		return ""
+		return nil
 	}
 	if keyHash != "" {
-		if name, ok := ent.namesByKeyHash[keyHash]; ok {
-			return name
+		if names, ok := ent.namesByKeyHash[keyHash]; ok {
+			return names
 		}
 	}
 	if ent.pooled {
-		return ""
+		return nil
 	}
-	return entityName(ent.entity)
+	return entityNames(ent.entity)
 }
 
-// entityName is one entity's human-facing name (#249): the TEName, else the
-// TETradeName. Empty when it carries neither - the common case.
-func entityName(ent etsi119602.TrustedEntity) string {
-	// The preferred language is English, matching the verifier label chain's
-	// own locale handling on the consumer side; NameSet.Get falls back to
-	// any language's value when the preferred one is absent.
-	if name := ent.TrustedEntityInformation.TEName.Get("en", ""); name != "" {
-		return name
+// setDisplayName names the response after the attributable entity: display_name
+// is its preferred (English, else first) entry and display_name_l10n the whole
+// language-tagged set it came from, so the two always describe the same entity.
+func setDisplayName(context *authzen.EvaluationResponseContext, ent *indexedEntity, keyHash string) {
+	names := displayNameOf(ent, keyHash)
+	name := registry.SanitizeDisplayName(names.Get("en", ""))
+	if name == "" {
+		return
 	}
-	return ent.TrustedEntityInformation.TETradeName.Get("en", "")
+	context.DisplayName = name
+	l10n := make(map[string]string, len(names))
+	for _, n := range names {
+		if lang := strings.ToLower(strings.TrimSpace(n.Lang)); lang != "" {
+			if _, dup := l10n[lang]; !dup {
+				l10n[lang] = n.Value
+			}
+		}
+	}
+	context.DisplayNameL10n = registry.SanitizeDisplayNameL10n(l10n)
+}
+
+// entityNames is one entity's human-facing name set (#249): the TEName, else
+// the TETradeName. Nil when it carries neither - the common case.
+func entityNames(ent etsi119602.TrustedEntity) etsi119602.NameSet {
+	if names := ent.TrustedEntityInformation.TEName; names.Get("en", "") != "" {
+		return names
+	}
+	if names := ent.TrustedEntityInformation.TETradeName; names.Get("en", "") != "" {
+		return names
+	}
+	return nil
 }
 
 // anchorKeyHash is the indexed hash of the trust anchor a validated chain
@@ -1132,7 +1149,7 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 					territory:      territory,
 					schemeType:     schemeType,
 					keyHashes:      make(map[string]bool),
-					namesByKeyHash: make(map[string]string),
+					namesByKeyHash: make(map[string]etsi119602.NameSet),
 				}
 				idx.variants[id] = append(idx.variants[id], ie)
 				idx.all = append(idx.all, ie)
@@ -1170,12 +1187,12 @@ func buildIndex(lotes []*etsi119602.ListOfTrustedEntities, ext *cryptoutil.Exten
 				}
 				sdi := svc.ServiceInformation.ServiceDigitalIdentity
 				hashes := hashServiceDigitalIdentity(sdi, ext)
-				name := entityName(ent)
+				name := entityNames(ent)
 				for _, h := range hashes {
 					ie.keyHashes[h] = true
 					// Attribute the identity to the entity that listed it, so
 					// a match names that entity and not the pooled entry's.
-					if name != "" {
+					if name != nil {
 						if _, seen := ie.namesByKeyHash[h]; !seen {
 							ie.namesByKeyHash[h] = name
 						}
