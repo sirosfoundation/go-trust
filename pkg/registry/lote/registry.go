@@ -438,11 +438,15 @@ func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEn
 
 	// Resolution-only: no key check needed.
 	if req.IsResolutionOnlyRequest() {
+		context := &authzen.EvaluationResponseContext{
+			TrustMetadata: ent.entity,
+		}
+		if name := displayNameOf(ent); name != "" {
+			context.DisplayName = name
+		}
 		return &authzen.EvaluationResponse{
 			Decision: true,
-			Context: &authzen.EvaluationResponseContext{
-				TrustMetadata: ent.entity,
-			},
+			Context:  context,
 		}
 	}
 
@@ -464,7 +468,7 @@ func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEn
 
 	if ent.keyHashes[keyHash] {
 		if req.Resource.Type != "x5c" {
-			return r.buildSuccessResponse(subjectID, ent.territory, "key matches entity", credentialTypes)
+			return r.buildSuccessResponseFor(ent, subjectID, ent.territory, "key matches entity", credentialTypes)
 		}
 		// A malformed chain DENIES — never skips the gate on a parse
 		// failure, or [listed_leaf, "garbage"] would bypass the WRPRC
@@ -509,7 +513,7 @@ func (r *Registry) evaluateEntity(req *authzen.EvaluationRequest, ent *indexedEn
 		if !enrichment.Decision {
 			return enrichmentDenial(fmt.Sprintf("key matches entity %q but enrichment check failed", subjectID), enrichment, credentialTypes)
 		}
-		resp := r.buildSuccessResponse(subjectID, ent.territory, "key matches entity", credentialTypes)
+		resp := r.buildSuccessResponseFor(ent, subjectID, ent.territory, "key matches entity", credentialTypes)
 		registry.ApplyEnrichmentToResponse(resp, enrichment)
 		return resp
 	}
@@ -604,17 +608,46 @@ func (r *Registry) Refresh(ctx context.Context) error {
 // buildSuccessResponse creates a successful EvaluationResponse with credential_types
 // from the request context included for audit purposes.
 func (r *Registry) buildSuccessResponse(subjectID, territory, detail string, credentialTypes []string) *authzen.EvaluationResponse {
+	return r.buildSuccessResponseFor(nil, subjectID, territory, detail, credentialTypes)
+}
+
+// buildSuccessResponseFor builds a successful response, naming the entity
+// that produced it: when ent carries a human-facing name (#249), the
+// response's context carries it as display_name — the wallet consent UI's
+// verifier label, presentation only, never a trust input. Nil ent: the
+// response carries no name (the expected common case).
+func (r *Registry) buildSuccessResponseFor(ent *indexedEntity, subjectID, territory, detail string, credentialTypes []string) *authzen.EvaluationResponse {
 	reason := map[string]interface{}{
 		"admin": fmt.Sprintf("%s %q in LoTE (territory: %s)", detail, subjectID, territory),
 	}
 	addCredentialTypesToReason(reason, credentialTypes)
 
+	context := &authzen.EvaluationResponseContext{
+		Reason: reason,
+	}
+	if name := displayNameOf(ent); name != "" {
+		context.DisplayName = name
+	}
 	return &authzen.EvaluationResponse{
 		Decision: true,
-		Context: &authzen.EvaluationResponseContext{
-			Reason: reason,
-		},
+		Context:  context,
 	}
+}
+
+// displayNameOf picks the entity's human-facing name (#249): the TEName
+// (language-preferred, the NameSet's own fallback chain), else the
+// TETradeName. Empty when the entity carries no name - the common case.
+func displayNameOf(ent *indexedEntity) string {
+	if ent == nil {
+		return ""
+	}
+	// The preferred language is English, matching the verifier label chain's
+	// own locale handling on the consumer side; NameSet.Get falls back to
+	// any language's value when the preferred one is absent.
+	if name := ent.entity.TrustedEntityInformation.TEName.Get("en", ""); name != "" {
+		return name
+	}
+	return ent.entity.TrustedEntityInformation.TETradeName.Get("en", "")
 }
 
 // extractCredentialTypes extracts credential_types from the request context.
@@ -687,7 +720,7 @@ func (r *Registry) validateX5CChain(req *authzen.EvaluationRequest, ent *indexed
 			return enrichmentDenial(fmt.Sprintf("x5c chain valid for entity %q but enrichment check failed", ent.entityID), enrichment, credentialTypes)
 
 		}
-		resp := r.buildSuccessResponse(ent.entityID, ent.territory, "x5c chain validates against trust anchor for entity", credentialTypes)
+		resp := r.buildSuccessResponseFor(ent, ent.entityID, ent.territory, "x5c chain validates against trust anchor for entity", credentialTypes)
 		registry.ApplyEnrichmentToResponse(resp, enrichment)
 		return resp
 	}
@@ -872,7 +905,7 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 
 	}
 
-	resp := r.buildSuccessResponse(req.Subject.ID, territory,
+	resp := r.buildSuccessResponseFor(matchedEnt, req.Subject.ID, territory,
 		fmt.Sprintf("x5c chain validates against CA-anchored entity %q for subject", matchedID),
 		credentialTypes)
 	registry.ApplyEnrichmentToResponse(resp, enrichment)
