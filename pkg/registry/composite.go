@@ -272,6 +272,7 @@ func (c *CompositeRegistry) applyLogic(results []compositeResult) *authzen.Evalu
 	// MAJORITY and QUORUM: the agreeing ones).
 	mergeVerifierIDs(resp, positive)
 	mergeTrustAnchors(resp, positive)
+	mergeDisplayName(resp, positive)
 	return resp
 }
 

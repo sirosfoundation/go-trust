@@ -107,3 +107,38 @@ func TestEvaluate_VerifierIDs_OIDFEntity(t *testing.T) {
 	require.True(t, resp.Decision, "the decision path is unchanged; only the identifier is withheld")
 	assert.Empty(t, resp.Context.VerifierIDs)
 }
+
+// TestDisplayNameOf (#249): the federation leaf's human-facing name — the
+// relying-party client_name first, else the OP organization_name — is what
+// rides the evaluation response context as display_name (the wallet consent
+// UI's verifier label, presentation only). Pinning both the precedence and
+// the absent case: absence is the expected common case and must stay absent.
+func TestDisplayNameOf(t *testing.T) {
+	r, err := NewOIDFedRegistry(Config{
+		TrustAnchors: []TrustAnchorConfig{{EntityID: "https://ta.example.com"}},
+	})
+	require.NoError(t, err)
+
+	leafWith := func(rp *oidfed.OpenIDRelyingPartyMetadata, op *oidfed.OpenIDProviderMetadata) oidfed.TrustChain {
+		return oidfed.TrustChain{
+			&oidfed.EntityStatement{EntityStatementPayload: oidfed.EntityStatementPayload{
+				Issuer:   "https://entity.example.com",
+				Subject:  "https://entity.example.com",
+				Metadata: &oidfed.Metadata{RelyingParty: rp, OpenIDProvider: op},
+			}},
+		}
+	}
+
+	// The RP client_name wins.
+	rp := &oidfed.OpenIDRelyingPartyMetadata{ClientName: "Example Verifier AB"}
+	assert.Equal(t, "Example Verifier AB", r.displayNameOf(leafWith(rp, &oidfed.OpenIDProviderMetadata{OrganizationName: "The OP Org"})))
+
+	// No client_name: the OP organization_name.
+	assert.Equal(t, "The OP Org", r.displayNameOf(leafWith(&oidfed.OpenIDRelyingPartyMetadata{}, &oidfed.OpenIDProviderMetadata{OrganizationName: "The OP Org"})))
+
+	// Neither: empty — absence, never a synthesized name.
+	assert.Equal(t, "", r.displayNameOf(leafWith(&oidfed.OpenIDRelyingPartyMetadata{}, nil)))
+
+	// No leaf at all.
+	assert.Equal(t, "", r.displayNameOf(oidfed.TrustChain{}))
+}

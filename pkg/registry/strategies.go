@@ -408,6 +408,7 @@ func (m *RegistryManager) evaluateAll(ctx context.Context, req *authzen.Evaluati
 	}
 	mergeVerifierIDs(resp, positive)
 	mergeTrustAnchors(resp, positive)
+	mergeDisplayName(resp, positive)
 	return resp, nil
 }
 
@@ -836,5 +837,6 @@ func (m *RegistryManager) evaluateAllFiltered(ctx context.Context, req *authzen.
 	}
 	mergeVerifierIDs(resp, positive)
 	mergeTrustAnchors(resp, positive)
+	mergeDisplayName(resp, positive)
 	return resp, nil
 }

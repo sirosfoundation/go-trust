@@ -858,6 +858,23 @@ When enabled, the response includes the relying party's identity extracted from 
 
 X5C enrichment is supported by both ETSI TSL and LoTE registries.
 
+### Display Name (`display_name`)
+
+A positive evaluation response may carry `context.display_name`, a human-facing name for the subject that a wallet can show in its consent screen (for example "Acme Bank AB is asking you to share…"). It is presentation only: `decision` remains the sole trust verdict, and the member is simply absent when no name is known. There is no policy switch.
+
+The name comes from, in order:
+
+1. **The registry's own name for the entity.** The `lote` registry returns the listed entity's `TETradeName`, else its `TEName`, preferring English and otherwise the first entry. This applies when the subject is itself listed; for a verifier reached through a listed CA the CA's name is not used, since it does not name the verifier. Under the `all`/`best_match` strategies and composite registries the lexically smallest name among the agreeing registries is used, so responses are reproducible.
+2. **The origin of the subject**, when no registry names the entity: the lower-case domain name of `subject.id` when it is an `https`/`http` URL, a `did:web` identifier or an `x509_san_dns:`/`x509_san_uri:` client_id (no scheme, port, path or trailing dot; internationalised names stay in their A-label `xn--` form; omitted if longer than 200 characters). Identifiers that name no site (hash identifiers, URNs, IP addresses) yield no member.
+
+Names are sanitised before they are returned (whitespace collapsed, control and bidirectional-override characters removed, 200 characters at most). Denials never carry a `display_name`.
+
+When the name comes from a registry, `context.display_name_l10n` also lists it by language tag (lower-case BCP 47, at most 32 entries), so a client can pick a language of its own; `display_name` is the registry's preferred entry of the same set (English when present). The object is absent for the origin-domain fallback, which has no language.
+
+```json
+{"decision": true, "context": {"display_name": "Acme Bank Ltd", "display_name_l10n": {"en": "Acme Bank Ltd", "sv": "Acme Bank AB"}}}
+```
+
 ### Verifier Identifiers (`verifier_ids`)
 
 A wallet that answers a request with a pseudonym function needs a stable *verifier identifier* string for the relying party. Go-Trust can return those in the evaluation response `context.verifier_ids`, derived only from material it has authenticated, so the wallet does not have to parse certificates, resolve DIDs or walk federation chains itself. The member is informational (never critical) and **off by default**: existing responses are unchanged unless a policy enables it.
