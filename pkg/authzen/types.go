@@ -6,7 +6,10 @@
 // draft-johansson-authzen-trust: https://leifj.github.io/draft-johansson-authzen-trust/
 package authzen
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // Subject represents the name part of the name-to-key binding in a trust evaluation request.
 // According to the AuthZEN Trust Registry Profile:
@@ -162,12 +165,18 @@ type TrustAnchorSet struct {
 	// has passed but the list is still valid. A client must not use the anchors
 	// past it.
 	TTLSeconds int64 `json:"ttl_seconds"`
+	// ExpiresAt is the absolute moment the set stops being usable. The PDP
+	// recomputes ttl_seconds from it when it aggregates, so waiting on a slow
+	// sibling registry never extends the lifetime. Not serialised.
+	ExpiresAt time.Time `json:"-"`
 	// Anchors are the certificates of the list, each with the scoping fields
 	// of the source list.
 	Anchors []TrustAnchor `json:"anchors"`
 	// Excluded is the number of list entries left out to bound the response
-	// size. An offline verifier given a truncated list is stricter than online
-	// evaluation, never more permissive.
+	// size. Only a VICAL is ever truncated: an offline verifier given a
+	// truncated VICAL is stricter than online evaluation, never more
+	// permissive. An oversized RICAL is withheld, because the dropped entry may
+	// be the one whose constraints govern a reader.
 	Excluded int `json:"excluded,omitempty"`
 }
 
@@ -209,8 +218,8 @@ type TrustAnchorConstraint struct {
 	PathLen             *uint64  `json:"path_len,omitempty"`
 	CertificateProfiles []string `json:"certificate_profiles,omitempty"`
 	// UnsupportedExtensions is true when the source constraint carries
-	// application-specific extensions the PDP does not understand, or a
-	// present but empty eku or certificate_profiles member. A client
+	// application-specific extensions the PDP does not understand, a present
+	// certificate_profiles member (empty or not), or a present but empty eku. A client
 	// must treat the constraint as not satisfied (F.3.2.6).
 	UnsupportedExtensions bool `json:"unsupported_extensions,omitempty"`
 }

@@ -208,8 +208,12 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 			},
 		},
 	}
-	if set, ok := r.trustAnchorSet(vical); ok {
-		registry.AddTrustAnchorSet(resp, req, set)
+	// Building the export costs a pass over the whole list: do it only when
+	// the policy asked for it.
+	if registry.TrustAnchorEnabled(req, authzen.TrustAnchorTypeVICAL) {
+		if set, ok := r.trustAnchorSet(vical); ok {
+			registry.AddTrustAnchorSet(resp, req, set)
+		}
 	}
 	return resp, nil
 }

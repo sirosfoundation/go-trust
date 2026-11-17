@@ -45,8 +45,14 @@ func (r *Registry) SupportsResolutionOnlyFor(req *authzen.EvaluationRequest) boo
 // non-CA entries carry constraints too) with the fields a client needs to find
 // the first matching entry bottom-up (F.3.2.6) and apply its constraints. A
 // constraint the PDP cannot evaluate is flagged, so the client treats it as
-// not satisfied. ok is false when the list must not be offered.
+// not satisfied. ok is false when the list must not be offered, which includes
+// a list longer than registry.MaxTrustAnchors: the entry that governs a reader's
+// constraints may be the one a truncation would drop, leaving an unconstrained
+// CA to accept a reader the PDP denies, so a RICAL is exported whole or not at all.
 func (r *Registry) trustAnchorSet(l *RICAL) (authzen.TrustAnchorSet, bool) {
+	if len(l.CertificateInfos) > registry.MaxTrustAnchors {
+		return authzen.TrustAnchorSet{}, false
+	}
 	anchors := make([]authzen.TrustAnchor, 0, len(l.CertificateInfos))
 	for i := range l.CertificateInfos {
 		info := &l.CertificateInfos[i]
@@ -75,10 +81,12 @@ func (r *Registry) trustAnchorSet(l *RICAL) (authzen.TrustAnchorSet, bool) {
 				EKU:                 c.EKU,
 				PathLen:             c.PathLen,
 				CertificateProfiles: c.CertificateProfiles,
-				// A present-but-empty eku or certificateProfiles member is
-				// unsatisfiable here, and omitempty would export it as no
+				// The PDP cannot evaluate certificateProfiles, so a present
+				// member (empty or not) leaves the constraint unsatisfied here,
+				// and so must it for the client. A present-but-empty eku is
+				// unsatisfiable, and omitempty would export it as no
 				// restriction at all.
-				UnsupportedExtensions: len(c.Extensions) > 0 || (c.EKU != nil && len(c.EKU) == 0) || (c.CertificateProfiles != nil && len(c.CertificateProfiles) == 0),
+				UnsupportedExtensions: len(c.Extensions) > 0 || c.CertificateProfiles != nil || (c.EKU != nil && len(c.EKU) == 0),
 			})
 		}
 		anchors = append(anchors, a)

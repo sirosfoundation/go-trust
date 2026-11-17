@@ -9,6 +9,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 
 	"github.com/sirosfoundation/go-trust/pkg/authzen"
+	"github.com/sirosfoundation/go-trust/pkg/registry"
 )
 
 func ricalRegistry(t *testing.T, infos func(readerCA []byte) []RICALCertificateInfo) (*Registry, *RICAL) {
@@ -170,5 +171,44 @@ func TestTrustAnchors_RICALExpiredOffersNothing(t *testing.T) {
 	resp, _ := reg.Evaluate(context.Background(), preloadReq("rical"))
 	if resp.Decision || len(resp.Context.TrustAnchors) != 0 {
 		t.Errorf("an expired list must not be offered: %+v", resp)
+	}
+}
+
+// The PDP does not evaluate certificateProfiles, so a present member, empty or
+// not, must reach the client as an unsatisfied constraint.
+func TestTrustAnchors_RICALNonEmptyProfilesFlagged(t *testing.T) {
+	reg, _ := ricalRegistry(t, func(ca []byte) []RICALCertificateInfo { return []RICALCertificateInfo{{Certificate: ca}} })
+	ca, _ := generateCA(t, "X")
+	set, ok := reg.trustAnchorSet(&RICAL{Date: time.Now().UTC().Format(time.RFC3339), CertificateInfos: []RICALCertificateInfo{{
+		Certificate:      ca.Raw,
+		TrustConstraints: []TrustConstraint{{CertificateProfiles: []string{"urn:example:profile"}}, {Policies: []string{oidPolicyA}}},
+	}}})
+	if !ok {
+		t.Fatal("set not built")
+	}
+	cs := set.Anchors[0].TrustConstraints
+	if !cs[0].UnsupportedExtensions {
+		t.Error("a constraint with certificate_profiles must be flagged unsupported")
+	}
+	if cs[1].UnsupportedExtensions {
+		t.Error("a plain policies constraint must not be flagged")
+	}
+}
+
+// A RICAL over the bound is withheld: truncating could drop the entry that
+// constrains a reader and leave its unconstrained CA to accept it.
+func TestTrustAnchors_OversizedRICALWithheld(t *testing.T) {
+	reg, _ := ricalRegistry(t, func(ca []byte) []RICALCertificateInfo { return []RICALCertificateInfo{{Certificate: ca}} })
+	ca, _ := generateCA(t, "X")
+	infos := make([]RICALCertificateInfo, registry.MaxTrustAnchors+1)
+	for i := range infos {
+		infos[i] = RICALCertificateInfo{Certificate: ca.Raw}
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, ok := reg.trustAnchorSet(&RICAL{Date: now, CertificateInfos: infos}); ok {
+		t.Error("an oversized RICAL must not be exported")
+	}
+	if _, ok := reg.trustAnchorSet(&RICAL{Date: now, CertificateInfos: infos[:registry.MaxTrustAnchors]}); !ok {
+		t.Error("a RICAL at the bound is exported whole")
 	}
 }

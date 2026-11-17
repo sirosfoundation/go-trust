@@ -101,6 +101,7 @@ func BuildTrustAnchorSet(now time.Time, registryName, listType, issuedAt, nextUp
 		IssuedAt:   issuedAt,
 		NextUpdate: nextUpdate,
 		TTLSeconds: int64(ttl / time.Second),
+		ExpiresAt:  now.Add(ttl),
 		Anchors:    anchors,
 		Excluded:   excluded,
 	}, true
@@ -124,6 +125,23 @@ func AddTrustAnchorSet(resp *authzen.EvaluationResponse, req *authzen.Evaluation
 	resp.Context.TrustAnchors = append(resp.Context.TrustAnchors, set)
 }
 
+// refreshTrustAnchorTTL recomputes a set's ttl_seconds against its absolute
+// deadline: an aggregate waits for its slowest child, and the client counts
+// the ttl from receipt. ok is false when the set has (all but) run out.
+func refreshTrustAnchorTTL(set authzen.TrustAnchorSet, now time.Time) (authzen.TrustAnchorSet, bool) {
+	if set.ExpiresAt.IsZero() {
+		return set, true
+	}
+	ttl := set.ExpiresAt.Sub(now).Truncate(time.Second)
+	if ttl < time.Second {
+		return set, false
+	}
+	if int64(ttl/time.Second) < set.TTLSeconds {
+		set.TTLSeconds = int64(ttl / time.Second)
+	}
+	return set, true
+}
+
 // mergeTrustAnchors copies the trust anchor lists of the positive child
 // responses into resp (the aggregate of a multi-registry strategy or
 // composite), in a stable order. resp itself must already be positive.
@@ -131,11 +149,16 @@ func mergeTrustAnchors(resp *authzen.EvaluationResponse, children []*authzen.Eva
 	if resp == nil || !resp.Decision {
 		return
 	}
+	now := time.Now()
 	for _, c := range children {
 		if c == nil || !c.Decision || c.Context == nil {
 			continue
 		}
 		for _, set := range c.Context.TrustAnchors {
+			set, ok := refreshTrustAnchorTTL(set, now)
+			if !ok {
+				continue
+			}
 			dup := false
 			if resp.Context != nil {
 				for _, e := range resp.Context.TrustAnchors {

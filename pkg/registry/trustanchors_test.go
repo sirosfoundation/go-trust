@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -133,5 +134,56 @@ func TestPolicyConstraintsValidate_TrustAnchors(t *testing.T) {
 	}
 	if err := (PolicyConstraints{ReturnTrustAnchors: []string{"lote"}}).Validate(); err == nil {
 		t.Error("unknown type must be rejected")
+	}
+}
+
+// An aggregate waits for its slowest child, and the client counts ttl_seconds
+// from receipt: the merge must shrink the ttl by the time already spent and
+// drop a set that has run out.
+func TestMergeTrustAnchors_RecomputesTTLFromDeadline(t *testing.T) {
+	now := time.Now()
+	child := func(registry string, left time.Duration) *authzen.EvaluationResponse {
+		return &authzen.EvaluationResponse{Decision: true, Context: &authzen.EvaluationResponseContext{
+			TrustAnchors: []authzen.TrustAnchorSet{{
+				Registry: registry, Type: authzen.TrustAnchorTypeVICAL, TTLSeconds: 600,
+				ExpiresAt: now.Add(left), Anchors: []authzen.TrustAnchor{{X5C: "x"}},
+			}},
+		}}
+	}
+	resp := &authzen.EvaluationResponse{Decision: true}
+	mergeTrustAnchors(resp, []*authzen.EvaluationResponse{child("fresh", 100*time.Second), child("spent", -time.Second), child("nearly", 500*time.Millisecond)})
+	sets := resp.Context.TrustAnchors
+	if len(sets) != 1 || sets[0].Registry != "fresh" {
+		t.Fatalf("expired and sub-second sets must be dropped: %+v", sets)
+	}
+	if sets[0].TTLSeconds > 100 || sets[0].TTLSeconds < 98 {
+		t.Errorf("ttl_seconds=%d, want about 100 (the deadline), not the child's 600", sets[0].TTLSeconds)
+	}
+}
+
+// Only OR composites export anchors: a client holding one child's list cannot
+// reproduce an AND, majority or quorum requirement.
+func TestComposite_TrustAnchorsOnlyUnderOR(t *testing.T) {
+	req := &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{Type: "key", ID: "x"},
+		Resource: authzen.Resource{Type: "x5c", ID: "x"},
+		Context:  map[string]interface{}{authzen.TrustAnchorsPolicyContextKey: []string{"vical"}},
+	}
+	child := func(name string) TrustRegistry {
+		return &anchorRegistry{&mockRegistry{name: name, resourceTypes: []string{"x5c"}, healthy: true}}
+	}
+	for _, op := range []LogicOperator{LogicOR, LogicAND, LogicMAJORITY} {
+		c := NewCompositeRegistry("c", op, child("a"), child("b"))
+		resp, err := c.Evaluate(context.Background(), req)
+		if err != nil || !resp.Decision {
+			t.Fatalf("%s: %v %+v", op, err, resp)
+		}
+		got := 0
+		if resp.Context != nil {
+			got = len(resp.Context.TrustAnchors)
+		}
+		if (op == LogicOR) != (got > 0) {
+			t.Errorf("%s: %d sets exported", op, got)
+		}
 	}
 }

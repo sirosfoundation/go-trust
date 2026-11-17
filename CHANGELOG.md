@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Each list carries its anchors with the fields of the source list (VICAL `docType`
   scope; RICAL `ski`/`aki` and trust constraints, with unsupported ones flagged), a
   content `version` and a `ttl_seconds` from the list's `nextUpdate` (24 h default,
-  clamped to `notAfter`). Off by default; nothing is returned for an expired list
+  clamped to `notAfter`, recomputed when responses are aggregated). Off by default; nothing is returned for an expired list. A RICAL over 1000 entries is withheld rather than truncated, and composites export anchors only under `OR`
 - Evaluation response `context.display_name` and `display_name_l10n` (language tag to
   name) (#249): the `lote` registry's own name
   for the matched entity (legal name, else trade name), otherwise the normalized

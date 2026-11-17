@@ -242,8 +242,12 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 	// The reader certificate chained to a RICAL trust anchor, so its content is
 	// authenticated; derive the relying party's identifiers from the leaf.
 	registry.AddVerifierIDs(resp, req, registry.DeriveCertVerifierIDs(req, chain[0], true))
-	if set, ok := r.trustAnchorSet(rical); ok {
-		registry.AddTrustAnchorSet(resp, req, set)
+	// Building the export costs a pass over the whole list: do it only when
+	// the policy asked for it.
+	if registry.TrustAnchorEnabled(req, authzen.TrustAnchorTypeRICAL) {
+		if set, ok := r.trustAnchorSet(rical); ok {
+			registry.AddTrustAnchorSet(resp, req, set)
+		}
 	}
 	return resp, nil
 }
