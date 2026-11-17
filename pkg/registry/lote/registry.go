@@ -949,7 +949,11 @@ func (r *Registry) validateX5CChainCA(req *authzen.EvaluationRequest, credential
 
 	}
 
-	resp := r.buildSuccessResponseFor(matchedEnt, "", req.Subject.ID, territory,
+	// matchedEnt is the CA whose pool the chain validates against, not the
+	// subject — which this path exists precisely because it is not listed.
+	// The CA's name is not the subject's, so the response carries none; the
+	// CA identity stays in the reason metadata above.
+	resp := r.buildSuccessResponseFor(nil, "", req.Subject.ID, territory,
 		fmt.Sprintf("x5c chain validates against CA-anchored entity %q for subject", matchedID),
 		credentialTypes)
 	registry.ApplyEnrichmentToResponse(resp, enrichment)
