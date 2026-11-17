@@ -298,6 +298,73 @@ func TestEvaluate_RegisterFallback_Grants(t *testing.T) {
 	assert.Contains(t, resp.Context.Reason["admin"], "National Register fallback")
 }
 
+// The register's name for the RP rides the granted response as display_name
+// (#249). TradeName is documented as what wallets display, and this fallback
+// is the one success path that had no name at all: without it a registered
+// but not-yet-notified RP falls all the way back to the raw client_id label
+// while its registrar-asserted name sits unused in the same response.
+func TestEvaluate_RegisterFallback_CarriesTradeNameAsDisplayName(t *testing.T) {
+	path := writeEmptyLoTE(t)
+	rc := &stubRegisterClient{result: &rpcert.RPEntitlements{
+		RPIdentifier:       "https://example.com/rp",
+		RegistrationStatus: rpcert.StatusRegistered,
+		TradeName:          "Acme Bank AB",
+		Subject:            rpcert.WRPRCSubject{LegalName: "Acme Banking Group N.V."},
+	}}
+	r, err := New(Config{Sources: []string{path}, RegisterClient: rc})
+	require.NoError(t, err)
+
+	resp, err := r.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{ID: "https://example.com/rp"},
+		Resource: authzen.Resource{Type: "jwk"},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Decision)
+	assert.Equal(t, "Acme Bank AB", resp.Context.DisplayName,
+		"the trade name is the claim published for wallets to display")
+}
+
+// A registration with no trade name falls back to the legal name rather than
+// to no name: both are registrar-asserted, and either beats the raw client_id.
+func TestEvaluate_RegisterFallback_FallsBackToLegalName(t *testing.T) {
+	path := writeEmptyLoTE(t)
+	rc := &stubRegisterClient{result: &rpcert.RPEntitlements{
+		RPIdentifier:       "https://example.com/rp",
+		RegistrationStatus: rpcert.StatusRegistered,
+		Subject:            rpcert.WRPRCSubject{LegalName: "Acme Banking Group N.V."},
+	}}
+	r, err := New(Config{Sources: []string{path}, RegisterClient: rc})
+	require.NoError(t, err)
+
+	resp, err := r.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{ID: "https://example.com/rp"},
+		Resource: authzen.Resource{Type: "jwk"},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Decision)
+	assert.Equal(t, "Acme Banking Group N.V.", resp.Context.DisplayName)
+}
+
+// A registration carrying neither name stays unnamed — absence is the
+// supported outcome, and nothing is synthesized from the identifier.
+func TestEvaluate_RegisterFallback_UnnamedRegistrationStaysUnnamed(t *testing.T) {
+	path := writeEmptyLoTE(t)
+	rc := &stubRegisterClient{result: &rpcert.RPEntitlements{
+		RPIdentifier:       "https://example.com/rp",
+		RegistrationStatus: rpcert.StatusRegistered,
+	}}
+	r, err := New(Config{Sources: []string{path}, RegisterClient: rc})
+	require.NoError(t, err)
+
+	resp, err := r.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject:  authzen.Subject{ID: "https://example.com/rp"},
+		Resource: authzen.Resource{Type: "jwk"},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Decision)
+	assert.Empty(t, resp.Context.DisplayName)
+}
+
 func TestEvaluate_RegisterFallback_Denies_WhenRegisterFails(t *testing.T) {
 	path := writeEmptyLoTE(t)
 	rc := &stubRegisterClient{err: fmt.Errorf("register unavailable")}

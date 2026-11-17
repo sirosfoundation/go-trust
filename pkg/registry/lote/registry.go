@@ -387,12 +387,20 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 					"registration_status": string(regEnt.RegistrationStatus),
 				}
 				addCredentialTypesToReason(reason, credentialTypes)
+				context := &authzen.EvaluationResponseContext{
+					Reason:        reason,
+					TrustMetadata: regEnt,
+				}
+				// The register's own name for the relying party (#249). It is
+				// registrar-asserted and about the subject itself, so unlike a
+				// list entry shared with other entities it names exactly who
+				// this decision is about.
+				if name := registeredRPName(regEnt); name != "" {
+					context.DisplayName = name
+				}
 				return &authzen.EvaluationResponse{
 					Decision: true,
-					Context: &authzen.EvaluationResponseContext{
-						Reason:        reason,
-						TrustMetadata: regEnt,
-					},
+					Context:  context,
 				}, nil
 			}
 		}
@@ -677,6 +685,20 @@ func entityName(ent etsi119602.TrustedEntity) string {
 		return name
 	}
 	return ent.TrustedEntityInformation.TETradeName.Get("en", "")
+}
+
+// registeredRPName is the National Register's human-facing name for a relying
+// party (#249): the trade name, which is the claim ETSI TS 119 475 Table 7
+// publishes for wallets to display, else the legal name when a registration
+// carries no trade name. Empty when it carries neither.
+func registeredRPName(ent *rpcert.RPEntitlements) string {
+	if ent == nil {
+		return ""
+	}
+	if ent.TradeName != "" {
+		return ent.TradeName
+	}
+	return ent.Subject.LegalName
 }
 
 // anchorKeyHash is the indexed hash of the trust anchor a validated chain
