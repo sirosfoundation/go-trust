@@ -406,3 +406,108 @@ func TestEvaluate_VicalSignedByWrongRoot(t *testing.T) {
 		t.Fatal("expected denied decision when VICAL is signed by an untrusted root")
 	}
 }
+
+// trustAnchorEnv builds a VICAL registry over a signed list and an issuer chain.
+func trustAnchorEnv(t *testing.T, mutate func(*VICAL)) (*Registry, *x509.Certificate, *x509.Certificate) {
+	t.Helper()
+	vicalRoot, vicalRootKey := generateCA(t, "Test VICAL Root")
+	signerCert, signerKey := generateLeaf(t, vicalRoot, vicalRootKey, "Test VICAL Signer", 2)
+	issuerCA, issuerCAKey := generateCA(t, "Test IACA")
+	issuerLeaf, _ := generateLeaf(t, issuerCA, issuerCAKey, "Test DS", 3)
+	v := &VICAL{
+		Version: "1.0", VicalProvider: "p", Date: time.Now().UTC().Format(time.RFC3339),
+		CertificateInfos: []CertificateInfo{{
+			Certificate: issuerCA.Raw, SerialNumber: issuerCA.SerialNumber, SKI: issuerCA.SubjectKeyId,
+			DocType: []string{"org.iso.18013.5.1.mDL"}, CertificateProfile: []string{"urn:iaca"},
+			IssuingAuthority: "Authority", IssuingCountry: "SE",
+		}, {Certificate: []byte("not a certificate")}},
+	}
+	if mutate != nil {
+		mutate(v)
+	}
+	mock := newMockVicalServer(t, buildSignedVical(t, v, signerCert, signerKey))
+	t.Cleanup(mock.Close)
+	reg, err := New(&Config{Name: "iaca-vical", VicalProviderURL: mock.URL(), VicalRootCertificatePEM: certPEM(vicalRoot), AllowHTTP: true, AllowPrivateIPs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg, issuerLeaf, issuerCA
+}
+
+func TestTrustAnchors_OnPositiveEvaluationOnlyWhenEnabled(t *testing.T) {
+	reg, leaf, ca := trustAnchorEnv(t, nil)
+	eval := func(ctx map[string]interface{}) *authzen.EvaluationResponse {
+		resp, err := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+			Resource: authzen.Resource{Type: "x5c", Key: []interface{}{certBase64(leaf), certBase64(ca)}}, Context: ctx})
+		if err != nil || !resp.Decision {
+			t.Fatalf("expected trusted: %v %+v", err, resp)
+		}
+		return resp
+	}
+	if resp := eval(nil); len(resp.Context.TrustAnchors) != 0 {
+		t.Error("anchors must not appear unless the policy enables them")
+	}
+	resp := eval(map[string]interface{}{authzen.TrustAnchorsPolicyContextKey: []string{"vical"}})
+	if len(resp.Context.TrustAnchors) != 1 {
+		t.Fatalf("want one set, got %+v", resp.Context.TrustAnchors)
+	}
+	set := resp.Context.TrustAnchors[0]
+	if set.Registry != "iaca-vical" || set.Type != "vical" || set.TTLSeconds != 86400 {
+		t.Errorf("unexpected set header: %+v", set)
+	}
+	if len(set.Anchors) != 1 {
+		t.Fatalf("the unparseable entry must be skipped: %+v", set.Anchors)
+	}
+	a := set.Anchors[0]
+	if a.X5C != certBase64(ca) || a.DocTypes[0] != "org.iso.18013.5.1.mDL" || a.CertificateProfiles[0] != "urn:iaca" || a.IssuingAuthority != "Authority" || a.IssuingCountry != "SE" {
+		t.Errorf("anchor does not mirror the VICAL entry: %+v", a)
+	}
+}
+
+func TestTrustAnchors_Preload(t *testing.T) {
+	reg, _, _ := trustAnchorEnv(t, nil)
+	preload := func(subject string, types ...string) *authzen.EvaluationRequest {
+		return &authzen.EvaluationRequest{
+			Subject: authzen.Subject{Type: "key", ID: subject},
+			Context: map[string]interface{}{authzen.TrustAnchorsPolicyContextKey: types},
+		}
+	}
+	if !reg.SupportsResolutionOnlyFor(preload("iaca-vical", "vical")) || reg.SupportsResolutionOnly() {
+		t.Error("resolution-only support exists only for an enabled preload of this registry")
+	}
+	if reg.SupportsResolutionOnlyFor(preload("iaca-vical", "rical")) || reg.SupportsResolutionOnlyFor(preload("elsewhere", "vical")) {
+		t.Error("not enabled or not named: no support")
+	}
+	resp, err := reg.Evaluate(context.Background(), preload("iaca-vical", "vical"))
+	if err != nil || !resp.Decision || len(resp.Context.TrustAnchors) != 1 {
+		t.Fatalf("preload must deliver the anchors: %v %+v", err, resp)
+	}
+	// Even if routed here, a request the policy did not enable is a denial with no anchors.
+	resp, _ = reg.Evaluate(context.Background(), preload("iaca-vical"))
+	if resp.Decision || (resp.Context != nil && len(resp.Context.TrustAnchors) != 0) {
+		t.Errorf("not enabled: denial without anchors, got %+v", resp)
+	}
+}
+
+func TestTrustAnchors_ExpiredListOffersNothing(t *testing.T) {
+	reg, _, _ := trustAnchorEnv(t, func(v *VICAL) { v.NotAfter = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339) })
+	resp, _ := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "iaca-vical"},
+		Context: map[string]interface{}{authzen.TrustAnchorsPolicyContextKey: []string{"vical"}},
+	})
+	if resp.Decision || len(resp.Context.TrustAnchors) != 0 {
+		t.Errorf("an expired list must not be offered: %+v", resp)
+	}
+}
+
+func TestTrustAnchors_TTLFromNextUpdate(t *testing.T) {
+	reg, _, _ := trustAnchorEnv(t, func(v *VICAL) { v.NextUpdate = time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339) })
+	resp, _ := reg.Evaluate(context.Background(), &authzen.EvaluationRequest{
+		Subject: authzen.Subject{Type: "key", ID: "iaca-vical"},
+		Context: map[string]interface{}{authzen.TrustAnchorsPolicyContextKey: []string{"vical"}},
+	})
+	ttl := resp.Context.TrustAnchors[0].TTLSeconds
+	if ttl < 7190 || ttl > 7200 {
+		t.Errorf("ttl %d, want about 7200", ttl)
+	}
+}

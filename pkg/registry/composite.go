@@ -271,6 +271,12 @@ func (c *CompositeRegistry) applyLogic(results []compositeResult) *authzen.Evalu
 	// through when the composite as a whole allows (AND: all children, OR,
 	// MAJORITY and QUORUM: the agreeing ones).
 	mergeVerifierIDs(resp, positive)
+	// Trust anchor lists are offered only under OR: a client validating
+	// offline under one child's list cannot reproduce the AND, majority or
+	// quorum requirement, so those composites export nothing.
+	if c.operator == LogicOR {
+		mergeTrustAnchors(resp, positive)
+	}
 	mergeDisplayName(resp, positive)
 	return resp
 }

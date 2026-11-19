@@ -509,6 +509,12 @@ type PolicyConstraintsConfig struct {
 	// semantic, x509_san_dns, x509_san_uri, decentralized_identifier, openid_federation. Empty (default) returns none.
 	// Unknown names are rejected at startup.
 	ReturnVerifierIDs []string `yaml:"return_verifier_ids,omitempty"`
+
+	// ReturnTrustAnchors lists the trust anchor list types to return in the
+	// evaluation response context member trust_anchors, for offline (proximity)
+	// validation. Supported types: vical, rical. Empty (default) returns none.
+	// Unknown names are rejected at startup.
+	ReturnTrustAnchors []string `yaml:"return_trust_anchors,omitempty"`
 }
 
 // OIDFedPolicyConfig contains OpenID Federation-specific policy constraints.
@@ -952,6 +958,12 @@ func (c *PolicyConstraintsConfig) validate() error {
 		if !authzen.IsSupportedVerifierIDType(t) {
 			return fmt.Errorf("constraints.return_verifier_ids: unknown verifier id type %q (supported: %s)",
 				t, strings.Join(authzen.SupportedVerifierIDTypes(), ", "))
+		}
+	}
+	for _, t := range c.ReturnTrustAnchors {
+		if !authzen.IsSupportedTrustAnchorType(t) {
+			return fmt.Errorf("constraints.return_trust_anchors: unknown trust anchor type %q (supported: %s)",
+				t, strings.Join(authzen.SupportedTrustAnchorTypes(), ", "))
 		}
 	}
 	return nil

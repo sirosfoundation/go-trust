@@ -160,6 +160,9 @@ func New(cfg *Config) (*Registry, error) {
 // doesn't supply one - enforcement requires the caller to actually know
 // what doctype it's asking about).
 func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	if req.IsResolutionOnlyRequest() {
+		return r.evaluateTrustAnchorPreload(ctx, req)
+	}
 	chain, err := parseX5CChain(req.Resource.Key, r.config.CryptoExt)
 	if err != nil {
 		return r.denyWithReason(fmt.Sprintf("invalid X5C chain: %v", err)), nil
@@ -195,7 +198,7 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 		}
 	}
 
-	return &authzen.EvaluationResponse{
+	resp := &authzen.EvaluationResponse{
 		Decision: true,
 		Context: &authzen.EvaluationResponseContext{
 			Reason: map[string]interface{}{
@@ -204,7 +207,67 @@ func (r *Registry) Evaluate(ctx context.Context, req *authzen.EvaluationRequest)
 				"matched_cert_idx": matchIdx,
 			},
 		},
-	}, nil
+	}
+	// Building the export costs a pass over the whole list: do it only when
+	// the policy asked for it.
+	if registry.TrustAnchorEnabled(req, authzen.TrustAnchorTypeVICAL) {
+		if set, ok := r.trustAnchorSet(vical); ok {
+			registry.AddTrustAnchorSet(resp, req, set)
+		}
+	}
+	return resp, nil
+}
+
+// evaluateTrustAnchorPreload answers a resolution-only request: it delivers
+// the VICAL's anchors (policy return_trust_anchors: [vical]) so a client can
+// warm its offline cache. subject.id names this registry.
+func (r *Registry) evaluateTrustAnchorPreload(ctx context.Context, req *authzen.EvaluationRequest) (*authzen.EvaluationResponse, error) {
+	if !r.SupportsResolutionOnlyFor(req) {
+		return r.denyWithReason("resolution-only requests are not supported for this registry"), nil
+	}
+	vical, err := r.getVical(ctx)
+	if err != nil {
+		return r.denyWithReason(fmt.Sprintf("failed to get VICAL: %v", err)), nil
+	}
+	set, ok := r.trustAnchorSet(vical)
+	if !ok {
+		return r.denyWithReason("the VICAL has no valid trust anchors to offer"), nil
+	}
+	resp := &authzen.EvaluationResponse{
+		Decision: true,
+		Context: &authzen.EvaluationResponseContext{
+			Reason: map[string]interface{}{"trust_anchor": "mdoc_vical", "vical_provider": vical.VicalProvider},
+		},
+	}
+	registry.AddTrustAnchorSet(resp, req, set)
+	return resp, nil
+}
+
+// SupportsResolutionOnlyFor is true only for a preload of this registry's list:
+// the policy enabled "vical" and subject.id names the registry.
+func (r *Registry) SupportsResolutionOnlyFor(req *authzen.EvaluationRequest) bool {
+	return registry.TrustAnchorResolutionTarget(req, r.config.Name, authzen.TrustAnchorTypeVICAL)
+}
+
+// trustAnchorSet is the response member for a verified VICAL: every
+// certificate with the scoping fields of its CertificateInfo. ok is false when
+// the list must not be offered (expired, or dates that cannot be read).
+func (r *Registry) trustAnchorSet(v *VICAL) (authzen.TrustAnchorSet, bool) {
+	anchors := make([]authzen.TrustAnchor, 0, len(v.CertificateInfos))
+	for _, info := range v.CertificateInfos {
+		if _, err := registry.ParseCertificate(info.Certificate, r.config.CryptoExt); err != nil {
+			continue
+		}
+		anchors = append(anchors, authzen.TrustAnchor{
+			X5C:                 base64.StdEncoding.EncodeToString(info.Certificate),
+			DocTypes:            info.DocType,
+			CertificateProfiles: info.CertificateProfile,
+			IssuingAuthority:    info.IssuingAuthority,
+			IssuingCountry:      info.IssuingCountry,
+		})
+	}
+	return registry.BuildTrustAnchorSet(time.Now(), r.config.Name, authzen.TrustAnchorTypeVICAL,
+		v.Date, v.NextUpdate, v.NotAfter, anchors)
 }
 
 // SupportedResourceTypes returns the resource types this registry handles.
